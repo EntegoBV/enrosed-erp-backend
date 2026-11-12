@@ -2762,7 +2762,7 @@ named constraints identical in `@Table` and the migration:
 - **Container source** = `SalesOrderService.createAuctionSettlementFromReports` (customer = the
   partner, the container, share / cost share / final null so the server derives them, one
   `AuctionLine(productId, q, proceeds)` per line, internal note "Veilingverkopen dd/mm/jjjj -
-  dd/mm/jjjj · n meldingen"). The arithmetic of createAuctionSettlement (cost share of what
+  dd/mm/jjjj · n meldingen"; round 2: the compact note and the figure snapshot of stage 3). The arithmetic of createAuctionSettlement (cost share of what
   remains, our value, advance credit, final, true-up, snapshot, extra lines) is one method,
   `planAuctionSettlement`, which returns an `AuctionSettlementPlan`; the preview reads the same
   plan through `previewAuctionSettlementFromReports` (no lock, nothing written, in a transaction
@@ -2778,7 +2778,7 @@ named constraints identical in `@Table` and the migration:
   pricing would replace a price of 0 by the card cost). "Afronding veilingverkopen" closes the cent
   gap: the invoice excl. VAT is exactly the sum of v. A sale part with unit cost 0 warns "Geen
   kostprijs bekend voor <product>". Notes in the settlement style (per product n stuks, netto,
-  kost, resultaat, ons deel).
+  kost, resultaat, ons deel); round 2: the compact note of stage 3, the per-product detail internal.
 - **Transactions**: the invoice run is not transactional. Every source runs in
   `QuarkusTransaction.requiringNew()` with the section 3 locks (partner row, the partner's
   containers ascending, the products ascending), reads its parts again after them (still open,
@@ -2850,6 +2850,35 @@ named constraints identical in `@Table` and the migration:
   (`ClosingSeparations.happenedBefore`, the same reading as `alreadyOut`) and a line the roll does
   not list by booking time before the cut-off (`ClosingSeparations.partnerReportedOut`); the batch
   start counts them by booking time before the run (`StockService.partnerReportedOut`).
+
+### Round 2 at a glance (2026-11-12)
+Emre's round 2 (`design/BRIEF-R2.md`, contract `CONTRACT-R2.md` with its binding v2 part). Where each
+piece lives (details in the stage subsections below):
+- **Count units** (stage 1): the partner counts per stuk / display / omdoos (`PartnerCountUnits`, staff
+  defaults in `partner_product_unit`, `GET/PUT /api/partner-portal-admin/{customerId}/units`); stock,
+  parts and settlements stay in sales units; the price is per piece.
+- **Money** (stage 1): up to 5 extra cost lines with a description (`partner_sale_report_cost`); a
+  buyback carries the melding's commission and transport (`net = -(gross + commission + transport)`,
+  every reader takes `-net` as the terugkoopkost).
+- **Bewerken / Bevestigen** (stage 2): one PUT per audience with `expectedToken`, a money-only and a
+  rebook path, archive rows for the audit trail; staff confirm in bulk with tokens; every write takes
+  the partner lock first.
+- **Buyer and partner-made customers** (stage 2): `GET/POST /api/partner-portal/customers`,
+  `partner_customer_link`, PARTNER_KLANT, `partnerOrigin` on `/api/customers`, "Nagekeken".
+- **Containers for the partner** (containers lane, contract §5 + v2-F): `GET
+  /api/partner-portal/containers` lists every purchase order except CONCEPT and trashed ones (archived
+  and old received ones too) with identity and logistics only, from allowlist records
+  (`PartnerContainerViews`, built by `PartnerContainerReader`; never PurchaseOrder / Product /
+  LandedCost serialized): name = the PO number (the alias is free text and never sent), `own`, status
+  words Besteld / Onderweg / Binnenkort / Aangekomen, dates, ports, `locationName` only for an own
+  container or one unloaded at MAIN, per line quantity / pieces / cartons / m³ / pallets / kg, product
+  specs and photos. Never a price, cost, freight, duty, payment, amount, supplier, note or partner
+  percent. One predicate (`PartnerContainerReader.VISIBLE`, status != CONCEPT) serves the list and the
+  photo guard. Full field list: "Containers for the partner (round 2)".
+- **Factureren, figures, notes, breakdown, list filters, summary** (stage 3): confirmed meldingen only;
+  one set of figures per document (preview = `partner_sale_invoice_figure` = Documentnotitie = margin
+  popup); `GET /api/partner-sales/documents/{salesOrderId}/breakdown`; the staff list by state, channel,
+  period and buyer with `filteredTotals`; the summary's confirmed figures.
 
 ### Round 2, stage 1 (2026-11-12): schema, count units, money, shapes, flags
 Emre's round 2 (`design/BRIEF-R2.md`; contract `CONTRACT-R2.md`, its v2 part binding). This stage
@@ -2977,7 +3006,7 @@ the Factureren figures and notes come in later stages on top of it.
   withdrawn melding and a token that differs ("VV-n is intussen gewijzigd; bekijk ze opnieuw") are
   refused; unconfirm also once a document holds a part ("VV-n staat al op F-...; terugzetten kan niet
   meer"). A melding already in the asked state is left alone. Activity `CONFIRMED` "Bevestigd" /
-  `UNCONFIRMED`. Factureren does not yet look at confirmation (a later stage).
+  `UNCONFIRMED`. Factureren takes confirmed meldingen only (stage 3).
 - **Bell**: PARTNER_VERKOOP feeds meldingen made or edited in the last 14 days
   (`Reports.liveTouchedSince`), `at` = the later of created / updated, notificationId
   `partner-sale:<id>` until edited, then `partner-sale:<id>:<editToken>` (each edit is a new item, the
@@ -3019,6 +3048,85 @@ the Factureren figures and notes come in later stages on top of it.
   partner-made links under the partners' locks and answers the origin; 404 for a customer no partner
   added; activity on CUSTOMER "Nagekeken (aangemaakt via Partnerportaal)". Deletion (stage 1 listener):
   a buyer of a non-archive melding stays; otherwise its links go.
+
+### Round 2, stage 3 (2026-11-12): Factureren confirmed only, one set of figures, notes, breakdown, list filters
+- **Confirmed only** (his answer 3, "eerst bevestigen"): `PartnerSaleInvoicing.selectOpen` takes a
+  melding only when it is confirmed (`confirmed_at` set, or a document holds one of its parts: the
+  reader's rule). With `reportIds` null (every open melding) an unconfirmed one is left out; among
+  explicit `reportIds` (preview and invoice) it is refused 409 "VV-n is nog niet bevestigd: bevestig of
+  trek in" ("VV-3, VV-5 zijn ..."), before anything is made. `runGroup` calls `selectOpen` again after
+  the partner lock (confirm / unconfirm take the same lock), so a melding unconfirmed between preview
+  and invoice blocks its group with that text. A slotfactuur that would leave an open part behind names
+  the unconfirmed melding separately: "Dit wordt de slotfactuur van deze container, maar VV-4 is nog
+  niet bevestigd: bevestig of trek in" (a confirmed one keeps "... heeft er nog een open deel; factureer
+  dat mee of wacht op een volgende verkoop"; both in one sentence when both). The preview's top-level
+  `warnings` (additive) name an unconfirmed buyback of another melding that mirrors a chosen sale:
+  "Terugkoop VV-4 hoort bij deze verkopen maar is nog niet bevestigd; ze gaat niet mee". The manual
+  Veilingafrekening's limit text now ends "...; bevestig en factureer die via Veilingverkopen".
+- **One set of figures per document** (`PartnerInvoiceFigures`, never computed another way): per
+  product of a source (lines first in plan order, then the absorbed q = 0 products, or own stock's
+  extra-line products) the open parts' sale gross / commission / transport / extra, the buyback cost
+  (-net), sold / bought back / quantity / sale pieces, and the document's own figures: container =
+  the settlement plan's snapshot lines (`SalesOrderService.AuctionSettlementPlan`: proceeds, cost,
+  value incl. the true-up, advance; `correctionEur` = new plan field, adjusted total minus the sum of
+  this document's line values, on the last snapshot line), own = `planOwn`'s c and v. Rules: gross -
+  commission - transport - extra - buybackCost + absorbed = proceeds (absorbed = line proceeds minus
+  the product's own, negative when moved off; they sum to 0 per source); profit = proceeds - cost;
+  enrosedProfit = value - cost (never round2(profit x pct) on its own); partnerProfit = proceeds -
+  value; balance = value - advance. Percents: profitSharePct = the plan's (container) or the customer's
+  (own); costSharePct = the partner's financed part = the advance agreement's `financingPct`, else
+  `PurchaseOrder.partnerCostPctOrDefault()` (own stock 0). The preview groups and lines carry these
+  (additive, ERP only): group `profitSharePct, costSharePct, proceedsEur, costEur, profitEur,
+  enrosedProfitEur, partnerProfitEur, correctionEur, grossEur, commissionEur, transportEur, extraEur,
+  buybackCostEur, salePieces` (sums over every included product, so the chain closes on the group too;
+  money figures null on a blocked group); line `grossEur, commissionEur, transportEur, extraEur,
+  buybackCostEur, absorbedEur, absorbedFrom [names], profitEur, enrosedProfitEur, partnerProfitEur,
+  advanceEur, correctionEur, costSharePct, profitSharePct`. The round-1 fields keep their meaning.
+- **Figure snapshot**: `runGroup` writes one `partner_sale_invoice_figure` row per product of the new
+  document (both sources, same transaction as the document and the links; `report_ids` = the melding
+  ids, as many as fit 500 characters) from the very plan the document was made with:
+  `SalesOrderService.createAuctionSettlementFromReports(request, ReportTexts)` (new internal overload,
+  never a REST body) answers `SettlementFromReports(order, plan)`.
+- **Compact Documentnotitie** (Factureren documents only; `PartnerInvoiceNotes`, from the figures):
+  container "Veilingverkopen VV-4, VV-6–9 (01/11–10/11/2026) · 5 meldingen · 168 stuks · slotfactuur
+  partnercontainer PO-2026-003.\nNetto opbrengst € p · inkoopkost € c (Verhoeven 100 % · Enrosed 0 %)
+  · winst € w · ons deel 50 % € (v - c) [(waarvan correctie eerdere deelfacturen € k)] · onze waarde
+  € v[ · voorschot verrekend € a · saldo € (v - a)]." + the legal sentences
+  (`SalesOrderService.SETTLEMENT_NEGATIVE_BALANCE` when v < a, `SETTLEMENT_OPEN_ADVANCES` always); own
+  stock "... · eigen voorraad.\nNetto opbrengst € p · inkoopkost € c (Enrosed 100 %) · winst € w · ons
+  deel 50 % € (v - c) · onze waarde € v." Melding numbers collapse only when consecutive
+  (`PartnerSaleTexts.numbers`, the frontend's rule); the period is dd/mm–dd/mm/jjjj (one day:
+  dd/mm/jjjj); the quantity is the invoiced pieces with the piece noun for one product, "n stuks" when
+  every product counts per piece, else left out. The partner's short name is
+  `PartnerSaleTexts.shortName` (the frontend's `partnerShortName`). The internal note (off the PDF)
+  reads "Veilingverkopen VV-… (period) · n meldingen" + the per-product detail (container:
+  `plan.detail()`; own: "<product>: n stuks; netto; kost; resultaat; ons deel"). The manual
+  Veilingafrekening keeps its texts (`ReportTexts` null).
+- **Breakdown** (`PartnerDocumentBreakdowns`): `GET /api/partner-sales/documents/{salesOrderId}/breakdown`
+  (admin) -> `{salesOrderId, source CONTAINER|OWN, purchaseOrderId, finalSettlement, channel
+  AUCTION|DIRECT|MIXED, meldingen [{id, number, soldOn, channel}], lines [{productId, name, variant,
+  soldQuantity, boughtBackQuantity, quantity, pieces, salePieces, grossEur, commissionEur, transportEur,
+  extraEur, buybackCostEur, proceedsEur, absorbedEur, absorbedFrom, costEur, costSharePct, profitEur,
+  profitSharePct, enrosedProfitEur, partnerProfitEur, valueEur, advanceEur, correctionEur, onLine}],
+  the same totals, fallback, fallbackNote}`. Meldingen come from the document's
+  `partner_sale_invoice_part` links (an archive row counts as its melding). Lines come from the figure
+  snapshot; a report-backed document from before round 2 gets `fallback: true`, fallbackNote "Opbouw
+  uit de factuurregels; geen detail bewaard", lines rebuilt from the linked parts with the settlement
+  snapshot (container; costSharePct null, profitSharePct the document's) or the invoice lines (own).
+  Any other document: 404 "Dit document komt niet uit Veilingverkopen".
+- **Staff list** `GET /api/partner-sales`: with any of `state` (UNCONFIRMED | CONFIRMED | INVOICED |
+  VOIDED by `Loaded.state()`, OPEN = the first two, ALL), `channel`, `from` / `to` (sold_on, inclusive),
+  `buyerCustomerId`: every match (`Reports.filtered`, archive rows never) newest sold_on first, then
+  id desc, at most `limit` (1..1000, default 1000) with `more`, plus `filteredTotals {reports,
+  salePieces, grossEur, costsEur, buybackEur, netEur}` over every match (past the cap too), withdrawn
+  ones left out; `status` / `before` are ignored then. Without those parameters it is round 1's
+  id-paged list (`status`, `before`, `limit` 1..200; `filteredTotals` null), so an open older screen
+  keeps paging. `totals` (OpenTotals) stays on both. The partner's own list keeps id paging (its
+  screen sorts by sold_on itself).
+- **Summary** (top level and per partner) adds `unconfirmedReports` (meldingen with an open part nobody
+  confirmed), `confirmedOpenReports`, `confirmedOpenSaleQuantity` (sales units, like openSaleQuantity),
+  `confirmedOpenNetEur` (open = unconfirmed + confirmed open). Confirmed by a held part is one extra
+  query (`Lines.reportsWithHeldParts`).
 
 ## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
 
