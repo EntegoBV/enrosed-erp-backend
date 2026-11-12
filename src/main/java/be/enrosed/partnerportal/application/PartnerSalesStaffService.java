@@ -243,6 +243,7 @@ public class PartnerSalesStaffService {
      * Cheap: a few small queries over the open parts and one per partner name, no ledger. Round 2: per
      * melding with an open part whether it is confirmed (staff confirmed it, or a document holds one of
      * its parts): unconfirmedReports wait for Bevestigen, confirmedOpen* are what Factureren takes now.
+     * The pieces read only the products of the open sale parts (no catalogue).
      */
     @Transactional
     public PartnerPortalViews.Summary summary() {
@@ -261,12 +262,14 @@ public class PartnerSalesStaffService {
             if (at != null && (lastAny == null || at.isAfter(lastAny))) lastAny = at;
             partners.add(new PartnerPortalViews.PartnerSummary(customerId, names.get(customerId), open.reports.size(),
                     open.saleQuantity, PartnerNumbers.moneyOrZero(open.net), at, open.unconfirmed().size(),
-                    open.confirmed.size(), open.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(open.confirmedNet)));
+                    open.confirmed.size(), open.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(open.confirmedNet),
+                    open.salePieces, open.confirmedSalePieces));
         }
         int recent = reports.liveCreatedSince(Instant.now().minus(RECENT)).size();
         return new PartnerPortalViews.Summary(all.reports.size(), all.saleQuantity, PartnerNumbers.moneyOrZero(all.net),
                 lastAny, recent, partners, PartnerPortalViews.API_VERSION, all.unconfirmed().size(), all.confirmed.size(),
-                all.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(all.confirmedNet));
+                all.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(all.confirmedNet), all.salePieces,
+                all.confirmedSalePieces);
     }
 
     /** The open totals of one partner, or of every partner when customerId is null. */
@@ -282,6 +285,12 @@ public class PartnerSalesStaffService {
         Set<Long> withOpenParts = new HashSet<>();
         for (Object[] row : open) withOpenParts.add(((PartnerSaleReportEntity) row[1]).id);
         Set<Long> held = new HashSet<>(lines.reportsWithHeldParts(withOpenParts, released));
+        Set<Long> soldProducts = new HashSet<>();
+        for (Object[] row : open) {
+            PartnerSaleReportLineEntity line = (PartnerSaleReportLineEntity) row[0];
+            if (line.isSale() && line.productId != null) soldProducts.add(line.productId);
+        }
+        Map<Long, Integer> factors = tiles.piecesPerSalesUnit(soldProducts);
         Map<Long, Open> result = new HashMap<>();
         for (Object[] row : open) {
             PartnerSaleReportLineEntity line = (PartnerSaleReportLineEntity) row[0];
@@ -292,8 +301,13 @@ public class PartnerSalesStaffService {
             sums.reports.add(report.id);
             if (confirmed) sums.confirmed.add(report.id);
             if (line.isSale()) {
+                int pieces = line.quantityOrZero() * (line.productId == null ? 1 : factors.getOrDefault(line.productId, 1));
                 sums.saleQuantity += line.quantityOrZero();
-                if (confirmed) sums.confirmedSaleQuantity += line.quantityOrZero();
+                sums.salePieces += pieces;
+                if (confirmed) {
+                    sums.confirmedSaleQuantity += line.quantityOrZero();
+                    sums.confirmedSalePieces += pieces;
+                }
             }
             if (line.netEur != null) {
                 sums.net = sums.net.add(line.netEur);
@@ -308,6 +322,8 @@ public class PartnerSalesStaffService {
         final Set<Long> confirmed = new HashSet<>();
         int saleQuantity;
         int confirmedSaleQuantity;
+        int salePieces;
+        int confirmedSalePieces;
         BigDecimal net = BigDecimal.ZERO;
         BigDecimal confirmedNet = BigDecimal.ZERO;
 
@@ -322,6 +338,8 @@ public class PartnerSalesStaffService {
             confirmed.addAll(other.confirmed);
             saleQuantity += other.saleQuantity;
             confirmedSaleQuantity += other.confirmedSaleQuantity;
+            salePieces += other.salePieces;
+            confirmedSalePieces += other.confirmedSalePieces;
             net = net.add(other.net);
             confirmedNet = confirmedNet.add(other.confirmedNet);
         }
@@ -356,6 +374,10 @@ public class PartnerSalesStaffService {
                     if (line.isSale()) openSaleByProduct.merge(line.productId, line.quantityOrZero(), Integer::sum);
                     openNetByProduct.merge(line.productId, line.netEur == null ? BigDecimal.ZERO : line.netEur, BigDecimal::add);
                 }
+                /* The same in pieces, with the factor every tile of this answer carries. */
+                Map<Long, Integer> openPiecesByProduct = new HashMap<>();
+                openSaleByProduct.forEach((productId, quantity) -> openPiecesByProduct.put(productId,
+                        quantity * Math.max(1, catalog.tile(productId).piecesPerSalesUnit())));
                 /* buybackEur is the terugkoopkost (-net, with its commission and transport): gross - costs - buyback = net. */
                 rows.add(new PartnerPortalViews.AnalyticsReport(report.id, view.number(),
                         report.customerId == null ? 0 : report.customerId, report.channel, report.soldOn, open,
@@ -364,7 +386,8 @@ public class PartnerSalesStaffService {
                         totals.buybackEur(), totals.netEur(),
                         openSaleByProduct.values().stream().mapToInt(Integer::intValue).sum(),
                         PartnerNumbers.moneyOrZero(openNetByProduct.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add)),
-                        totals.buybackGrossEur(), totals.salePieces(), view.buyer()));
+                        totals.buybackGrossEur(), totals.salePieces(), view.buyer(), loaded.confirmed(),
+                        totals.buybackPieces(), openPiecesByProduct.values().stream().mapToInt(Integer::intValue).sum()));
                 for (PartnerPortalViews.Entry entry : view.entries()) {
                     BigDecimal gross = entry.sale() == null ? PartnerNumbers.moneyOrZero(null) : entry.sale().grossEur();
                     BigDecimal saleNet = entry.sale() == null ? BigDecimal.ZERO : entry.sale().netEur();
@@ -376,7 +399,9 @@ public class PartnerSalesStaffService {
                             gross, PartnerNumbers.money(saleNet.subtract(buyback)),
                             openSaleByProduct.getOrDefault(entry.productId(), 0),
                             PartnerNumbers.moneyOrZero(openNetByProduct.get(entry.productId())),
-                            entry.sale() == null ? 0 : entry.sale().pieces()));
+                            entry.sale() == null ? 0 : entry.sale().pieces(),
+                            entry.buyback() == null ? 0 : entry.buyback().pieces(),
+                            openPiecesByProduct.getOrDefault(entry.productId(), 0)));
                 }
             }
         }

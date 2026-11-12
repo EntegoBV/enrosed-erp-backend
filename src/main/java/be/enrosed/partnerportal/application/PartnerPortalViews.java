@@ -245,38 +245,46 @@ public final class PartnerPortalViews {
      * One partner of the summary. Round 2 (Bevestigen): unconfirmedReports = meldingen with an open part that
      * staff have not confirmed (Factureren cannot take them); confirmedOpen* = what Factureren can take now
      * (confirmed, with open parts): their count, open sale quantity (sales units, like openSaleQuantity)
-     * and open net. open = unconfirmed + confirmedOpen (per melding and per euro).
+     * and open net. open = unconfirmed + confirmedOpen (per melding and per euro). openSalePieces /
+     * confirmedOpenSalePieces (review round 2): the same open sale in pieces (a display of 12 rozen counts 12,
+     * like salePieces), for "· 54 stuks" on the home card and the Te doen task.
      */
     public record PartnerSummary(long customerId, String customerName, int openReports, int openSaleQuantity,
                                  BigDecimal openNetEur, Instant lastReportAt, int unconfirmedReports,
-                                 int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur) {}
+                                 int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur,
+                                 int openSalePieces, int confirmedOpenSalePieces) {}
 
     /** GET /api/partner-sales/summary: the nav count, the home card and the Te doen task read this. */
     public record Summary(int openReports, int openSaleQuantity, BigDecimal openNetEur, Instant lastReportAt,
                           int recentReports14d, List<PartnerSummary> partners, int apiVersion, int unconfirmedReports,
-                          int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur) {}
+                          int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur,
+                          int openSalePieces, int confirmedOpenSalePieces) {}
 
     /**
      * One live melding. open = not fully invoiced; openSaleQuantity / openNetEur (additive) = only its parts that
      * are still open by the open-part rule, so "nog te factureren" here equals the summary's for the same melding.
      * costsEur = the sale side's commission + transport + extra; buybackEur = the terugkoopkost (-net, round 2:
      * incl. its commission and transport), buybackGrossEur the clock price total; netEur = gross - costs -
-     * buybackEur. salePieces in pieces, buyer on a direct sale.
+     * buybackEur. salePieces in pieces, buyer on a direct sale. Review round 2 (additive): confirmed as the
+     * staff list says it (staff confirmed it, or a document holds a part), buybackPieces and openSalePieces in
+     * pieces beside buybackQuantity and openSaleQuantity.
      */
     public record AnalyticsReport(long id, String number, long customerId, String channel, LocalDate soldOn,
                                   boolean open, int saleQuantity, int buybackQuantity, BigDecimal grossEur,
                                   BigDecimal costsEur, BigDecimal buybackEur, BigDecimal netEur,
                                   int openSaleQuantity, BigDecimal openNetEur, BigDecimal buybackGrossEur,
-                                  int salePieces, Buyer buyer) {}
+                                  int salePieces, Buyer buyer, boolean confirmed, int buybackPieces,
+                                  int openSalePieces) {}
 
     /**
      * One melding x product (reportId additive); netEur = sale net - terugkoopkost. Averages are derived, never
      * summed. openSaleQuantity / openNetEur (additive): the still-open parts of this product in this melding.
+     * salePieces, buybackPieces, openSalePieces: the same in pieces.
      */
     public record AnalyticsProduct(long reportId, long productId, String name, String variant, LocalDate soldOn,
                                    String channel, boolean open, int saleQuantity, int buybackQuantity,
                                    BigDecimal grossEur, BigDecimal netEur, int openSaleQuantity, BigDecimal openNetEur,
-                                   int salePieces) {}
+                                   int salePieces, int buybackPieces, int openSalePieces) {}
 
     public record Analytics(List<AnalyticsReport> reports, List<AnalyticsProduct> products) {}
 

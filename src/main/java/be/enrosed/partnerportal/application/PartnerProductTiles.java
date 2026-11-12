@@ -2,6 +2,7 @@ package be.enrosed.partnerportal.application;
 
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.application.SalesPhotoService;
+import be.enrosed.catalog.application.port.out.ProductRepository;
 import be.enrosed.catalog.domain.Product;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
@@ -9,6 +10,7 @@ import be.enrosed.partnerportal.domain.PartnerCountUnits;
 import be.enrosed.partnerportal.domain.PartnerProductNames;
 import jakarta.enterprise.context.ApplicationScoped;
 
+import java.util.Collection;
 import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
@@ -25,14 +27,29 @@ import java.util.function.LongFunction;
 public class PartnerProductTiles {
 
     private final ProductService products;
+    private final ProductRepository productRows;
     private final PartnerPortalQueries queries;
     private final PartnerPortalRepositories.ProductUnits units;
 
-    public PartnerProductTiles(ProductService products, PartnerPortalQueries queries,
+    public PartnerProductTiles(ProductService products, ProductRepository productRows, PartnerPortalQueries queries,
                                PartnerPortalRepositories.ProductUnits units) {
         this.products = products;
+        this.productRows = productRows;
         this.queries = queries;
         this.units = units;
+    }
+
+    /**
+     * Pieces per sales unit of these products only (a display of 12 rozen counts 12, a product sold per piece 1,
+     * one deleted since 1), the factor every tile carries: for a cheap reader (the summary) that needs no tile.
+     */
+    public Map<Long, Integer> piecesPerSalesUnit(Collection<Long> productIds) {
+        Map<Long, Integer> result = new HashMap<>();
+        if (productIds == null || productIds.isEmpty()) return result;
+        for (Product product : productRows.findAllById(productIds.stream().filter(Objects::nonNull).distinct().toList())) {
+            if (product.id() != null) result.put(product.id(), Math.max(1, PartnerCountUnits.of(product).piecesPerSalesUnit()));
+        }
+        return result;
     }
 
     /** A snapshot of the catalogue for one answer; tiles carry the default unit STUK unless a partner is named. */

@@ -3161,7 +3161,12 @@ the Factureren figures and notes come in later stages on top of it.
 - **Summary** (top level and per partner) adds `unconfirmedReports` (meldingen with an open part nobody
   confirmed), `confirmedOpenReports`, `confirmedOpenSaleQuantity` (sales units, like openSaleQuantity),
   `confirmedOpenNetEur` (open = unconfirmed + confirmed open). Confirmed by a held part is one extra
-  query (`Lines.reportsWithHeldParts`).
+  query (`Lines.reportsWithHeldParts`). Review round 2: `openSalePieces` and `confirmedOpenSalePieces`
+  (top level and per partner) = the same open sale in pieces (line quantity x the product's pieces per
+  sales unit, like `salePieces`; `PartnerProductTiles.piecesPerSalesUnit(ids)` reads only the products of
+  the open sale parts, no catalogue), for "· n stuks" on the home card and the Te doen task. The
+  analytics rows add `confirmed` (the reader's rule, as the staff list), `buybackPieces` and
+  `openSalePieces` (AnalyticsReport) and `buybackPieces`, `openSalePieces` (AnalyticsProduct).
 
 ### Containers for the partner (round 2)
 - `GET /api/partner-portal/containers` (partner only; `PartnerContainerReader.page`, records in
