@@ -133,6 +133,38 @@ public final class PartnerPortalRepositories {
             return find(where.toString(), Sort.descending("id"), parameters).page(0, limit).list();
         }
 
+        /**
+         * The staff list's filter (round 2): every melding (withdrawn ones included, archive rows never) of
+         * this partner, channel, sold-on period (both ends inclusive) and buyer, each criterion optional;
+         * newest sold-on day first, then the higher id.
+         */
+        public List<PartnerSaleReportEntity> filtered(Long customerId, String channel, LocalDate from, LocalDate to,
+                                                      Long buyerCustomerId) {
+            StringBuilder where = new StringBuilder("revisionOf is null");
+            java.util.Map<String, Object> parameters = new java.util.HashMap<>();
+            if (customerId != null) {
+                where.append(" and customerId = :customer");
+                parameters.put("customer", customerId);
+            }
+            if (channel != null) {
+                where.append(" and channel = :channel");
+                parameters.put("channel", channel);
+            }
+            if (from != null) {
+                where.append(" and soldOn >= :from");
+                parameters.put("from", from);
+            }
+            if (to != null) {
+                where.append(" and soldOn <= :to");
+                parameters.put("to", to);
+            }
+            if (buyerCustomerId != null) {
+                where.append(" and buyerCustomerId = :buyer");
+                parameters.put("buyer", buyerCustomerId);
+            }
+            return find(where.toString(), Sort.descending("soldOn", "id"), parameters).list();
+        }
+
         /** Non-voided meldingen made at or after {@code since}, newest first. */
         public List<PartnerSaleReportEntity> liveCreatedSince(Instant since) {
             return list("voidedAt is null and revisionOf is null and createdAt >= ?1", Sort.descending("createdAt", "id"), since);
@@ -347,6 +379,22 @@ public final class PartnerPortalRepositories {
                     .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK))
                     .setParameter("order", purchaseOrderId)
                     .getResultList();
+        }
+
+        /**
+         * Among these meldingen, those with a SALE/BUYBACK part on a document that still holds it (invoiced,
+         * and the invoice is not one of {@code releasedInvoiceIds}): such a melding counts as confirmed.
+         */
+        public List<Long> reportsWithHeldParts(Collection<Long> reportIds, Collection<Long> releasedInvoiceIds) {
+            if (reportIds == null || reportIds.isEmpty()) return List.of();
+            boolean released = releasedInvoiceIds != null && !releasedInvoiceIds.isEmpty();
+            var query = getEntityManager().createQuery("select distinct l.reportId from PartnerSaleReportLineEntity l"
+                            + " where l.reportId in :ids and l.lineType in :types and l.invoiceId is not null"
+                            + (released ? " and l.invoiceId not in :released" : ""), Long.class)
+                    .setParameter("ids", reportIds)
+                    .setParameter("types", List.of(PartnerSaleReportLineEntity.SALE, PartnerSaleReportLineEntity.BUYBACK));
+            if (released) query.setParameter("released", releasedInvoiceIds);
+            return query.getResultList();
         }
 
         /** Invoice ids that SALE/BUYBACK parts of this partner's non-voided meldingen point at. */

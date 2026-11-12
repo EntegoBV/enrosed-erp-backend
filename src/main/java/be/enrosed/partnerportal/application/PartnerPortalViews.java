@@ -222,14 +222,36 @@ public final class PartnerPortalViews {
     /** What is still to invoice: meldingen with an open part, their open sale quantity and open net. */
     public record OpenTotals(int openReports, int openSaleQuantity, BigDecimal openNetEur) {}
 
-    public record StaffPage(List<StaffReport> reports, boolean more, OpenTotals totals, int apiVersion) {}
+    /**
+     * The sums of a filtered list (round 2, the list's "Totaal · n meldingen" row): every melding the filter
+     * matches, also past the 1000-row cap, withdrawn ones left out. salePieces in pieces; costsEur = the sale
+     * side's commission + transport + extra; buybackEur = the terugkoopkost (incl. its commission and
+     * transport); netEur = grossEur - costsEur - buybackEur.
+     */
+    public record FilteredTotals(int reports, int salePieces, BigDecimal grossEur, BigDecimal costsEur,
+                                 BigDecimal buybackEur, BigDecimal netEur) {}
 
+    /**
+     * GET /api/partner-sales. totals = what is still to invoice (round 1, always). filteredTotals = the sums
+     * of the filtered set (round 2 filters only; null on the round-1 id-paged list).
+     */
+    public record StaffPage(List<StaffReport> reports, boolean more, OpenTotals totals, int apiVersion,
+                            FilteredTotals filteredTotals) {}
+
+    /**
+     * One partner of the summary. Round 2 (Bevestigen): unconfirmedReports = meldingen with an open part that
+     * staff have not confirmed (Factureren cannot take them); confirmedOpen* = what Factureren can take now
+     * (confirmed, with open parts): their count, open sale quantity (sales units, like openSaleQuantity)
+     * and open net. open = unconfirmed + confirmedOpen (per melding and per euro).
+     */
     public record PartnerSummary(long customerId, String customerName, int openReports, int openSaleQuantity,
-                                 BigDecimal openNetEur, Instant lastReportAt) {}
+                                 BigDecimal openNetEur, Instant lastReportAt, int unconfirmedReports,
+                                 int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur) {}
 
     /** GET /api/partner-sales/summary: the nav count, the home card and the Te doen task read this. */
     public record Summary(int openReports, int openSaleQuantity, BigDecimal openNetEur, Instant lastReportAt,
-                          int recentReports14d, List<PartnerSummary> partners, int apiVersion) {}
+                          int recentReports14d, List<PartnerSummary> partners, int apiVersion, int unconfirmedReports,
+                          int confirmedOpenReports, int confirmedOpenSaleQuantity, BigDecimal confirmedOpenNetEur) {}
 
     /**
      * One live melding. open = not fully invoiced; openSaleQuantity / openNetEur (additive) = only its parts that

@@ -40,6 +40,8 @@ public class PartnerSalesStaffService {
 
     static final int DEFAULT_PAGE = 100;
     static final int MAX_PAGE = 200;
+    /** The round-2 list answers at most this many meldingen (its totals cover every match). */
+    static final int MAX_FILTERED = 1000;
     static final int SCAN_CHUNK = 200;
     static final int LOAD_CHUNK = 500;
     static final Duration RECENT = Duration.ofDays(14);
@@ -66,10 +68,19 @@ public class PartnerSalesStaffService {
 
     /* ------------------------------------------------------------------ list */
 
+    /** The states the round-2 list filters by (Loaded.state() plus OPEN = not fully invoiced, not withdrawn, and ALL). */
+    public static final List<String> STATES = List.of(PartnerReportReader.STATE_UNCONFIRMED, PartnerReportReader.STATE_CONFIRMED,
+            PartnerReportReader.STATE_INVOICED, PartnerReportReader.STATE_VOIDED, "OPEN", "ALL");
+
+    /** The round-2 list's criteria; every one optional (state null = ALL). */
+    public record ListQuery(Long customerId, String state, String channel, LocalDate from, LocalDate to,
+                            Long buyerCustomerId, Integer limit) {}
+
     /**
-     * Newest first. status OPEN = still something to invoice (OPEN and PARTLY_INVOICED), INVOICED =
-     * something invoiced (INVOICED and PARTLY_INVOICED), ALL (default) = everything, withdrawn ones
-     * included. {@code before} is an exclusive id cursor; limit 1..200 (default 100).
+     * Round 1's list, kept for older screens: newest id first. status OPEN = still something to invoice
+     * (OPEN and PARTLY_INVOICED), INVOICED = something invoiced (INVOICED and PARTLY_INVOICED), ALL
+     * (default) = everything, withdrawn ones included. {@code before} is an exclusive id cursor; limit
+     * 1..200 (default 100).
      */
     @Transactional
     public PartnerPortalViews.StaffPage list(Long customerId, String status, Long before, Integer limit) {
@@ -94,7 +105,66 @@ public class PartnerSalesStaffService {
             if (chunk.size() < SCAN_CHUNK) break;
             cursor = chunk.getLast().id;
         }
-        return new PartnerPortalViews.StaffPage(views(picked), more, totals(customerId), PartnerPortalViews.API_VERSION);
+        return new PartnerPortalViews.StaffPage(views(picked), more, totals(customerId), PartnerPortalViews.API_VERSION, null);
+    }
+
+    /**
+     * Round 2's list (contract §6 + v2-D): the meldingen of a partner, channel, sold-on period, buyer and
+     * state (UNCONFIRMED / CONFIRMED / INVOICED / VOIDED by {@link PartnerReportReader.Loaded#state()},
+     * OPEN = the first two, ALL = everything), newest sold-on day first, then the higher id, at most
+     * {@code limit} (1..1000, default 1000) with {@code more} when the filter matched more. filteredTotals
+     * sums every match (past the cap too), withdrawn meldingen left out; totals stays the round-1 open
+     * totals (for this partner, or for all).
+     */
+    @Transactional
+    public PartnerPortalViews.StaffPage list(ListQuery query) {
+        String state = query.state() == null || query.state().isBlank() ? "ALL" : query.state().strip().toUpperCase(Locale.ROOT);
+        if (!STATES.contains(state)) throw new BusinessRuleException("Kies te bevestigen, bevestigd, gefactureerd, ingetrokken, open of alles");
+        String channel = query.channel() == null || query.channel().isBlank() ? null : query.channel().strip().toUpperCase(Locale.ROOT);
+        if (channel != null && !List.of(PartnerPortalRules.CHANNEL_AUCTION, PartnerPortalRules.CHANNEL_DIRECT).contains(channel))
+            throw new BusinessRuleException("Kies veiling of direct");
+        if (query.from() != null && query.to() != null && query.from().isAfter(query.to()))
+            throw new BusinessRuleException("De begindatum ligt na de einddatum");
+        int size = query.limit() == null ? MAX_FILTERED : Math.max(1, Math.min(MAX_FILTERED, query.limit()));
+        List<PartnerSaleReportEntity> found = reports.filtered(query.customerId(), channel, query.from(), query.to(),
+                query.buyerCustomerId());
+        PartnerProductTiles.Catalog catalog = tiles.load();
+        List<PartnerReportReader.Loaded> picked = new ArrayList<>();
+        boolean more = false;
+        int count = 0;
+        int salePieces = 0;
+        BigDecimal gross = BigDecimal.ZERO;
+        BigDecimal costs = BigDecimal.ZERO;
+        BigDecimal buyback = BigDecimal.ZERO;
+        BigDecimal net = BigDecimal.ZERO;
+        for (int start = 0; start < found.size(); start += LOAD_CHUNK) {
+            for (PartnerReportReader.Loaded loaded : reader.load(found.subList(start, Math.min(found.size(), start + LOAD_CHUNK)))) {
+                if (!matchesState(state, loaded.state())) continue;
+                if (picked.size() < size) picked.add(loaded);
+                else more = true;
+                if (loaded.report().isVoided()) continue;
+                PartnerPortalViews.Totals totals = reader.view(loaded, catalog).totals();
+                count++;
+                salePieces += totals.salePieces();
+                gross = gross.add(totals.grossEur());
+                costs = costs.add(totals.commissionEur()).add(totals.transportEur()).add(totals.extraCostEur());
+                buyback = buyback.add(totals.buybackEur());
+                net = net.add(totals.netEur());
+            }
+        }
+        PartnerPortalViews.FilteredTotals filtered = new PartnerPortalViews.FilteredTotals(count, salePieces,
+                PartnerNumbers.moneyOrZero(gross), PartnerNumbers.moneyOrZero(costs), PartnerNumbers.moneyOrZero(buyback),
+                PartnerNumbers.moneyOrZero(net));
+        return new PartnerPortalViews.StaffPage(views(picked), more, totals(query.customerId()), PartnerPortalViews.API_VERSION,
+                filtered);
+    }
+
+    private static boolean matchesState(String filter, String state) {
+        return switch (filter) {
+            case "ALL" -> true;
+            case "OPEN" -> PartnerReportReader.STATE_UNCONFIRMED.equals(state) || PartnerReportReader.STATE_CONFIRMED.equals(state);
+            default -> filter.equals(state);
+        };
     }
 
     /** One melding as staff see it (an archive row of an edit too: the audit trail reads old versions by id). */
@@ -169,7 +239,11 @@ public class PartnerSalesStaffService {
 
     /* --------------------------------------------------------------- summary */
 
-    /** Cheap: two small queries over the open parts and one per partner name, no ledger. */
+    /**
+     * Cheap: a few small queries over the open parts and one per partner name, no ledger. Round 2: per
+     * melding with an open part whether it is confirmed (staff confirmed it, or a document holds one of
+     * its parts): unconfirmedReports wait for Bevestigen, confirmedOpen* are what Factureren takes now.
+     */
     @Transactional
     public PartnerPortalViews.Summary summary() {
         Map<Long, Open> perCustomer = openPerCustomer(null);
@@ -186,11 +260,13 @@ public class PartnerSalesStaffService {
             Instant at = last.get(customerId);
             if (at != null && (lastAny == null || at.isAfter(lastAny))) lastAny = at;
             partners.add(new PartnerPortalViews.PartnerSummary(customerId, names.get(customerId), open.reports.size(),
-                    open.saleQuantity, PartnerNumbers.moneyOrZero(open.net), at));
+                    open.saleQuantity, PartnerNumbers.moneyOrZero(open.net), at, open.unconfirmed().size(),
+                    open.confirmed.size(), open.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(open.confirmedNet)));
         }
         int recent = reports.liveCreatedSince(Instant.now().minus(RECENT)).size();
         return new PartnerPortalViews.Summary(all.reports.size(), all.saleQuantity, PartnerNumbers.moneyOrZero(all.net),
-                lastAny, recent, partners, PartnerPortalViews.API_VERSION);
+                lastAny, recent, partners, PartnerPortalViews.API_VERSION, all.unconfirmed().size(), all.confirmed.size(),
+                all.confirmedSaleQuantity, PartnerNumbers.moneyOrZero(all.confirmedNet));
     }
 
     /** The open totals of one partner, or of every partner when customerId is null. */
@@ -202,28 +278,52 @@ public class PartnerSalesStaffService {
 
     private Map<Long, Open> openPerCustomer(Long onlyCustomer) {
         Set<Long> released = openParts.releasing(lines.liveInvoiceIds());
+        List<Object[]> open = lines.openParts(released);
+        Set<Long> withOpenParts = new HashSet<>();
+        for (Object[] row : open) withOpenParts.add(((PartnerSaleReportEntity) row[1]).id);
+        Set<Long> held = new HashSet<>(lines.reportsWithHeldParts(withOpenParts, released));
         Map<Long, Open> result = new HashMap<>();
-        for (Object[] row : lines.openParts(released)) {
+        for (Object[] row : open) {
             PartnerSaleReportLineEntity line = (PartnerSaleReportLineEntity) row[0];
             PartnerSaleReportEntity report = (PartnerSaleReportEntity) row[1];
             if (report.customerId == null || (onlyCustomer != null && !onlyCustomer.equals(report.customerId))) continue;
-            Open open = result.computeIfAbsent(report.customerId, key -> new Open());
-            open.reports.add(report.id);
-            if (line.isSale()) open.saleQuantity += line.quantityOrZero();
-            if (line.netEur != null) open.net = open.net.add(line.netEur);
+            Open sums = result.computeIfAbsent(report.customerId, key -> new Open());
+            boolean confirmed = report.confirmedAt != null || held.contains(report.id);
+            sums.reports.add(report.id);
+            if (confirmed) sums.confirmed.add(report.id);
+            if (line.isSale()) {
+                sums.saleQuantity += line.quantityOrZero();
+                if (confirmed) sums.confirmedSaleQuantity += line.quantityOrZero();
+            }
+            if (line.netEur != null) {
+                sums.net = sums.net.add(line.netEur);
+                if (confirmed) sums.confirmedNet = sums.confirmedNet.add(line.netEur);
+            }
         }
         return result;
     }
 
     private static final class Open {
         final Set<Long> reports = new HashSet<>();
+        final Set<Long> confirmed = new HashSet<>();
         int saleQuantity;
+        int confirmedSaleQuantity;
         BigDecimal net = BigDecimal.ZERO;
+        BigDecimal confirmedNet = BigDecimal.ZERO;
+
+        Set<Long> unconfirmed() {
+            Set<Long> result = new HashSet<>(reports);
+            result.removeAll(confirmed);
+            return result;
+        }
 
         void add(Open other) {
             reports.addAll(other.reports);
+            confirmed.addAll(other.confirmed);
             saleQuantity += other.saleQuantity;
+            confirmedSaleQuantity += other.confirmedSaleQuantity;
             net = net.add(other.net);
+            confirmedNet = confirmedNet.add(other.confirmedNet);
         }
     }
 

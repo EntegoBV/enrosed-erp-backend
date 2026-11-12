@@ -68,12 +68,26 @@ public class PartnerSalesResource {
         return invoicing.invoice(request.customerId(), request.reportIds());
     }
 
+    /**
+     * Round 2 (any of state, channel, from, to, buyerCustomerId given): the filtered list by sold_on, newest
+     * day first, at most 1000 with {@code more}, plus filteredTotals; {@code status} and {@code before} are
+     * then ignored. Without them: round 1's id-paged list (status OPEN | INVOICED | ALL, before, limit), so
+     * an open older screen keeps paging as it did.
+     */
     @GET
     public PartnerPortalViews.StaffPage list(@QueryParam("customerId") Long customerId,
                                              @QueryParam("status") String status,
                                              @QueryParam("before") Long before,
-                                             @QueryParam("limit") Integer limit) {
-        return staff.list(customerId, status, before, limit);
+                                             @QueryParam("limit") Integer limit,
+                                             @QueryParam("state") String state,
+                                             @QueryParam("channel") String channel,
+                                             @QueryParam("from") String from,
+                                             @QueryParam("to") String to,
+                                             @QueryParam("buyerCustomerId") Long buyerCustomerId) {
+        boolean roundTwo = notBlank(state) || notBlank(channel) || notBlank(from) || notBlank(to) || buyerCustomerId != null;
+        if (!roundTwo) return staff.list(customerId, status, before, limit);
+        return staff.list(new PartnerSalesStaffService.ListQuery(customerId, state, channel, date(from), date(to),
+                buyerCustomerId, limit));
     }
 
     /**
@@ -147,6 +161,10 @@ public class PartnerSalesResource {
     public PartnerPortalViews.StaffReport withdraw(@PathParam("id") long id, @QueryParam("reason") String reason) {
         meldingen.withdraw(null, id, reason, true);
         return staff.report(id);
+    }
+
+    private static boolean notBlank(String value) {
+        return value != null && !value.isBlank();
     }
 
     private static LocalDate date(String value) {
