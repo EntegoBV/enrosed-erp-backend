@@ -79,6 +79,16 @@ public class PartnerCustomerQueries {
         return !found.isEmpty();
     }
 
+    /** Every partner customer's id, ascending (the order the partner locks are taken in). */
+    public List<Long> partnerIds() {
+        List<Long> ids = new ArrayList<>();
+        for (Object id : entityManager.createNativeQuery(
+                "select c.id from customer c where coalesce(c.partner, false) = true order by c.id").getResultList()) {
+            ids.add(((Number) id).longValue());
+        }
+        return ids;
+    }
+
     /** These customers (no partner, not partnerId), in no particular order; missing ids are left out. */
     public List<Row> byIds(long partnerId, Collection<Long> ids) {
         if (ids == null || ids.isEmpty()) return List.of();

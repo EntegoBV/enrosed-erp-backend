@@ -2959,7 +2959,9 @@ the Factureren figures and notes come in later stages on top of it.
   "Enrosed heeft deze melding al bevestigd; vraag Enrosed om een wijziging.".
 - **Customer delete**: refused while the customer is the buyer of a melding (voided included,
   archive rows not): "Deze klant staat op een directe verkoop (VV-n)"; otherwise its
-  `partner_product_unit` rows and every `partner_customer_link` naming it go too.
+  `partner_product_unit` rows and every `partner_customer_link` naming it go too. The listener takes
+  every partner's lock (ascending) before it checks (review round 1): a melding checks its buyer under
+  its partner's lock, so a delete and a direct sale naming that customer never both commit.
 - Push and bell texts count pieces ("120 rozen · gem. € 1,20 · netto ..."), averages per piece.
 
 ### Round 2, stage 2 (2026-11-12): edit, confirm, buyers and partner-made customers
