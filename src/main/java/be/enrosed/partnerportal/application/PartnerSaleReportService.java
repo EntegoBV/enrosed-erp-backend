@@ -303,9 +303,9 @@ public class PartnerSaleReportService {
     }
 
     /**
-     * Writes the planned parts of this melding: one stock movement each, sales first, then the buybacks. dip: a
-     * sale may take the shelf below zero for a moment (an edit's rebook: the buybacks that follow bring pieces
-     * back, the net was checked beforehand and is checked again after).
+     * Writes the planned parts of this melding: one stock movement each, sales first, then the buybacks. dip: the
+     * shelf may stand below zero between these moves (an edit's rebook: the buybacks that follow bring pieces back,
+     * one by one; the net was checked beforehand and is checked again after).
      */
     private void writeParts(PartnerSaleReportEntity report, Plan plan, StockLocation location,
                             Map<Long, Product> catalog, boolean dip) {
@@ -333,7 +333,7 @@ public class PartnerSaleReportService {
             Long movementId = stock.partnerMove(part.productId, location.id(), part.quantity,
                     StockMovement.Kind.PARTNER_BUYBACK, "Terugkoop " + number, part.purchaseOrderId, report.soldOn,
                     part.takeoverCostEur != null ? StockBatchContext.partnerTakeOver(mirrored.purchaseOrderId)
-                            : StockBatchContext.partnerReturn(sources));
+                            : StockBatchContext.partnerReturn(sources), dip);
             BigDecimal unitCost = part.purchaseOrderId != null ? null
                     : part.takeoverCostEur != null ? part.takeoverCostEur : mirrored.unitCostEur;
             part.written = write(report, part, movementId, unitCost, mirrored.id);
