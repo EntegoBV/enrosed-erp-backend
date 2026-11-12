@@ -831,8 +831,12 @@ public class PartnerSaleInvoicing {
                         product.costEur().divide(BigDecimal.valueOf(quantity), 4, RoundingMode.HALF_UP)));
                 onLines = onLines.add(unitPrice.multiply(BigDecimal.valueOf(quantity)));
             } else {
-                SalesExtraLine extra = new SalesExtraLine(label(catalog, sum.productId) + ": " + quantity
-                        + (quantity == 1 ? " stuk" : " stuks") + (quantity == 0 ? " (verkocht en teruggekocht)" : "")
+                /* Counted in pieces with the product's own noun ("36 rozen", not "3 stuks" for 3 displays). */
+                PartnerPortalViews.ProductTile tile = catalog.tile(sum.productId);
+                int pieces = quantity * Math.max(1, tile.piecesPerSalesUnit());
+                SalesExtraLine extra = new SalesExtraLine(label(catalog, sum.productId) + ": "
+                        + PartnerSaleTexts.quantity(pieces, tile.pieceOne(), tile.pieceOther())
+                        + (quantity == 0 ? " (verkocht en teruggekocht)" : "")
                         + ", onze waarde " + PartnerSaleTexts.euro(product.valueEur()), BigDecimal.ONE, product.valueEur());
                 extras.add(extra);
                 onExtras = onExtras.add(extra.total());

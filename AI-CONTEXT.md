@@ -2776,7 +2776,8 @@ named constraints identical in `@Table` and the migration:
   0, PALLETS without pallets, the customer's VAT. Per product c = round2(sum of sale unit_cost x
   qty - buyback unit_cost x qty), v = c + round2((p - c) x share / 100) with share =
   `Customer.partnerSharePctOrDefault()`. q > 0 and v / q > 0 at 4 dp: a line at v / q (unit cost
-  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, onze waarde € v" (container-cost
+  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, onze waarde € v", counted in
+  pieces with the product's own noun since round 2 ("36 rozen" for 3 displays; container-cost
   pricing would replace a price of 0 by the card cost). "Afronding veilingverkopen" closes the cent
   gap: the invoice excl. VAT is exactly the sum of v. A sale part with unit cost 0 warns "Geen
   kostprijs bekend voor <product>". Notes in the settlement style (per product n stuks, netto,
