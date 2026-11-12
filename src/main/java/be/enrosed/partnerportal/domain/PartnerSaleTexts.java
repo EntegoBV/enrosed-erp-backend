@@ -27,16 +27,30 @@ public final class PartnerSaleTexts {
         return PartnerPortalRules.CHANNEL_DIRECT.equals(channel) ? "Direct" : "Veiling";
     }
 
-    /** "€ 1.234,50": two decimals, Dutch separators. */
+    /** The ERP's sign for an amount below zero (Analyses, Kaslijn and the staff screens): "− € 220,29". */
+    private static final char MINUS = '−';
+    /** Between the sign, the euro sign and the number: an amount never wraps over two lines. */
+    private static final char NBSP = ' ';
+
+    /**
+     * "€ 1.234,50", "− € 220,29": two decimals, Dutch separators, below zero the minus sign U+2212 before
+     * the euro sign as the ERP writes it (frontend {@code signedEur}), never "€ -220,29". No-break spaces keep
+     * the amount on one line. A value that rounds to zero has no sign.
+     */
     public static String euro(BigDecimal value) {
         BigDecimal amount = value == null ? BigDecimal.ZERO : value.setScale(2, RoundingMode.HALF_UP);
-        return "€ " + format("#,##0.00").format(amount);
+        return signed(amount, format("#,##0.00"));
     }
 
-    /** A unit price: two decimals, up to four when it has them ("€ 0,355"). */
+    /** A unit price: two decimals, up to four when it has them ("€ 0,355"); the sign as {@link #euro}. */
     public static String unitEuro(BigDecimal value) {
         BigDecimal amount = value == null ? BigDecimal.ZERO : value.setScale(4, RoundingMode.HALF_UP);
-        return "€ " + format("#,##0.00##").format(amount);
+        return signed(amount, format("#,##0.00##"));
+    }
+
+    private static String signed(BigDecimal amount, DecimalFormat format) {
+        String text = "€" + NBSP + format.format(amount.abs());
+        return amount.signum() < 0 ? "" + MINUS + NBSP + text : text;
     }
 
     /** "1 stuk" / "3 stuks" with the product's own unit words. */

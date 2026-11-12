@@ -3127,7 +3127,11 @@ the Factureren figures and notes come in later stages on top of it.
   `PartnerSaleTexts.shortName` (the frontend's `partnerShortName`). The internal note (off the PDF)
   reads "Veilingverkopen VV-… (period) · n meldingen" + the per-product detail (container:
   `plan.detail()`; own: "<product>: n stuks; netto; kost; resultaat; onze waarde"). The manual
-  Veilingafrekening keeps its texts (`ReportTexts` null).
+  Veilingafrekening keeps its texts (`ReportTexts` null). Every amount in these notes (and in the bell,
+  push, activity and preview warning texts) comes from `PartnerSaleTexts.euro` / `unitEuro`: below zero
+  "− € 220,29" (U+2212 before the euro sign, the frontend's `signedEur` and the staff screens), never
+  "€ -220,29"; no-break spaces between sign, € and number keep an amount on one line (review round 2;
+  DejaVu Sans, the PDF font, has both characters).
 - **Breakdown** (`PartnerDocumentBreakdowns`): `GET /api/partner-sales/documents/{salesOrderId}/breakdown`
   (admin) -> `{salesOrderId, source CONTAINER|OWN, purchaseOrderId, finalSettlement, channel
   AUCTION|DIRECT|MIXED, meldingen [{id, number, soldOn, channel}], lines [{productId, name, variant,
