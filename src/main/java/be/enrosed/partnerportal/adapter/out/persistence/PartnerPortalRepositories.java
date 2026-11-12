@@ -138,6 +138,27 @@ public final class PartnerPortalRepositories {
             return list("voidedAt is null and revisionOf is null and createdAt >= ?1", Sort.descending("createdAt", "id"), since);
         }
 
+        /**
+         * Non-voided meldingen made or edited at or after {@code since} (greatest(created_at, updated_at)), newest
+         * first by creation: the bell's window.
+         */
+        public List<PartnerSaleReportEntity> liveTouchedSince(Instant since) {
+            return list("voidedAt is null and revisionOf is null and (createdAt >= ?1 or updatedAt >= ?1)",
+                    Sort.descending("createdAt", "id"), since);
+        }
+
+        /** The buyers of this partner's live meldingen, the most recent melding first (at most {@code limit}). */
+        public List<Long> recentBuyers(long customerId, int limit) {
+            return getEntityManager().createQuery("""
+                            select r.buyerCustomerId from PartnerSaleReportEntity r
+                            where r.customerId = :customer and r.revisionOf is null and r.voidedAt is null
+                              and r.buyerCustomerId is not null
+                            group by r.buyerCustomerId order by max(r.id) desc""", Long.class)
+                    .setParameter("customer", customerId)
+                    .setMaxResults(limit)
+                    .getResultList();
+        }
+
         /** Non-voided meldingen sold in [from, to] (either end may be null), oldest first. */
         public List<PartnerSaleReportEntity> liveSoldBetween(LocalDate from, LocalDate to) {
             StringBuilder where = new StringBuilder("voidedAt is null and revisionOf is null");
@@ -458,6 +479,29 @@ public final class PartnerPortalRepositories {
 
         public List<PartnerCustomerLinkEntity> byPartner(long partnerCustomerId) {
             return list("partnerCustomerId", Sort.ascending("id"), partnerCustomerId);
+        }
+
+        /** The customers this partner added itself, newest first. */
+        public List<PartnerCustomerLinkEntity> addedBy(long partnerCustomerId) {
+            return list("partnerCustomerId = ?1 and addedByPartner = true", Sort.descending("createdAt", "id"),
+                    partnerCustomerId);
+        }
+
+        /** How many customers this partner added at or after {@code since}. */
+        public long addedSince(long partnerCustomerId, Instant since) {
+            return count("partnerCustomerId = ?1 and addedByPartner = true and createdAt >= ?2", partnerCustomerId, since);
+        }
+
+        /** Every customer a partner added that staff have not marked reviewed yet, oldest first (the bell). */
+        public List<PartnerCustomerLinkEntity> awaitingReview() {
+            return list("addedByPartner = true and reviewedAt is null", Sort.ascending("createdAt", "id"));
+        }
+
+        /** The partner-made links of these customers (null = of every customer), oldest first. */
+        public List<PartnerCustomerLinkEntity> addedFor(Collection<Long> customerIds) {
+            if (customerIds == null) return list("addedByPartner = true", Sort.ascending("createdAt", "id"));
+            if (customerIds.isEmpty()) return List.of();
+            return list("addedByPartner = true and customerId in ?1", Sort.ascending("createdAt", "id"), customerIds);
         }
 
         /** On a customer delete: every link where it is the partner or the buyer. */

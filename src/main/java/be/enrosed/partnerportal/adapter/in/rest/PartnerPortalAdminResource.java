@@ -1,11 +1,14 @@
 package be.enrosed.partnerportal.adapter.in.rest;
 
+import be.enrosed.partnerportal.application.PartnerCustomerService;
 import be.enrosed.partnerportal.application.PartnerPortalAdminService;
 import be.enrosed.partnerportal.application.PartnerPortalViews;
+import be.enrosed.sales.application.CustomerPartnerOrigins;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import jakarta.annotation.security.RolesAllowed;
 import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.GET;
+import jakarta.ws.rs.POST;
 import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
@@ -22,9 +25,18 @@ import java.util.List;
 public class PartnerPortalAdminResource {
 
     private final PartnerPortalAdminService admin;
+    private final PartnerCustomerService buyers;
 
-    public PartnerPortalAdminResource(PartnerPortalAdminService admin) {
+    public PartnerPortalAdminResource(PartnerPortalAdminService admin, PartnerCustomerService buyers) {
         this.admin = admin;
+        this.buyers = buyers;
+    }
+
+    /** "Nagekeken" on the customer sheet of a customer a partner added: answers its partnerOrigin (404 for any other). */
+    @POST
+    @Path("/customers/{customerId}/reviewed")
+    public CustomerPartnerOrigins.Origin reviewed(@PathParam("customerId") long customerId) {
+        return buyers.reviewed(customerId);
     }
 
     @GET

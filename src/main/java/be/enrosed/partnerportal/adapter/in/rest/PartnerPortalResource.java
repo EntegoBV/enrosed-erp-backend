@@ -2,6 +2,7 @@ package be.enrosed.partnerportal.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.application.SalesPhotoService;
+import be.enrosed.partnerportal.application.PartnerCustomerService;
 import be.enrosed.partnerportal.application.PartnerPortalReadService;
 import be.enrosed.partnerportal.application.PartnerPortalViews;
 import be.enrosed.partnerportal.application.PartnerSaleReportService;
@@ -23,6 +24,8 @@ import jakarta.ws.rs.core.HttpHeaders;
 import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
+import java.util.List;
+
 /**
  * The partner's own API. Role partner only (a staff login gets 403 here, a partner login gets
  * 403 on every staff resource); the customer comes from the identity alone.
@@ -36,13 +39,37 @@ public class PartnerPortalResource {
     private final PartnerPortalReadService portal;
     private final PartnerSessionService sessions;
     private final PartnerSaleReportService meldingen;
+    private final PartnerCustomerService buyers;
 
     public PartnerPortalResource(SecurityIdentity identity, PartnerPortalReadService portal,
-                                 PartnerSessionService sessions, PartnerSaleReportService meldingen) {
+                                 PartnerSessionService sessions, PartnerSaleReportService meldingen,
+                                 PartnerCustomerService buyers) {
         this.identity = identity;
         this.portal = portal;
         this.sessions = sessions;
         this.meldingen = meldingen;
+        this.buyers = buyers;
+    }
+
+    /**
+     * The buyer picker of a direct sale: ERP customers by company or city (at least 2 letters, at most 20),
+     * only {customerId, company, city, countryCode, addedByYou}; no q = the last 8 buyers.
+     */
+    @GET
+    @Path("/customers")
+    public List<PartnerPortalViews.PartnerCustomerTile> customers(@QueryParam("q") String q) {
+        PartnerCaller caller = PartnerCaller.of(identity);
+        return buyers.search(caller.customerId(), caller.loginId(), q);
+    }
+
+    /** Nieuwe klant: {company, countryCode?, city?, email?, phone?}; 201, or 200 with the one already added under that name. */
+    @POST
+    @Path("/customers")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public Response addCustomer(PartnerSaleRequests.NewCustomer request) {
+        PartnerCaller caller = PartnerCaller.of(identity);
+        PartnerCustomerService.Added added = buyers.add(caller.customerId(), caller.loginId(), request);
+        return Response.status(added.created() ? Response.Status.CREATED : Response.Status.OK).entity(added.tile()).build();
     }
 
     /**

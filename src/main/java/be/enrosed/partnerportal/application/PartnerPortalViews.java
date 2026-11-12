@@ -134,6 +134,13 @@ public final class PartnerPortalViews {
 
     public record ReportPage(List<PartnerReport> reports, boolean more) {}
 
+    /**
+     * A buyer the partner may pick for a direct sale (GET/POST /api/partner-portal/customers): only the name,
+     * city and country of an ERP customer; addedByYou = this partner added it itself.
+     */
+    public record PartnerCustomerTile(long customerId, String company, String city, String countryCode,
+                                      boolean addedByYou) {}
+
     /* -------------------------------------------------------------------- staff side */
 
     public record AdminLogin(long id, String username, String displayName, boolean active,

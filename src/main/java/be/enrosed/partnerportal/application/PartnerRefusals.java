@@ -16,6 +16,16 @@ public final class PartnerRefusals {
 
     private PartnerRefusals() {}
 
+    /** 429 with Retry-After and the usual JSON body (a limit per day was reached). */
+    public static jakarta.ws.rs.WebApplicationException tooMany(String message, long retryAfterSeconds) {
+        return new jakarta.ws.rs.WebApplicationException(message, Response.status(429)
+                .type(MediaType.APPLICATION_JSON_TYPE)
+                .header("Retry-After", Math.max(1, retryAfterSeconds))
+                .header("Cache-Control", "no-store")
+                .entity(Map.of("status", 429, "message", message, "timestamp", Instant.now().toString()))
+                .build());
+    }
+
     public static BadRequestException badRequest(String message) {
         return new BadRequestException(message, Response.status(Response.Status.BAD_REQUEST)
                 .type(MediaType.APPLICATION_JSON_TYPE)

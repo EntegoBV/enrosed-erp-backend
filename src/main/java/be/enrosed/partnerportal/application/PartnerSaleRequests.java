@@ -44,6 +44,21 @@ public final class PartnerSaleRequests {
     public record Entry(Long productId, Part sale, Part buyback) {}
 
     /**
+     * POST /api/partner-sales/reports/confirm and /unconfirm: {@code reports} [{id, token}] where token is the
+     * editToken staff loaded (a melding changed since is refused), or the legacy {@code reportIds} without tokens.
+     */
+    public record ConfirmRequest(List<ConfirmItem> reports, List<Long> reportIds) {}
+
+    /** One melding to confirm or set back: its id and the editToken the screen showed. */
+    public record ConfirmItem(Long id, String token) {}
+
+    /**
+     * POST /api/partner-portal/customers: a buyer Frans adds himself. company is required; the rest is optional
+     * (countryCode defaults to the partner's own country).
+     */
+    public record NewCustomer(String company, String countryCode, String city, String email, String phone) {}
+
+    /**
      * Round 1: quantity (sales units) with exactly one of unitPriceEur (per sales unit) and totalEur.
      * Round 2: enteredUnit, enteredCount and piecePriceEur (per piece), none of the round-1 fields.
      */
