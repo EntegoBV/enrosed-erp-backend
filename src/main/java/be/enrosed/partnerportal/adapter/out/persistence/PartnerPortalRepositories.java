@@ -383,6 +383,11 @@ public final class PartnerPortalRepositories {
 
     @ApplicationScoped
     public static class InvoiceParts implements PanacheRepositoryBase<PartnerSaleInvoicePartEntity, Long> {
+        /** The rows of one document, in the order they were written. */
+        public List<PartnerSaleInvoicePartEntity> byOrder(long salesOrderId) {
+            return list("salesOrderId", Sort.ascending("id"), salesOrderId);
+        }
+
         /**
          * Per document, product and part type: the quantity its rows link, as {salesOrderId, productId,
          * lineType, quantity}. {@code salesOrderIds} null reads every report-backed document (one query

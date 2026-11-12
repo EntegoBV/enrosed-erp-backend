@@ -1,5 +1,6 @@
 package be.enrosed.partnerportal.adapter.in.rest;
 
+import be.enrosed.partnerportal.application.PartnerDocumentBreakdowns;
 import be.enrosed.partnerportal.application.PartnerPortalViews;
 import be.enrosed.partnerportal.application.PartnerSaleConfirmations;
 import be.enrosed.partnerportal.application.PartnerSaleInvoicing;
@@ -39,13 +40,16 @@ public class PartnerSalesResource {
     private final PartnerSaleReportService meldingen;
     private final PartnerSaleInvoicing invoicing;
     private final PartnerSaleConfirmations confirmations;
+    private final PartnerDocumentBreakdowns breakdowns;
 
     public PartnerSalesResource(PartnerSalesStaffService staff, PartnerSaleReportService meldingen,
-                                PartnerSaleInvoicing invoicing, PartnerSaleConfirmations confirmations) {
+                                PartnerSaleInvoicing invoicing, PartnerSaleConfirmations confirmations,
+                                PartnerDocumentBreakdowns breakdowns) {
         this.staff = staff;
         this.meldingen = meldingen;
         this.invoicing = invoicing;
         this.confirmations = confirmations;
+        this.breakdowns = breakdowns;
     }
 
     /** Factureren, step 1: what would be made now (reportIds null = every open melding; until by sold_on). Writes nothing. */
@@ -70,6 +74,17 @@ public class PartnerSalesResource {
                                              @QueryParam("before") Long before,
                                              @QueryParam("limit") Integer limit) {
         return staff.list(customerId, status, before, limit);
+    }
+
+    /**
+     * The margin popup of a document Factureren made: per product how the meldingen add up to its line
+     * (the figure snapshot; a labelled fallback for documents from before round 2). 404 for any other
+     * document.
+     */
+    @GET
+    @Path("/documents/{salesOrderId}/breakdown")
+    public PartnerPortalViews.DocumentBreakdown breakdown(@PathParam("salesOrderId") long salesOrderId) {
+        return breakdowns.of(salesOrderId);
     }
 
     @GET

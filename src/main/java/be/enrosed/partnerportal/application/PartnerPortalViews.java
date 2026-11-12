@@ -314,4 +314,41 @@ public final class PartnerPortalViews {
     public record BlockedGroup(Long purchaseOrderId, String message) {}
 
     public record InvoiceResult(List<CreatedInvoice> invoices, List<BlockedGroup> blocked, List<InvoiceSkipped> skipped) {}
+
+    /* ------------------------------------------------- the margin popup (round 2) */
+
+    /** A melding behind a document. */
+    public record BreakdownMelding(long id, String number, LocalDate soldOn, String channel) {}
+
+    /**
+     * One product of a report-backed document (GET /api/partner-sales/documents/{id}/breakdown), from the
+     * figure snapshot written with it: grossEur - commissionEur - transportEur - extraEur - buybackCostEur
+     * (+ absorbedEur, what the q = 0 netting moved onto it, negative when moved off; absorbedFrom names the
+     * other products) = proceedsEur; - costEur = profitEur; valueEur - costEur = enrosedProfitEur;
+     * proceedsEur - valueEur = partnerProfitEur; valueEur - advanceEur = what the document invoices for it;
+     * correctionEur = the slotfactuur's true-up inside valueEur. quantity = soldQuantity -
+     * boughtBackQuantity (sales units), pieces = quantity in pieces. onLine = it has an invoice line.
+     */
+    public record BreakdownLine(long productId, String name, String variant, int soldQuantity, int boughtBackQuantity,
+                                int quantity, int pieces, int salePieces, BigDecimal grossEur, BigDecimal commissionEur,
+                                BigDecimal transportEur, BigDecimal extraEur, BigDecimal buybackCostEur,
+                                BigDecimal proceedsEur, BigDecimal absorbedEur, List<String> absorbedFrom,
+                                BigDecimal costEur, BigDecimal costSharePct, BigDecimal profitEur,
+                                BigDecimal profitSharePct, BigDecimal enrosedProfitEur, BigDecimal partnerProfitEur,
+                                BigDecimal valueEur, BigDecimal advanceEur, BigDecimal correctionEur, boolean onLine) {}
+
+    /**
+     * The breakdown of one report-backed document: source CONTAINER | OWN, the meldingen behind it (and their
+     * channel: AUCTION, DIRECT or MIXED), the lines and the document totals. fallback = a document from
+     * before round 2 (no figure snapshot): its lines come from the invoice lines / settlement snapshot and
+     * the linked parts, labelled with fallbackNote. ERP only.
+     */
+    public record DocumentBreakdown(long salesOrderId, String source, Long purchaseOrderId, boolean finalSettlement,
+                                    String channel, List<BreakdownMelding> meldingen, List<BreakdownLine> lines,
+                                    BigDecimal grossEur, BigDecimal commissionEur, BigDecimal transportEur,
+                                    BigDecimal extraEur, BigDecimal buybackCostEur, BigDecimal proceedsEur,
+                                    BigDecimal costEur, BigDecimal profitEur, BigDecimal enrosedProfitEur,
+                                    BigDecimal partnerProfitEur, BigDecimal valueEur, BigDecimal advanceEur,
+                                    BigDecimal balanceEur, BigDecimal correctionEur, BigDecimal costSharePct,
+                                    BigDecimal profitSharePct, boolean fallback, String fallbackNote) {}
 }
