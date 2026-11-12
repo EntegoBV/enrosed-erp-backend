@@ -1,13 +1,18 @@
 package be.enrosed.partnerportal.application;
 
 import be.enrosed.catalog.application.StockService;
+import be.enrosed.catalog.application.port.out.ProductRepository;
+import be.enrosed.catalog.domain.Product;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerLoginEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalSettingsEntity;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerProductUnitEntity;
+import be.enrosed.partnerportal.domain.PartnerCountUnits;
 import be.enrosed.partnerportal.domain.PartnerNumbers;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
+import be.enrosed.partnerportal.domain.PartnerProductNames;
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
 import be.enrosed.shared.BusinessRuleException;
@@ -54,12 +59,15 @@ public class PartnerPortalAdminService {
     private final ActivityLogService activity;
     private final CurrentActor actor;
     private final StockService stock;
+    private final PartnerPortalRepositories.ProductUnits units;
+    private final ProductRepository products;
 
     public PartnerPortalAdminService(SalesRepositories.Customers customers, PartnerPortalRepositories.Logins logins,
                                      PartnerPortalRepositories.Settings settingsRows, PartnerPortalSettings settings,
                                      PartnerPortalQueries queries, PartnerSessionService sessions,
                                      PartnerPasswords passwords, AdminIdentityProvider staff,
-                                     ActivityLogService activity, CurrentActor actor, StockService stock) {
+                                     ActivityLogService activity, CurrentActor actor, StockService stock,
+                                     PartnerPortalRepositories.ProductUnits units, ProductRepository products) {
         this.customers = customers;
         this.logins = logins;
         this.settingsRows = settingsRows;
@@ -71,6 +79,8 @@ public class PartnerPortalAdminService {
         this.activity = activity;
         this.actor = actor;
         this.stock = stock;
+        this.units = units;
+        this.products = products;
     }
 
     /** Partner customers, plus any customer that still has a login although it is no partner any more. */
@@ -209,6 +219,82 @@ public class PartnerPortalAdminService {
                             .build());
         }
         return row(customer, logins.findByCustomer(customerId).orElse(null));
+    }
+
+    /* ------------------------------------------------------------ count units */
+
+    static final int MAX_UNIT_CHANGES = 2000;
+
+    /** The stored default count units of a partner (only rows; no row = STUK), product id ascending. */
+    @Transactional
+    public List<PartnerPortalViews.UnitDefault> units(long customerId) {
+        customer(customerId);
+        return units.rowsOf(customerId).stream()
+                .map(row -> new PartnerPortalViews.UnitDefault(row.productId, row.unit)).toList();
+    }
+
+    /**
+     * A partial update of the default count units: per product a unit the product offers now, or
+     * null / STUK = back to the default per stuk (the row goes). Products not named keep theirs.
+     * Takes the partner lock so two saves of one partner serialise (the unique key is the backstop).
+     */
+    @Transactional
+    public List<PartnerPortalViews.UnitDefault> saveUnits(long customerId, PartnerPortalViews.UnitsRequest request) {
+        if (request == null || request.changes() == null) throw new BusinessRuleException("Geen gegevens ontvangen");
+        Customer customer = customer(customerId);
+        if (!customer.partner()) throw new BusinessRuleException("Deze klant is geen partner");
+        if (request.changes().size() > MAX_UNIT_CHANGES) throw new BusinessRuleException("Te veel wijzigingen in één keer");
+        Map<Long, String> wanted = new java.util.LinkedHashMap<>();
+        for (PartnerPortalViews.UnitChange change : request.changes()) {
+            if (change == null || change.productId() == null) throw new BusinessRuleException("Kies bij elke wijziging een product");
+            String unit = null;
+            if (change.unit() != null && !change.unit().isBlank()) {
+                unit = PartnerCountUnits.normalize(change.unit());
+                if (unit == null) throw new BusinessRuleException("Kies per stuk, per display of per omdoos");
+            }
+            wanted.put(change.productId(), PartnerCountUnits.STUK.equals(unit) ? null : unit);
+        }
+        settingsRows.lockOrCreate(customerId);
+        Map<Long, String> stored = units.unitsOf(customerId);
+        Instant now = Instant.now();
+        String who = actor.name();
+        int changed = 0;
+        for (Map.Entry<Long, String> change : wanted.entrySet()) {
+            long productId = change.getKey();
+            String unit = change.getValue();
+            if (Objects.equals(stored.get(productId), unit)) continue;
+            PartnerProductUnitEntity row = units.find(customerId, productId).orElse(null);
+            if (unit == null) {
+                if (row != null) {
+                    units.delete(row);
+                    changed++;
+                }
+                continue;
+            }
+            Product product = products.findById(productId)
+                    .orElseThrow(() -> new BusinessRuleException("Product #" + productId + " bestaat niet meer"));
+            if (PartnerCountUnits.of(product).unit(unit).isEmpty()) {
+                throw new BusinessRuleException(PartnerProductNames.of(product).name()
+                        + " telt niet per " + (PartnerCountUnits.OMDOOS.equals(unit) ? "omdoos" : "display"));
+            }
+            if (row == null) {
+                row = new PartnerProductUnitEntity();
+                row.customerId = customerId;
+                row.productId = productId;
+            }
+            row.unit = unit;
+            row.updatedAt = now;
+            row.updatedBy = who;
+            if (row.id == null) units.persist(row);
+            changed++;
+        }
+        units.flush();
+        if (changed > 0) {
+            activity.record(ActivityLogService.ACTION_UPDATED, SETTINGS_ENTITY, Long.toString(customerId),
+                    customer.company(), "Eenheid per product: " + changed + (changed == 1 ? " product" : " producten")
+                            + " gewijzigd");
+        }
+        return units(customerId);
     }
 
     private PartnerPortalViews.AdminRow row(Customer customer, PartnerLoginEntity login) {

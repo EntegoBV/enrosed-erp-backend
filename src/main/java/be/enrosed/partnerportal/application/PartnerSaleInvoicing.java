@@ -198,7 +198,8 @@ public class PartnerSaleInvoicing {
         PartnerPortalViews.ProductTile tile = catalog.tile(sum.productId);
         return new PartnerPortalViews.InvoicePreviewLine(sum.productId, tile.name(), tile.variant(), sum.sold,
                 sum.boughtBack, sum.quantity(), PartnerNumbers.money(sum.saleNet), PartnerNumbers.money(sum.buyback),
-                PartnerNumbers.money(proceeds), PartnerNumbers.money(cost), PartnerNumbers.money(value));
+                PartnerNumbers.money(proceeds), PartnerNumbers.money(cost), PartnerNumbers.money(value),
+                PartnerNumbers.money(sum.buybackGross), sum.sold * Math.max(1, tile.piecesPerSalesUnit()));
     }
 
     /* =============================================================== invoice */
@@ -348,7 +349,7 @@ public class PartnerSaleInvoicing {
                 : reportIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
         if (ids.isEmpty()) return List.of();
         Map<Long, PartnerSaleReportEntity> chosen = new HashMap<>();
-        for (PartnerSaleReportEntity report : reports.list("id in ?1", ids)) {
+        for (PartnerSaleReportEntity report : reports.list("id in ?1 and revisionOf is null", ids)) {
             if (!Objects.equals(report.customerId, customerId) || report.isVoided()) continue;
             if (until != null && report.soldOn != null && report.soldOn.isAfter(until)) continue;
             chosen.put(report.id, report);
@@ -383,7 +384,9 @@ public class PartnerSaleInvoicing {
         int sold;
         int boughtBack;
         BigDecimal saleNet = BigDecimal.ZERO;
+        /** What the buybacks cost (-net); buybackGross the clock price totals alone. */
         BigDecimal buyback = BigDecimal.ZERO;
+        BigDecimal buybackGross = BigDecimal.ZERO;
         BigDecimal ownCost = BigDecimal.ZERO;
         boolean costUnknown;
         /** Some own pieces had no known cost and count at the average of the known ones. */
@@ -408,7 +411,9 @@ public class PartnerSaleInvoicing {
                 if (line.purchaseOrderId == null && unitCost.signum() <= 0) costUnknown = true;
             } else {
                 boughtBack += quantity;
-                buyback = buyback.add(line.grossEur == null ? BigDecimal.ZERO : line.grossEur);
+                /* The terugkoopkost is -net: round 2 adds the buyback's commission and transport to its gross. */
+                buyback = buyback.add(PartnerSaleMoney.buybackCost(line.grossEur, line.netEur));
+                buybackGross = buybackGross.add(line.grossEur == null ? BigDecimal.ZERO : line.grossEur);
                 ownCost = ownCost.subtract(unitCost.multiply(BigDecimal.valueOf(quantity)));
             }
             if (line.purchaseOrderId == null && Boolean.TRUE.equals(line.unitCostEstimated)) costEstimated = true;

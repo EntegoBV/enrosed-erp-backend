@@ -5,8 +5,8 @@ import be.enrosed.catalog.domain.Product;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportLineEntity;
+import be.enrosed.partnerportal.domain.PartnerCountUnits;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
-import be.enrosed.partnerportal.domain.PartnerProductNames;
 import be.enrosed.partnerportal.domain.PartnerSaleTexts;
 import be.enrosed.sales.application.NotificationService;
 import be.enrosed.sales.application.PartnerSaleNotificationFeed;
@@ -65,19 +65,25 @@ public class PartnerSaleNotifications implements PartnerSaleNotificationFeed {
                     id -> customers.findById(id).map(Customer::company).orElse(null));
             int saleQuantity = 0;
             int buybackQuantity = 0;
+            int salePieces = 0;
+            int buybackPieces = 0;
             BigDecimal saleNet = BigDecimal.ZERO;
             BigDecimal buyback = BigDecimal.ZERO;
             BigDecimal saleUnit = null;
             BigDecimal buybackUnit = null;
             Set<Long> productIds = new LinkedHashSet<>();
             for (PartnerSaleReportLineEntity line : item.lines()) {
+                int factor = line.productId == null ? 1 : factor(productCache, line.productId);
                 if (line.isSale()) {
                     saleQuantity += line.quantityOrZero();
+                    salePieces += line.quantityOrZero() * factor;
                     if (line.netEur != null) saleNet = saleNet.add(line.netEur);
                     if (saleUnit == null) saleUnit = line.unitPriceEur;
                 } else if (line.isBuyback()) {
                     buybackQuantity += line.quantityOrZero();
-                    if (line.grossEur != null) buyback = buyback.add(line.grossEur);
+                    buybackPieces += line.quantityOrZero() * factor;
+                    /* The terugkoopkost: -net (round 2 adds the buyback's commission and transport to its gross). */
+                    buyback = buyback.add(PartnerSaleMoney.buybackCost(line.grossEur, line.netEur));
                     if (buybackUnit == null) buybackUnit = line.unitPriceEur;
                 } else {
                     continue;
@@ -87,19 +93,20 @@ public class PartnerSaleNotifications implements PartnerSaleNotificationFeed {
             boolean buybackOnly = saleQuantity == 0 && buybackQuantity > 0;
             BigDecimal net = saleNet.subtract(buyback);
             String detail;
+            /* In pieces with the piece noun and per-piece averages ("120 rozen · gem. € 1,20"). */
             if (productIds.size() == 1) {
                 long productId = productIds.iterator().next();
-                PartnerProductNames.Names names = productCache.computeIfAbsent(productId, products::findById)
-                        .map(PartnerProductNames::of).orElse(null);
-                String one = names == null ? "stuk" : names.unitOne();
-                String other = names == null ? "stuks" : names.unitOther();
+                PartnerCountUnits.Counting counting = PartnerCountUnits.of(
+                        productCache.computeIfAbsent(productId, products::findById).orElse(null));
+                int factor = counting.piecesPerSalesUnit();
                 detail = buybackOnly
-                        ? PartnerSaleTexts.quantity(buybackQuantity, one, other) + " · klokprijs "
-                        + PartnerSaleTexts.unitEuro(buybackUnit) + " · terugkoop " + PartnerSaleTexts.euro(buyback)
-                        : PartnerSaleTexts.quantity(saleQuantity, one, other) + " · gem. "
-                        + PartnerSaleTexts.unitEuro(saleUnit) + " · netto " + PartnerSaleTexts.euro(net);
+                        ? counting.pieces(buybackPieces) + " · klokprijs "
+                        + PartnerSaleTexts.unitEuro(perPiece(buybackUnit, factor)) + " · terugkoop "
+                        + PartnerSaleTexts.euro(buyback)
+                        : counting.pieces(salePieces) + " · gem. "
+                        + PartnerSaleTexts.unitEuro(perPiece(saleUnit, factor)) + " · netto " + PartnerSaleTexts.euro(net);
             } else {
-                detail = (buybackOnly ? buybackQuantity : saleQuantity) + " stuks · " + productIds.size()
+                detail = (buybackOnly ? buybackPieces : salePieces) + " stuks · " + productIds.size()
                         + " producten · " + (buybackOnly ? "terugkoop " + PartnerSaleTexts.euro(buyback)
                         : "netto " + PartnerSaleTexts.euro(net));
             }
@@ -111,5 +118,13 @@ public class PartnerSaleNotifications implements PartnerSaleNotificationFeed {
                     "/veilingverkopen?melding=" + report.id, "partner-sale:" + report.id, open));
         }
         return result;
+    }
+
+    private int factor(Map<Long, Optional<Product>> cache, long productId) {
+        return PartnerCountUnits.of(cache.computeIfAbsent(productId, products::findById).orElse(null)).piecesPerSalesUnit();
+    }
+
+    private static BigDecimal perPiece(BigDecimal unitPrice, int factor) {
+        return unitPrice == null ? null : unitPrice.divide(BigDecimal.valueOf(Math.max(1, factor)), 4, java.math.RoundingMode.HALF_UP);
     }
 }

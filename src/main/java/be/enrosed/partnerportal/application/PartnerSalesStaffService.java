@@ -94,10 +94,10 @@ public class PartnerSalesStaffService {
             if (chunk.size() < SCAN_CHUNK) break;
             cursor = chunk.getLast().id;
         }
-        return new PartnerPortalViews.StaffPage(views(picked), more, totals(customerId));
+        return new PartnerPortalViews.StaffPage(views(picked), more, totals(customerId), PartnerPortalViews.API_VERSION);
     }
 
-    /** One melding as staff see it. */
+    /** One melding as staff see it (an archive row of an edit too: the audit trail reads old versions by id). */
     @Transactional
     public PartnerPortalViews.StaffReport report(long reportId) {
         PartnerSaleReportEntity report = reports.findById(reportId);
@@ -142,11 +142,15 @@ public class PartnerSalesStaffService {
                                 : PurchaseOrderName.display(line.purchaseOrderId, null, null),
                         line.quantityOrZero(), PartnerNumbers.money(line.grossEur), PartnerNumbers.money(line.netEur),
                         PartnerNumbers.unit(line.unitCostEur), holder == null ? null : holder.id(),
-                        holder == null ? null : holder.number(), item.rule().isOpen(line, report.isVoided())));
+                        holder == null ? null : holder.number(), item.rule().isOpen(line, report.isVoided()),
+                        PartnerNumbers.moneyOrZero(line.commissionEur), PartnerNumbers.moneyOrZero(line.transportEur),
+                        PartnerNumbers.moneyOrZero(line.extraCostEur),
+                        line.quantityOrZero() * Math.max(1, tile.piecesPerSalesUnit())));
             }
             long customerId = report.customerId == null ? 0 : report.customerId;
-            result.add(PartnerPortalViews.StaffReport.of(reader.view(item, catalog), customerId, names.get(customerId),
-                    report.createdBy, report.voidedAt, report.voidedBy, report.voidReason, parts));
+            result.add(PartnerPortalViews.StaffReport.of(reader.view(item, catalog), item.staffCanEdit(), customerId,
+                    names.get(customerId), report.createdBy, report.voidedAt, report.voidedBy, report.voidReason, parts,
+                    report.revisionOf));
         }
         return result;
     }
@@ -174,7 +178,7 @@ public class PartnerSalesStaffService {
         }
         int recent = reports.liveCreatedSince(Instant.now().minus(RECENT)).size();
         return new PartnerPortalViews.Summary(all.reports.size(), all.saleQuantity, PartnerNumbers.moneyOrZero(all.net),
-                lastAny, recent, partners);
+                lastAny, recent, partners, PartnerPortalViews.API_VERSION);
     }
 
     /** The open totals of one partner, or of every partner when customerId is null. */
@@ -240,24 +244,27 @@ public class PartnerSalesStaffService {
                     if (line.isSale()) openSaleByProduct.merge(line.productId, line.quantityOrZero(), Integer::sum);
                     openNetByProduct.merge(line.productId, line.netEur == null ? BigDecimal.ZERO : line.netEur, BigDecimal::add);
                 }
+                /* buybackEur is the terugkoopkost (-net, with its commission and transport): gross - costs - buyback = net. */
                 rows.add(new PartnerPortalViews.AnalyticsReport(report.id, view.number(),
                         report.customerId == null ? 0 : report.customerId, report.channel, report.soldOn, open,
                         totals.saleQuantity(), totals.buybackQuantity(), totals.grossEur(),
                         PartnerNumbers.money(totals.commissionEur().add(totals.transportEur()).add(totals.extraCostEur())),
                         totals.buybackEur(), totals.netEur(),
                         openSaleByProduct.values().stream().mapToInt(Integer::intValue).sum(),
-                        PartnerNumbers.moneyOrZero(openNetByProduct.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add))));
+                        PartnerNumbers.moneyOrZero(openNetByProduct.values().stream().reduce(BigDecimal.ZERO, BigDecimal::add)),
+                        totals.buybackGrossEur(), totals.salePieces(), view.buyer()));
                 for (PartnerPortalViews.Entry entry : view.entries()) {
                     BigDecimal gross = entry.sale() == null ? PartnerNumbers.moneyOrZero(null) : entry.sale().grossEur();
                     BigDecimal saleNet = entry.sale() == null ? BigDecimal.ZERO : entry.sale().netEur();
-                    BigDecimal buyback = entry.buyback() == null ? BigDecimal.ZERO : entry.buyback().grossEur();
+                    BigDecimal buyback = entry.buyback() == null ? BigDecimal.ZERO : entry.buyback().costEur();
                     products.add(new PartnerPortalViews.AnalyticsProduct(report.id, entry.productId(), entry.name(),
                             entry.variant(), report.soldOn, report.channel, open,
                             entry.sale() == null ? 0 : entry.sale().quantity(),
                             entry.buyback() == null ? 0 : entry.buyback().quantity(),
                             gross, PartnerNumbers.money(saleNet.subtract(buyback)),
                             openSaleByProduct.getOrDefault(entry.productId(), 0),
-                            PartnerNumbers.moneyOrZero(openNetByProduct.get(entry.productId()))));
+                            PartnerNumbers.moneyOrZero(openNetByProduct.get(entry.productId())),
+                            entry.sale() == null ? 0 : entry.sale().pieces()));
                 }
             }
         }

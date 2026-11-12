@@ -24,7 +24,7 @@ public class PartnerSalePushNotifier {
     @Transactional(Transactional.TxType.REQUIRES_NEW)
     void afterCommit(@Observes(during = TransactionPhase.AFTER_SUCCESS) Ready ready) {
         try {
-            phones.notifyAll(KIND, "Veilingverkoop gemeld", ready.quantity() + " stuks · " + ready.kind(),
+            phones.notifyAll(KIND, "Veilingverkoop gemeld", ready.quantity() + (ready.quantity() == 1 ? " stuk · " : " stuks · ") + ready.kind(),
                     "/veilingverkopen?melding=" + ready.reportId(), ready.exceptUsername());
         } catch (RuntimeException ignored) {
             /* A push subscription or VAPID problem may never affect the saved melding. */

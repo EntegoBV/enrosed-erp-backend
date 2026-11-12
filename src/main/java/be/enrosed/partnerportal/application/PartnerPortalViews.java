@@ -1,45 +1,69 @@
 package be.enrosed.partnerportal.application;
 
+import be.enrosed.partnerportal.domain.PartnerCountUnits;
+
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 import java.util.List;
 
 /**
- * The JSON shapes of the partner portal (contract section 5). Partner-facing shapes never carry
- * a price, cost, supplier or container field of Enrosed's own: only what the partner typed.
+ * The JSON shapes of the partner portal (contract section 5 of round 1, sections 1-4 and v2-A of
+ * round 2). Partner-facing shapes never carry a price, cost, supplier or container field of
+ * Enrosed's own: only what the partner typed and the money of its own meldingen.
  */
 public final class PartnerPortalViews {
 
     private PartnerPortalViews() {}
 
+    /** Overview, StaffPage and the summary answer it; a round-2 frontend refuses to save without it. */
+    public static final int API_VERSION = 2;
+
     /* ------------------------------------------------------------------ partner side */
 
-    /** A product as a tile shows it. */
+    /**
+     * A product as a tile shows it. unitOne / unitOther / piecesPerUnit name the sales unit (round 1);
+     * round 2 adds how it counts: salesUnit PIECE | DISPLAY, piecesPerSalesUnit, the piece noun, the
+     * offered count units smallest first ({unit, one, other, pieces}) and the partner's default unit.
+     */
     public record ProductTile(long productId, String sku, String name, String variant, String colourHex,
                               Long familyId, String familyName, String unitOne, String unitOther,
-                              int piecesPerUnit, boolean hasPhoto, String photoVersion) {}
+                              int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
+                              int piecesPerSalesUnit, String pieceOne, String pieceOther,
+                              List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit) {
+        ProductTile withDefaultUnit(String unit) {
+            return unit == null || unit.equals(defaultUnit) ? this : new ProductTile(productId, sku, name, variant,
+                    colourHex, familyId, familyName, unitOne, unitOther, piecesPerUnit, hasPhoto, photoVersion,
+                    salesUnit, piecesPerSalesUnit, pieceOne, pieceOther, countUnits, unit);
+        }
+    }
 
     /** ProductTile & { quantity }: sales units at the partner's location. */
     public record StockTile(long productId, String sku, String name, String variant, String colourHex,
                             Long familyId, String familyName, String unitOne, String unitOther,
-                            int piecesPerUnit, boolean hasPhoto, String photoVersion, int quantity) {
+                            int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
+                            int piecesPerSalesUnit, String pieceOne, String pieceOther,
+                            List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit, int quantity) {
         static StockTile of(ProductTile tile, int quantity) {
             return new StockTile(tile.productId(), tile.sku(), tile.name(), tile.variant(), tile.colourHex(),
                     tile.familyId(), tile.familyName(), tile.unitOne(), tile.unitOther(), tile.piecesPerUnit(),
-                    tile.hasPhoto(), tile.photoVersion(), quantity);
+                    tile.hasPhoto(), tile.photoVersion(), tile.salesUnit(), tile.piecesPerSalesUnit(), tile.pieceOne(),
+                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), quantity);
         }
     }
 
     /** ProductTile & what this partner sold of it in the last 60 days (Terugkoop picks from these). */
     public record RecentSaleTile(long productId, String sku, String name, String variant, String colourHex,
                                  Long familyId, String familyName, String unitOne, String unitOther,
-                                 int piecesPerUnit, boolean hasPhoto, String photoVersion,
+                                 int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
+                                 int piecesPerSalesUnit, String pieceOne, String pieceOther,
+                                 List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit,
                                  int soldQuantity, LocalDate lastSoldOn, BigDecimal lastAverageEur) {
         static RecentSaleTile of(ProductTile tile, int soldQuantity, LocalDate lastSoldOn, BigDecimal lastAverageEur) {
             return new RecentSaleTile(tile.productId(), tile.sku(), tile.name(), tile.variant(), tile.colourHex(),
                     tile.familyId(), tile.familyName(), tile.unitOne(), tile.unitOther(), tile.piecesPerUnit(),
-                    tile.hasPhoto(), tile.photoVersion(), soldQuantity, lastSoldOn, lastAverageEur);
+                    tile.hasPhoto(), tile.photoVersion(), tile.salesUnit(), tile.piecesPerSalesUnit(), tile.pieceOne(),
+                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), soldQuantity, lastSoldOn, lastAverageEur);
         }
     }
 
@@ -50,30 +74,63 @@ public final class PartnerPortalViews {
     public record Contact(String name, String phone) {}
 
     public record Overview(PartnerInfo partner, Costs costs, Contact contact, List<StockTile> stock,
-                           List<RecentSaleTile> recentSales, List<PartnerReport> reports, LocalDate serverDate) {}
+                           List<RecentSaleTile> recentSales, List<PartnerReport> reports, LocalDate serverDate,
+                           int apiVersion) {}
 
+    /** Round 1's single extra cost; on newer meldingen filled from the one cost line, or AMOUNT of the sum of several. */
     public record ExtraCost(String mode, BigDecimal value) {}
 
+    /** One extra cost line: what was typed and the euros it comes to over the melding's sales. */
+    public record CostLine(String description, String mode, BigDecimal value, BigDecimal amountEur) {}
+
+    /** The buyer of a direct sale: only name and city ("Klant verwijderd" when it is gone). */
+    public record Buyer(long customerId, String company, String city) {}
+
+    /**
+     * The sale of an entry (its parts merged). enteredUnit / enteredCount / piecePriceEur /
+     * enteredPiecesPerUnit are what was typed; for a round-1 row (or a count that no longer matches
+     * the booked pieces) they read in sales units: STUK or VERPAKKING, the quantity, the unit price per
+     * piece. pieces = the booked pieces.
+     */
     public record SalePart(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur, BigDecimal commissionEur,
-                           BigDecimal transportEur, BigDecimal extraCostEur, BigDecimal netEur) {}
+                           BigDecimal transportEur, BigDecimal extraCostEur, BigDecimal netEur, String enteredUnit,
+                           int enteredCount, BigDecimal piecePriceEur, int enteredPiecesPerUnit, int pieces) {}
 
-    public record BuybackPart(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur) {}
+    /** The buyback of an entry: the clock price total (gross) with its commission and transport; costEur = -net. */
+    public record BuybackPart(int quantity, BigDecimal unitPriceEur, BigDecimal grossEur, BigDecimal commissionEur,
+                              BigDecimal transportEur, BigDecimal costEur, String enteredUnit, int enteredCount,
+                              BigDecimal piecePriceEur, int enteredPiecesPerUnit, int pieces) {}
 
+    /** One product of a melding with the full tile (round 2) and its sale and buyback. */
     public record Entry(long productId, String name, String variant, String colourHex, String unitOne,
-                        String unitOther, boolean hasPhoto, String photoVersion, SalePart sale, BuybackPart buyback) {}
+                        String unitOther, boolean hasPhoto, String photoVersion, SalePart sale, BuybackPart buyback,
+                        String sku, Long familyId, String familyName, int piecesPerUnit, String salesUnit,
+                        int piecesPerSalesUnit, String pieceOne, String pieceOther,
+                        List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit) {}
 
+    /**
+     * commission / transport / extra are the sale side's; buybackEur is the terugkoopkost (buyback gross +
+     * its commission + transport, i.e. -net), buybackGrossEur the clock price total; netEur = saleNetEur -
+     * buybackEur. Quantities in sales units, pieces in pieces.
+     */
     public record Totals(int saleQuantity, int buybackQuantity, BigDecimal grossEur, BigDecimal commissionEur,
                          BigDecimal transportEur, BigDecimal extraCostEur, BigDecimal saleNetEur,
-                         BigDecimal buybackEur, BigDecimal netEur) {}
+                         BigDecimal buybackEur, BigDecimal netEur, int salePieces, int buybackPieces,
+                         BigDecimal buybackGrossEur) {}
 
     /**
      * One melding with its parts merged back per entry. status OPEN | PARTLY_INVOICED | INVOICED | VOIDED.
-     * note (additive) is what was typed with it.
+     * note (additive) is what was typed with it. Round 2 (additive): editToken (send it back as
+     * expectedToken on an edit), updatedAt/By, the extra cost lines, the buyer, confirmed (staff
+     * confirmed it, or a document holds a part) and canEdit / canUndo for the partner (open, no buyback of
+     * another melding mirrors it, not confirmed).
      */
     public record PartnerReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
                                 String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
                                 ExtraCost extraCost, List<Entry> entries, Totals totals, String status,
-                                boolean canUndo, String note) {}
+                                boolean canUndo, String note, String editToken, Instant updatedAt,
+                                String updatedByName, List<CostLine> extraCosts, Buyer buyer, boolean confirmed,
+                                Instant confirmedAt, String confirmedByName, boolean canEdit) {}
 
     public record ReportPage(List<PartnerReport> reports, boolean more) {}
 
@@ -105,6 +162,15 @@ public final class PartnerPortalViews {
 
     public record SettingsRequest(BigDecimal auctionCommissionPct, BigDecimal auctionTransportPct, Long locationId) {}
 
+    /** A stored default count unit of a partner's product (GET /{customerId}/units lists only these rows). */
+    public record UnitDefault(long productId, String unit) {}
+
+    /** One change: unit STUK | VERPAKKING | OMDOOS, or null (and STUK) = back to the default per stuk. */
+    public record UnitChange(Long productId, String unit) {}
+
+    /** PUT /{customerId}/units: a partial update, never a full replace. */
+    public record UnitsRequest(List<UnitChange> changes) {}
+
     /* ------------------------------------------------------------ Veilingverkopen */
 
     /**
@@ -114,52 +180,67 @@ public final class PartnerPortalViews {
     public record StaffPart(long id, int entryNo, String lineType, long productId, String name, String variant,
                             Long purchaseOrderId, String containerName, int quantity, BigDecimal grossEur,
                             BigDecimal netEur, BigDecimal unitCostEur, Long invoiceId, String invoiceNumber,
-                            boolean open) {}
+                            boolean open, BigDecimal commissionEur, BigDecimal transportEur, BigDecimal extraCostEur,
+                            int pieces) {}
 
-    /** PartnerReport plus who and for whom, the withdrawal and the parts per source. */
+    /**
+     * PartnerReport plus who and for whom, the withdrawal and the parts per source. canEdit and canUndo are
+     * the staff rule (open and no buyback of another melding mirrors it; also when confirmed); revisionOf is
+     * set on an archive row (an old version, read by id only).
+     */
     public record StaffReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
                               String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
                               ExtraCost extraCost, List<Entry> entries, Totals totals, String status,
                               boolean canUndo, String note, long customerId, String customerName, String createdBy,
-                              Instant voidedAt, String voidedBy, String voidReason, List<StaffPart> parts) {
-        static StaffReport of(PartnerReport base, long customerId, String customerName, String createdBy,
-                              Instant voidedAt, String voidedBy, String voidReason, List<StaffPart> parts) {
+                              Instant voidedAt, String voidedBy, String voidReason, List<StaffPart> parts,
+                              String editToken, Instant updatedAt, String updatedByName, List<CostLine> extraCosts,
+                              Buyer buyer, boolean confirmed, Instant confirmedAt, String confirmedByName,
+                              boolean canEdit, Long revisionOf) {
+        static StaffReport of(PartnerReport base, boolean staffCanEdit, long customerId, String customerName,
+                              String createdBy, Instant voidedAt, String voidedBy, String voidReason,
+                              List<StaffPart> parts, Long revisionOf) {
             return new StaffReport(base.id(), base.number(), base.channel(), base.soldOn(), base.createdAt(),
                     base.createdByName(), base.commissionPct(), base.transportPct(), base.extraCost(), base.entries(),
-                    base.totals(), base.status(), base.canUndo(), base.note(), customerId, customerName, createdBy,
-                    voidedAt, voidedBy, voidReason, parts);
+                    base.totals(), base.status(), staffCanEdit, base.note(), customerId, customerName, createdBy,
+                    voidedAt, voidedBy, voidReason, parts, base.editToken(), base.updatedAt(), base.updatedByName(),
+                    base.extraCosts(), base.buyer(), base.confirmed(), base.confirmedAt(), base.confirmedByName(),
+                    staffCanEdit, revisionOf);
         }
     }
 
     /** What is still to invoice: meldingen with an open part, their open sale quantity and open net. */
     public record OpenTotals(int openReports, int openSaleQuantity, BigDecimal openNetEur) {}
 
-    public record StaffPage(List<StaffReport> reports, boolean more, OpenTotals totals) {}
+    public record StaffPage(List<StaffReport> reports, boolean more, OpenTotals totals, int apiVersion) {}
 
     public record PartnerSummary(long customerId, String customerName, int openReports, int openSaleQuantity,
                                  BigDecimal openNetEur, Instant lastReportAt) {}
 
     /** GET /api/partner-sales/summary: the nav count, the home card and the Te doen task read this. */
     public record Summary(int openReports, int openSaleQuantity, BigDecimal openNetEur, Instant lastReportAt,
-                          int recentReports14d, List<PartnerSummary> partners) {}
+                          int recentReports14d, List<PartnerSummary> partners, int apiVersion) {}
 
-    /** One non-voided melding by sold_on; open = it still has a part to invoice. costsEur = commission + transport + extra. */
     /**
      * One live melding. open = not fully invoiced; openSaleQuantity / openNetEur (additive) = only its parts that
      * are still open by the open-part rule, so "nog te factureren" here equals the summary's for the same melding.
+     * costsEur = the sale side's commission + transport + extra; buybackEur = the terugkoopkost (-net, round 2:
+     * incl. its commission and transport), buybackGrossEur the clock price total; netEur = gross - costs -
+     * buybackEur. salePieces in pieces, buyer on a direct sale.
      */
     public record AnalyticsReport(long id, String number, long customerId, String channel, LocalDate soldOn,
                                   boolean open, int saleQuantity, int buybackQuantity, BigDecimal grossEur,
                                   BigDecimal costsEur, BigDecimal buybackEur, BigDecimal netEur,
-                                  int openSaleQuantity, BigDecimal openNetEur) {}
+                                  int openSaleQuantity, BigDecimal openNetEur, BigDecimal buybackGrossEur,
+                                  int salePieces, Buyer buyer) {}
 
     /**
-     * One melding x product (reportId additive); netEur = sale net - buyback. Averages are derived, never summed.
-     * openSaleQuantity / openNetEur (additive): the still-open parts of this product in this melding.
+     * One melding x product (reportId additive); netEur = sale net - terugkoopkost. Averages are derived, never
+     * summed. openSaleQuantity / openNetEur (additive): the still-open parts of this product in this melding.
      */
     public record AnalyticsProduct(long reportId, long productId, String name, String variant, LocalDate soldOn,
                                    String channel, boolean open, int saleQuantity, int buybackQuantity,
-                                   BigDecimal grossEur, BigDecimal netEur, int openSaleQuantity, BigDecimal openNetEur) {}
+                                   BigDecimal grossEur, BigDecimal netEur, int openSaleQuantity, BigDecimal openNetEur,
+                                   int salePieces) {}
 
     public record Analytics(List<AnalyticsReport> reports, List<AnalyticsProduct> products) {}
 
@@ -175,11 +256,12 @@ public final class PartnerPortalViews {
      * One product of a group: what its open parts sold and bought back, the invoice quantity
      * (sold - bought back) and the net proceeds the invoice uses (proceedsEur: saleNet - buyback, plus
      * what it absorbs of other products of the source, see the group warnings), with the cost and our
-     * value as the invoice computes them.
+     * value as the invoice computes them. buybackEur is the terugkoopkost (-net: round 2 adds the buyback's
+     * commission and transport), buybackGrossEur the clock price totals alone; salePieces = sold in pieces.
      */
     public record InvoicePreviewLine(long productId, String name, String variant, int soldQuantity, int buybackQuantity,
                                      int quantity, BigDecimal saleNetEur, BigDecimal buybackEur, BigDecimal proceedsEur,
-                                     BigDecimal costEur, BigDecimal valueEur) {}
+                                     BigDecimal costEur, BigDecimal valueEur, BigDecimal buybackGrossEur, int salePieces) {}
 
     /**
      * One invoice to be: source CONTAINER (a partner settlement on purchaseOrderId, createAuctionSettlement's

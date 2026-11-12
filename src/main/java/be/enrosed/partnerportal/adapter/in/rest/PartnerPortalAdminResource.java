@@ -39,6 +39,21 @@ public class PartnerPortalAdminResource {
         return admin.saveLogin(customerId, request);
     }
 
+    /** The stored default count units of this partner (only rows; no row = per stuk). */
+    @GET
+    @Path("/{customerId}/units")
+    public List<PartnerPortalViews.UnitDefault> units(@PathParam("customerId") long customerId) {
+        return admin.units(customerId);
+    }
+
+    /** {"changes": [{productId, unit|null}]}: a partial update; answers the stored rows after it. */
+    @PUT
+    @Path("/{customerId}/units")
+    public List<PartnerPortalViews.UnitDefault> saveUnits(@PathParam("customerId") long customerId,
+                                                          PartnerPortalViews.UnitsRequest request) {
+        return admin.saveUnits(customerId, request);
+    }
+
     @PUT
     @Path("/{customerId}/settings")
     public PartnerPortalViews.AdminRow saveSettings(@PathParam("customerId") long customerId,

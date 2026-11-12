@@ -81,6 +81,13 @@ public class PartnerPortalResource {
         return portal.reports(PartnerCaller.of(identity).customerId(), before, limit);
     }
 
+    /** One own melding (Bewerken loads it); 404 for another partner's and for an old version. */
+    @GET
+    @Path("/reports/{id}")
+    public PartnerPortalViews.PartnerReport reportById(@PathParam("id") long id) {
+        return portal.report(PartnerCaller.of(identity).customerId(), id);
+    }
+
     /** small (480 px) or medium (1280 px); v is the tile's photoVersion and only makes the URL change. */
     @GET
     @Path("/products/{productId}/photo")

@@ -12,7 +12,9 @@ import be.enrosed.catalog.domain.StockMovement;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalSettingsEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportCostEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportLineEntity;
+import be.enrosed.partnerportal.domain.PartnerCountUnits;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
 import be.enrosed.partnerportal.domain.PartnerProductNames;
 import be.enrosed.partnerportal.domain.PartnerSaleTexts;
@@ -36,6 +38,7 @@ import java.math.RoundingMode;
 import java.sql.SQLException;
 import java.time.Instant;
 import java.time.LocalDate;
+import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.HashSet;
@@ -67,6 +70,8 @@ public class PartnerSaleReportService {
 
     public static final String ENTITY = "PARTNER_SALE_REPORT";
     public static final String ACTION_VOIDED = "VOIDED";
+    static final String OLD_VERSION = "Dit is een oude versie";
+    static final String CONFIRMED_FOR_PARTNER = "Enrosed heeft deze melding al bevestigd; vraag Enrosed om een wijziging.";
 
     static final int MAX_ENTRIES = 60;
     static final int MAX_DAYS_BACK = 90;
@@ -77,6 +82,8 @@ public class PartnerSaleReportService {
     static final BigDecimal MAX_UNIT_PRICE = new BigDecimal("1000000");
     static final BigDecimal MAX_TOTAL = new BigDecimal("100000000");
     static final BigDecimal MAX_EXTRA_PCT = new BigDecimal("100");
+    static final int MAX_COST_LINES = 5;
+    static final int MAX_COST_DESCRIPTION = 80;
 
     /** What a create did: the melding, and false when a retry found it already there. */
     public record Outcome(long reportId, boolean created) {}
@@ -84,6 +91,7 @@ public class PartnerSaleReportService {
     private final PartnerPortalRepositories.Settings settingsRows;
     private final PartnerPortalRepositories.Reports reports;
     private final PartnerPortalRepositories.Lines lines;
+    private final PartnerPortalRepositories.Costs costRows;
     private final PartnerPortalSettings settings;
     private final PartnerContainerCapacity capacity;
     private final PartnerOpenParts openParts;
@@ -99,6 +107,7 @@ public class PartnerSaleReportService {
 
     public PartnerSaleReportService(PartnerPortalRepositories.Settings settingsRows,
                                     PartnerPortalRepositories.Reports reports, PartnerPortalRepositories.Lines lines,
+                                    PartnerPortalRepositories.Costs costRows,
                                     PartnerPortalSettings settings, PartnerContainerCapacity capacity,
                                     PartnerOpenParts openParts, StockService stock, StockBatchService batches,
                                     ProductRepository products, ProductCostHistoryService costHistory,
@@ -108,6 +117,7 @@ public class PartnerSaleReportService {
         this.settingsRows = settingsRows;
         this.reports = reports;
         this.lines = lines;
+        this.costRows = costRows;
         this.settings = settings;
         this.capacity = capacity;
         this.openParts = openParts;
@@ -153,6 +163,7 @@ public class PartnerSaleReportService {
             Optional<PartnerSaleReportEntity> existing = reports.findByClientRef(customerId, input.clientRef());
             if (existing.isPresent()) return new Outcome(existing.get().id, false);
         }
+        Long buyerId = buyer(customerId, input, staff);
         PartnerPortalSettings.Effective applied = settings.of(customerId, row);
         StockLocation location = applied.location();
         /* Lock 2: the partner's containers, ascending. Lock 3: the products, ascending. */
@@ -163,17 +174,20 @@ public class PartnerSaleReportService {
             catalog.put(productId, products.findById(productId)
                     .orElseThrow(() -> new BusinessRuleException("Product #" + productId + " bestaat niet meer")));
         }
+        /* Round-2 parts are typed in a count unit: converted to sales units now the product is known. */
+        List<EntryInput> resolved = new ArrayList<>();
+        for (EntryInput entry : input.entries()) resolved.add(entry.resolve(catalog.get(entry.productId())));
         boolean batchesOn = batches.active();
         boolean auction = PartnerPortalRules.CHANNEL_AUCTION.equals(input.channel());
         BigDecimal commissionPct = auction ? applied.auctionCommissionPct() : BigDecimal.ZERO;
         BigDecimal transportPct = auction ? applied.auctionTransportPct() : BigDecimal.ZERO;
 
         /* ---- the plan: every part, checked, before anything is written */
-        List<EntryInput> saleEntries = input.entries().stream().filter(entry -> entry.sale() != null).toList();
+        List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
         List<PartnerSaleMoney.Sale> saleMoney = PartnerSaleMoney.sales(saleEntries.stream()
                         .map(entry -> PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(),
                                 entry.sale().total())).toList(),
-                commissionPct, transportPct, input.extraMode(), input.extraValue());
+                commissionPct, transportPct, input.moneyCosts());
         List<PurchaseOrder> candidates = PartnerContainerCapacity.candidates(containers, location);
         Map<Long, List<PartnerContainerCapacity.Slot>> slots = capacity.slots(customerId, candidates,
                 saleEntries.stream().map(EntryInput::productId).toList(), batchesOn);
@@ -187,15 +201,16 @@ public class PartnerSaleReportService {
             salesByEntry.put(entry.entryNo(), parts);
         }
         List<Planned> buybacks = new ArrayList<>();
-        for (EntryInput entry : input.entries()) {
+        for (EntryInput entry : resolved) {
             if (entry.buyback() == null) continue;
             buybacks.addAll(planBuyback(customerId, entry, catalog.get(entry.productId()),
-                    salesByEntry.getOrDefault(entry.entryNo(), List.of())));
+                    salesByEntry.getOrDefault(entry.entryNo(), List.of()), commissionPct, transportPct));
         }
 
         /* ---- the writes */
         ActorRef who = actor.current();
-        Instant now = Instant.now();
+        /* Micro precision, as the database keeps it: the editToken read back equals the one answered now. */
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         PartnerSaleReportEntity report = new PartnerSaleReportEntity();
         report.customerId = customerId;
         report.loginId = loginId;
@@ -203,9 +218,9 @@ public class PartnerSaleReportService {
         report.soldOn = input.soldOn();
         report.commissionPct = commissionPct.setScale(4, RoundingMode.HALF_UP);
         report.transportPct = transportPct.setScale(4, RoundingMode.HALF_UP);
-        report.extraCostMode = input.extraMode();
-        report.extraCostValue = input.extraValue();
+        /* Round 2 keeps the extra cost in partner_sale_report_cost; extra_cost_mode/value stay round-1 only. */
         report.note = input.note();
+        report.buyerCustomerId = buyerId;
         report.locationId = location.id();
         report.clientRef = input.clientRef();
         report.createdAt = now;
@@ -213,6 +228,7 @@ public class PartnerSaleReportService {
         report.createdByName = cut(who.displayName(), 100);
         reports.persist(report);
         reports.flush();
+        writeCosts(report.id, input.costs());
         String number = PartnerPortalRules.reportNumber(report.id);
         for (Planned part : sales) {
             Long movementId = stock.partnerMove(part.productId, location.id(), -part.quantity,
@@ -248,16 +264,19 @@ public class PartnerSaleReportService {
 
         int saleQuantity = sales.stream().mapToInt(part -> part.quantity).sum();
         int buybackQuantity = buybacks.stream().mapToInt(part -> part.quantity).sum();
+        int salePieces = sales.stream().mapToInt(part -> part.quantity * piecesPerSalesUnit(catalog.get(part.productId))).sum();
+        int buybackPieces = buybacks.stream().mapToInt(part -> part.quantity * piecesPerSalesUnit(catalog.get(part.productId))).sum();
         boolean buybackOnly = saleQuantity == 0;
+        /* A buyback part's net is -(gross + commission + transport): the terugkoopkost is subtracted whole. */
         BigDecimal net = sales.stream().map(part -> part.net).reduce(BigDecimal.ZERO, BigDecimal::add)
-                .subtract(buybacks.stream().map(part -> part.gross).reduce(BigDecimal.ZERO, BigDecimal::add));
+                .add(buybacks.stream().map(part -> part.net).reduce(BigDecimal.ZERO, BigDecimal::add));
         String summary = PartnerSaleTexts.title(report.channel, buybackOnly) + ": "
-                + (buybackOnly ? buybackQuantity + " teruggekocht · terugkoop " + PartnerSaleTexts.euro(net.negate())
-                : saleQuantity + " verkocht" + (buybackQuantity > 0 ? " · " + buybackQuantity + " teruggekocht" : "")
+                + (buybackOnly ? buybackPieces + " teruggekocht · terugkoop " + PartnerSaleTexts.euro(net.negate())
+                : salePieces + " verkocht" + (buybackPieces > 0 ? " · " + buybackPieces + " teruggekocht" : "")
                 + " · netto " + PartnerSaleTexts.euro(net));
         activity.record(ActivityLogService.ACTION_CREATED, ENTITY, report.id.toString(),
                 number + " · " + customer.company(), summary);
-        pushReady.fire(new PartnerSalePushNotifier.Ready(report.id, buybackOnly ? buybackQuantity : saleQuantity,
+        pushReady.fire(new PartnerSalePushNotifier.Ready(report.id, buybackOnly ? buybackPieces : salePieces,
                 PartnerSaleTexts.kind(report.channel, buybackOnly), staff ? who.username() : null));
         return new Outcome(report.id, true);
     }
@@ -270,8 +289,12 @@ public class PartnerSaleReportService {
         int wanted = money.quantity();
         int atLocation = stock.quantityAt(product.id(), location.id());
         if (wanted > atLocation) {
-            String head = "Er liggen nog maar " + PartnerSaleTexts.quantity(Math.max(0, atLocation), names.unitOne(),
-                    names.unitOther()) + " van " + label(names);
+            /* Typed in a count unit: told in pieces ("360 rozen"), else in sales units as round 1. */
+            PartnerCountUnits.Counting counting = PartnerCountUnits.of(product);
+            String left = entry.sale().typed()
+                    ? counting.pieces((long) Math.max(0, atLocation) * counting.piecesPerSalesUnit())
+                    : PartnerSaleTexts.quantity(Math.max(0, atLocation), names.unitOne(), names.unitOther());
+            String head = "Er liggen nog maar " + left + " van " + label(names);
             throw new BusinessRuleException(staff ? head + " op " + location.name() + ". Werk eerst de voorraad bij."
                     : head + ". " + callEnrosed() + " om de voorraad bij te werken.");
         }
@@ -308,7 +331,7 @@ public class PartnerSaleReportService {
         List<Planned> parts = new ArrayList<>();
         for (int index = 0; index < split.size(); index++) {
             PartnerSaleMoney.Sale part = split.get(index);
-            parts.add(Planned.sale(entry.entryNo(), product.id(), sources.get(index), part));
+            parts.add(Planned.sale(entry.entryNo(), product.id(), sources.get(index), part, entry.sale().entered()));
         }
         return parts;
     }
@@ -319,10 +342,13 @@ public class PartnerSaleReportService {
      * partner's other open sale parts newest first, then invoiced ones newest first; each only up
      * to its quantity minus what live buybacks already mirror.
      */
-    private List<Planned> planBuyback(long customerId, EntryInput entry, Product product, List<Planned> sameMelding) {
+    private List<Planned> planBuyback(long customerId, EntryInput entry, Product product, List<Planned> sameMelding,
+                                      BigDecimal commissionPct, BigDecimal transportPct) {
         PartnerProductNames.Names names = PartnerProductNames.of(product);
         PartnerSaleMoney.Priced priced = PartnerSaleMoney.price(entry.buyback().quantity(), entry.buyback().unitPrice(),
                 entry.buyback().total());
+        /* The pieces come back to Enrosed: the same commission and transport as a sale (auction only). */
+        PartnerSaleMoney.Buyback money = PartnerSaleMoney.buyback(priced, commissionPct, transportPct);
         int rest = priced.quantity();
         List<Object> mirrors = new ArrayList<>();
         List<Integer> quantities = new ArrayList<>();
@@ -361,14 +387,15 @@ public class PartnerSaleReportService {
                     + PartnerSaleTexts.quantity(found, names.unitOne(), names.unitOther())
                     + " als verkocht gemeld; een terugkoop hoort bij een gemelde verkoop.");
         }
-        List<BigDecimal> gross = PartnerSaleMoney.splitGross(priced.grossEur(), quantities);
+        List<PartnerSaleMoney.Buyback> split = PartnerSaleMoney.splitBuyback(money, quantities);
+        Entered entered = entry.buyback().entered();
         List<Planned> parts = new ArrayList<>();
         Map<Long, PartnerContainerCapacity.Settled> settled = new HashMap<>();
         for (int index = 0; index < mirrors.size(); index++) {
             Object mirror = mirrors.get(index);
             if (mirror instanceof Planned planned) {
-                parts.add(Planned.buyback(entry.entryNo(), product.id(), planned.purchaseOrderId, quantities.get(index),
-                        priced.unitPriceEur(), gross.get(index), null, planned));
+                parts.add(Planned.buyback(entry.entryNo(), product.id(), planned.purchaseOrderId, split.get(index),
+                        null, planned, entered));
                 continue;
             }
             PartnerSaleReportLineEntity line = (PartnerSaleReportLineEntity) mirror;
@@ -378,7 +405,7 @@ public class PartnerSaleReportService {
                     : settled.computeIfAbsent(line.purchaseOrderId, id -> capacity.settled(id, product.id()));
             boolean takeOver = closed != null && closed.closed();
             Planned part = Planned.buyback(entry.entryNo(), product.id(), takeOver ? null : line.purchaseOrderId,
-                    quantities.get(index), priced.unitPriceEur(), gross.get(index), line, null);
+                    split.get(index), line, null, entered);
             if (takeOver) part.takeoverCostEur = closed.unitCostEur() == null
                     ? BigDecimal.ZERO.setScale(4) : closed.unitCostEur();
             parts.add(part);
@@ -405,9 +432,53 @@ public class PartnerSaleReportService {
         line.unitCostEur = unitCost;
         line.mirrorsLineId = mirrorsLineId;
         line.stockMovementId = movementId;
+        if (part.entered != null) {
+            line.enteredUnit = part.entered.unit();
+            line.enteredCount = part.entered.count();
+            line.piecePriceEur = part.entered.piecePriceEur();
+            line.enteredPiecesPerUnit = part.entered.piecesPerUnit();
+        }
         lines.persist(line);
         lines.flush();
         return line;
+    }
+
+    /** The extra cost lines of a new melding, numbered 1..n in the order typed. */
+    private void writeCosts(long reportId, List<CostInput> lines) {
+        int number = 0;
+        for (CostInput line : lines) {
+            PartnerSaleReportCostEntity row = new PartnerSaleReportCostEntity();
+            row.reportId = reportId;
+            row.lineNo = ++number;
+            row.description = line.description();
+            row.costMode = line.mode();
+            row.costValue = line.value();
+            costRows.persist(row);
+        }
+        if (number > 0) costRows.flush();
+    }
+
+    /**
+     * The buyer of a direct sale, checked after the partner lock for partner and staff alike: an
+     * existing customer that is no partner and not this partner, else one uniform "Onbekende klant"
+     * (so an id never tells whether a customer exists). Required only on a round-2 partner request
+     * of a direct sale; older requests without a buyer are accepted.
+     */
+    private Long buyer(long partnerId, Input input, boolean staff) {
+        Long buyerId = input.buyerCustomerId();
+        if (buyerId == null) {
+            if (!staff && input.roundTwo() && PartnerPortalRules.CHANNEL_DIRECT.equals(input.channel())) {
+                throw new BusinessRuleException("Kies de klant of voeg er een toe");
+            }
+            return null;
+        }
+        Customer buyer = buyerId == partnerId ? null : customers.findById(buyerId).orElse(null);
+        if (buyer == null || buyer.partner()) throw new BusinessRuleException("Onbekende klant");
+        return buyerId;
+    }
+
+    private static int piecesPerSalesUnit(Product product) {
+        return PartnerCountUnits.of(product).piecesPerSalesUnit();
     }
 
     /** An own part's cost per sales unit; estimated = some pieces had no known cost and count at the known average. */
@@ -487,7 +558,10 @@ public class PartnerSaleReportService {
         long customerId = report.customerId;
         settingsRows.lockOrCreate(customerId);
         reports.getEntityManager().refresh(report);
+        if (report.isArchive()) throw new BusinessRuleException(OLD_VERSION);
         if (report.isVoided()) return;
+        /* Re-checked after the partner lock: staff may have confirmed it a moment ago. */
+        if (!staff && report.confirmedAt != null) throw new BusinessRuleException(CONFIRMED_FOR_PARTNER);
         List<PurchaseOrder> containers = capacity.lockContainers(customerId);
         List<PartnerSaleReportLineEntity> all = lines.byReport(reportId);
         List<PartnerSaleReportLineEntity> parts = all.stream().filter(line -> line.isSale() || line.isBuyback()).toList();
@@ -639,17 +713,69 @@ public class PartnerSaleReportService {
 
     /* ============================================================ validation */
 
-    /** The checked body: channel upper case, soldOn filled, entry numbers 1..n in the order given. */
-    record Input(String channel, LocalDate soldOn, String clientRef, String note, String extraMode,
-                 BigDecimal extraValue, List<EntryInput> entries) {
+    /**
+     * The checked body: channel upper case, soldOn filled, entry numbers 1..n in the order given,
+     * the extra cost lines (a round-1 extraCost as one line without description), the buyer id
+     * (checked against the customers after the partner lock) and whether a round-2 client sent it.
+     */
+    record Input(String channel, LocalDate soldOn, String clientRef, String note, List<CostInput> costs,
+                 List<EntryInput> entries, Long buyerCustomerId, boolean roundTwo) {
         List<Long> productIds() {
             return entries.stream().map(EntryInput::productId).toList();
         }
+
+        List<PartnerSaleMoney.CostLine> moneyCosts() {
+            return costs.stream().map(line -> new PartnerSaleMoney.CostLine(line.mode(), line.value())).toList();
+        }
     }
 
-    record EntryInput(int entryNo, long productId, PartInput sale, PartInput buyback) {}
+    /** One extra cost line as stored: description null or 1..80 characters, AMOUNT at 2 dp or PCT at 4 dp. */
+    record CostInput(String description, String mode, BigDecimal value) {}
 
-    record PartInput(int quantity, BigDecimal unitPrice, BigDecimal total) {}
+    record EntryInput(int entryNo, long productId, PartInput sale, PartInput buyback) {
+        /** Both sides converted with this product's count units (round-1 sides stay as they are). */
+        EntryInput resolve(Product product) {
+            if ((sale == null || !sale.typed()) && (buyback == null || !buyback.typed())) return this;
+            PartnerCountUnits.Counting counting = PartnerCountUnits.of(product);
+            String label = label(PartnerProductNames.of(product));
+            return new EntryInput(entryNo, productId, sale == null ? null : sale.resolve(counting, label),
+                    buyback == null ? null : buyback.resolve(counting, label));
+        }
+    }
+
+    /** What was typed on one side of a round-2 entry: unit, count, piece price (4 dp) and the unit's pieces. */
+    record Entered(String unit, int count, BigDecimal piecePriceEur, int piecesPerUnit) {}
+
+    /**
+     * One side of an entry. Round 1: quantity (sales units) with unitPrice or total. Round 2 before
+     * {@link #resolve}: unit, count and piecePrice; after it also quantity, unitPrice per sales unit
+     * and the snapshot in {@link #entered}.
+     */
+    record PartInput(int quantity, BigDecimal unitPrice, BigDecimal total, String unit, Integer count,
+                     BigDecimal piecePrice, Entered entered) {
+        boolean typed() {
+            return unit != null;
+        }
+
+        PartInput resolve(PartnerCountUnits.Counting counting, String productLabel) {
+            if (!typed() || entered != null) return this;
+            PartnerCountUnits.CountUnit chosen = counting.unit(unit).orElseThrow(() -> new BusinessRuleException(
+                    productLabel + " telt niet per " + unitWord(unit) + "; kies een andere eenheid"));
+            int salesUnits = counting.salesUnits(chosen, count);
+            if (salesUnits <= 0 || salesUnits > MAX_QUANTITY) throw new BusinessRuleException("Dit aantal is te groot");
+            BigDecimal piece = PartnerSaleMoney.piecePrice(piecePrice);
+            return new PartInput(salesUnits, PartnerSaleMoney.unitPriceOfPiece(piece, counting.piecesPerSalesUnit()),
+                    null, unit, count, piece, new Entered(chosen.unit(), count, piece, chosen.pieces()));
+        }
+
+        private static String unitWord(String unit) {
+            return switch (unit) {
+                case PartnerCountUnits.VERPAKKING -> "display";
+                case PartnerCountUnits.OMDOOS -> "omdoos";
+                default -> "stuk";
+            };
+        }
+    }
 
     static Input validate(PartnerSaleRequests.Report request) {
         if (request == null) throw new BusinessRuleException("Geen gegevens ontvangen");
@@ -688,35 +814,86 @@ public class PartnerSaleReportService {
             }
             entries.add(new EntryInput(entries.size() + 1, entry.productId(), part(entry.sale()), part(entry.buyback())));
         }
-        String extraMode = null;
-        BigDecimal extraValue = null;
-        PartnerSaleRequests.ExtraCost extra = request.extraCost();
-        if (extra != null && (extra.mode() != null || extra.value() != null)) {
-            extraMode = extra.mode() == null ? "" : extra.mode().strip().toUpperCase(Locale.ROOT);
-            if (!"AMOUNT".equals(extraMode) && !"PCT".equals(extraMode)) {
-                throw new BusinessRuleException("Kies voor de extra kost een bedrag of een percentage");
-            }
-            if (entries.stream().noneMatch(entry -> entry.sale() != null)) {
-                throw new BusinessRuleException("Extra kost hoort bij een verkoop");
-            }
-            extraValue = extra.value();
-            if (extraValue == null || extraValue.signum() < 0) {
-                throw new BusinessRuleException("Vul de extra kost in (0 of meer)");
-            }
-            if ("PCT".equals(extraMode) && extraValue.compareTo(MAX_EXTRA_PCT) > 0) {
-                throw new BusinessRuleException("Een percentage ligt tussen 0 en 100");
-            }
-            if ("AMOUNT".equals(extraMode) && extraValue.compareTo(MAX_TOTAL) > 0) {
-                throw new BusinessRuleException("Dit bedrag is te groot");
-            }
-            /* Computed from what is stored (and what the frontend sends): an amount in cents, a percent at 4 dp. */
-            extraValue = extraValue.setScale("AMOUNT".equals(extraMode) ? 2 : 4, RoundingMode.HALF_UP);
+        List<CostInput> costs = costs(request);
+        if (!costs.isEmpty() && entries.stream().noneMatch(entry -> entry.sale() != null)) {
+            throw new BusinessRuleException("Extra kost hoort bij een verkoop");
         }
-        return new Input(channel, soldOn, clientRef, note, extraMode, extraValue, List.copyOf(entries));
+        Long buyer = request.buyerCustomerId();
+        if (buyer != null && !PartnerPortalRules.CHANNEL_DIRECT.equals(channel)) {
+            throw new BusinessRuleException("Een klant hoort alleen bij een directe verkoop");
+        }
+        return new Input(channel, soldOn, clientRef, note, List.copyOf(costs), List.copyOf(entries), buyer,
+                request.roundTwo());
+    }
+
+    /** The extra cost lines: round 2's extraCosts (0..5), or round 1's single extraCost as one line. */
+    private static List<CostInput> costs(PartnerSaleRequests.Report request) {
+        PartnerSaleRequests.ExtraCost legacy = request.extraCost();
+        boolean legacyGiven = legacy != null && (legacy.mode() != null || legacy.value() != null);
+        if (request.extraCosts() != null) {
+            if (legacyGiven) throw PartnerRefusals.badRequest("Stuur de extra kosten als extraCosts, niet ook als extraCost");
+            if (request.extraCosts().size() > MAX_COST_LINES) {
+                throw new BusinessRuleException("Hoogstens " + MAX_COST_LINES + " extra kosten per melding");
+            }
+            List<CostInput> lines = new ArrayList<>();
+            for (PartnerSaleRequests.CostLine line : request.extraCosts()) {
+                if (line == null) continue;
+                lines.add(cost(description(line.description()), line.mode(), line.value()));
+            }
+            return lines;
+        }
+        if (!legacyGiven) return List.of();
+        return List.of(cost(null, legacy.mode(), legacy.value()));
+    }
+
+    private static CostInput cost(String description, String typedMode, BigDecimal typedValue) {
+        String mode = typedMode == null ? "" : typedMode.strip().toUpperCase(Locale.ROOT);
+        if (!PartnerSaleMoney.AMOUNT.equals(mode) && !PartnerSaleMoney.PCT.equals(mode)) {
+            throw new BusinessRuleException("Kies voor de extra kost een bedrag of een percentage");
+        }
+        if (typedValue == null || typedValue.signum() < 0) throw new BusinessRuleException("Vul de extra kost in (0 of meer)");
+        if (PartnerSaleMoney.PCT.equals(mode) && typedValue.compareTo(MAX_EXTRA_PCT) > 0) {
+            throw new BusinessRuleException("Een percentage ligt tussen 0 en 100");
+        }
+        if (PartnerSaleMoney.AMOUNT.equals(mode) && typedValue.compareTo(MAX_TOTAL) > 0) {
+            throw new BusinessRuleException("Dit bedrag is te groot");
+        }
+        /* Computed from what is stored (and what the frontend sends): an amount in cents, a percent at 4 dp. */
+        BigDecimal value = typedValue.setScale(PartnerSaleMoney.AMOUNT.equals(mode) ? 2 : 4, RoundingMode.HALF_UP);
+        return new CostInput(description, mode, value);
+    }
+
+    /** A cost line's description: control characters out, trimmed, blank = none, at most 80 characters. */
+    private static String description(String typed) {
+        if (typed == null) return null;
+        String clean = typed.replaceAll("\\p{Cntrl}", " ").strip();
+        if (clean.isEmpty()) return null;
+        if (clean.length() > MAX_COST_DESCRIPTION) {
+            throw new BusinessRuleException("Een omschrijving heeft hoogstens " + MAX_COST_DESCRIPTION + " tekens");
+        }
+        return clean;
     }
 
     private static PartInput part(PartnerSaleRequests.Part given) {
         if (given == null) return null;
+        if (given.roundTwo()) {
+            if (given.roundOne()) {
+                throw PartnerRefusals.badRequest("Een regel heeft óf een aantal met een prijs per eenheid of totaal, "
+                        + "óf een eenheid met een aantal en een prijs per stuk");
+            }
+            String unit = PartnerCountUnits.normalize(given.enteredUnit());
+            if (unit == null) throw new BusinessRuleException("Kies per stuk, per display of per omdoos");
+            BigDecimal count = given.enteredCount();
+            if (count == null || count.signum() <= 0 || count.stripTrailingZeros().scale() > 0
+                    || count.compareTo(BigDecimal.valueOf(MAX_QUANTITY)) > 0) {
+                throw new BusinessRuleException("Vul een heel aantal groter dan nul in");
+            }
+            BigDecimal price = given.piecePriceEur();
+            if (price == null) throw new BusinessRuleException("Vul een gemiddelde prijs per stuk in");
+            if (price.signum() < 0) throw new BusinessRuleException("Een prijs kan niet negatief zijn");
+            if (price.compareTo(MAX_UNIT_PRICE) > 0) throw new BusinessRuleException("Dit bedrag is te groot");
+            return new PartInput(0, null, null, unit, count.intValueExact(), price, null);
+        }
         BigDecimal quantity = given.quantity();
         if (quantity == null || quantity.signum() <= 0 || quantity.stripTrailingZeros().scale() > 0
                 || quantity.compareTo(BigDecimal.valueOf(MAX_QUANTITY)) > 0) {
@@ -730,7 +907,7 @@ public class PartnerSaleReportService {
         if (price.compareTo(given.unitPriceEur() != null ? MAX_UNIT_PRICE : MAX_TOTAL) > 0) {
             throw new BusinessRuleException("Dit bedrag is te groot");
         }
-        return new PartInput(quantity.intValueExact(), given.unitPriceEur(), given.totalEur());
+        return new PartInput(quantity.intValueExact(), given.unitPriceEur(), given.totalEur(), null, null, null, null);
     }
 
     /* =============================================================== helpers */
@@ -750,6 +927,8 @@ public class PartnerSaleReportService {
         final BigDecimal net;
         final PartnerSaleReportLineEntity mirrorsExisting;
         final Planned mirrorsPlanned;
+        /** What was typed on this side of the entry (round 2), else null. */
+        final Entered entered;
         /** A buyback of a part on a settled-through container: booked on own stock at this cost (else null). */
         BigDecimal takeoverCostEur;
         PartnerSaleReportLineEntity written;
@@ -757,7 +936,7 @@ public class PartnerSaleReportService {
         private Planned(int entryNo, long productId, String type, Long purchaseOrderId, int quantity,
                         BigDecimal unitPrice, BigDecimal gross, BigDecimal commission, BigDecimal transport,
                         BigDecimal extra, BigDecimal net, PartnerSaleReportLineEntity mirrorsExisting,
-                        Planned mirrorsPlanned) {
+                        Planned mirrorsPlanned, Entered entered) {
             this.entryNo = entryNo;
             this.productId = productId;
             this.type = type;
@@ -771,19 +950,22 @@ public class PartnerSaleReportService {
             this.net = net;
             this.mirrorsExisting = mirrorsExisting;
             this.mirrorsPlanned = mirrorsPlanned;
+            this.entered = entered;
         }
 
-        static Planned sale(int entryNo, long productId, Long purchaseOrderId, PartnerSaleMoney.Sale money) {
+        static Planned sale(int entryNo, long productId, Long purchaseOrderId, PartnerSaleMoney.Sale money,
+                            Entered entered) {
             return new Planned(entryNo, productId, PartnerSaleReportLineEntity.SALE, purchaseOrderId, money.quantity(),
                     money.unitPriceEur(), money.grossEur(), money.commissionEur(), money.transportEur(),
-                    money.extraCostEur(), money.netEur(), null, null);
+                    money.extraCostEur(), money.netEur(), null, null, entered);
         }
 
-        static Planned buyback(int entryNo, long productId, Long purchaseOrderId, int quantity, BigDecimal unitPrice,
-                               BigDecimal gross, PartnerSaleReportLineEntity mirrorsExisting, Planned mirrorsPlanned) {
-            return new Planned(entryNo, productId, PartnerSaleReportLineEntity.BUYBACK, purchaseOrderId, quantity,
-                    unitPrice, gross, PartnerSaleMoney.ZERO, PartnerSaleMoney.ZERO, PartnerSaleMoney.ZERO,
-                    gross.negate(), mirrorsExisting, mirrorsPlanned);
+        /** A buyback part: gross, commission and transport its share, net = -(gross + commission + transport). */
+        static Planned buyback(int entryNo, long productId, Long purchaseOrderId, PartnerSaleMoney.Buyback money,
+                               PartnerSaleReportLineEntity mirrorsExisting, Planned mirrorsPlanned, Entered entered) {
+            return new Planned(entryNo, productId, PartnerSaleReportLineEntity.BUYBACK, purchaseOrderId, money.quantity(),
+                    money.unitPriceEur(), money.grossEur(), money.commissionEur(), money.transportEur(),
+                    PartnerSaleMoney.ZERO, money.netEur(), mirrorsExisting, mirrorsPlanned, entered);
         }
     }
 
