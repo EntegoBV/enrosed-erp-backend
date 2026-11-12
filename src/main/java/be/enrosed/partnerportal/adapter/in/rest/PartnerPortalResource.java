@@ -109,4 +109,19 @@ public class PartnerPortalResource {
         }
         return Response.noContent().build();
     }
+
+    /* ------------------------------------------------------- containers (round 2) */
+
+    @jakarta.inject.Inject
+    be.enrosed.partnerportal.application.PartnerContainerReader containers;
+
+    /**
+     * Every container of Enrosed's that is not a concept (old and archived ones too), with its logistics and the
+     * product specifications: never a price, amount, supplier or free text (PartnerContainerViews).
+     */
+    @GET
+    @Path("/containers")
+    public be.enrosed.partnerportal.application.PartnerContainerViews.ContainerPage containers() {
+        return containers.page(PartnerCaller.of(identity).customerId());
+    }
 }

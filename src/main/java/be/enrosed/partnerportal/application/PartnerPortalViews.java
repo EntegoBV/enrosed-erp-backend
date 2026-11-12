@@ -7,7 +7,11 @@ import java.util.List;
 
 /**
  * The JSON shapes of the partner portal (contract section 5). Partner-facing shapes never carry
- * a price, cost, supplier or container field of Enrosed's own: only what the partner typed.
+ * a price, cost, amount, supplier or free text of Enrosed's own: only what the partner typed
+ * (his own melding money). Container identity and logistics are allowed, and only in
+ * {@link PartnerContainerViews} (round 2): the PO number (never the alias), own or not, status,
+ * type, dates, ports, the location name of an own container or MAIN, quantities, pieces, cartons,
+ * m³, fill, pallets, weight and the product card's sizes.
  */
 public final class PartnerPortalViews {
 
