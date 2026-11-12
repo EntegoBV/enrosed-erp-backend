@@ -50,6 +50,9 @@ import java.util.regex.Pattern;
 @ApplicationScoped
 public class PartnerCustomerService {
 
+    /** Nagekeken on a customer without a VAT number (the staff sheet asks for it first). */
+    static final String REVIEW_NEEDS_VAT = "Nagekeken kan pas met een BTW-nummer";
+
     static final int MIN_LETTERS = 2;
     static final int MAX_QUERY = 100;
     static final int MAX_RESULTS = 20;
@@ -204,6 +207,9 @@ public class PartnerCustomerService {
     /**
      * Staff marked a customer a partner added as reviewed ("Nagekeken"): its bell item goes, and a staff save
      * needs the VAT number again. 404 when no partner added it. Takes the partner lock of each partner involved.
+     * Refused (409 {@link #REVIEW_NEEDS_VAT}) while the customer has no VAT number and is not reviewed yet: the
+     * VAT rule every later staff save applies holds here too, so a reviewed customer always has one. Marking an
+     * already reviewed customer again changes nothing and answers its origin.
      */
     @Transactional
     public CustomerPartnerOrigins.Origin reviewed(long customerId) {
@@ -214,11 +220,15 @@ public class PartnerCustomerService {
                 .filter(java.util.Objects::nonNull).toList())) {
             settingsRows.lockOrCreate(partnerId);
         }
+        for (PartnerCustomerLinkEntity link : added) links.getEntityManager().refresh(link);
+        boolean waiting = added.stream().anyMatch(link -> link.reviewedAt == null);
+        if (waiting && (customer.vatNumber() == null || customer.vatNumber().isBlank())) {
+            throw new BusinessRuleException(REVIEW_NEEDS_VAT);
+        }
         ActorRef who = actor.current();
         Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
         boolean changed = false;
         for (PartnerCustomerLinkEntity link : added) {
-            links.getEntityManager().refresh(link);
             if (link.reviewedAt != null) continue;
             link.reviewedAt = now;
             link.reviewedBy = who.username();

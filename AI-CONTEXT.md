@@ -3066,7 +3066,9 @@ the Factureren figures and notes come in later stages on top of it.
   the stored record has no VAT number and a partner-made link is unreviewed. `POST
   /api/partner-portal-admin/customers/{customerId}/reviewed` ("Nagekeken") stamps reviewed_at/by on its
   partner-made links under the partners' locks and answers the origin; 404 for a customer no partner
-  added; activity on CUSTOMER "Nagekeken (aangemaakt via Partnerportaal)". Deletion (stage 1 listener):
+  added; 409 "Nagekeken kan pas met een BTW-nummer" while it has no VAT number and is not reviewed yet
+  (review round 2: the rule every later staff save applies, on the server too; marking a reviewed one
+  again changes nothing); activity on CUSTOMER "Nagekeken (aangemaakt via Partnerportaal)". Deletion (stage 1 listener):
   a buyer of a non-archive melding stays; otherwise its links go.
 
 ### Round 2, stage 3 (2026-11-12): Factureren confirmed only, one set of figures, notes, breakdown, list filters
