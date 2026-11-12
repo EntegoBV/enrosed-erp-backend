@@ -2992,7 +2992,15 @@ the Factureren figures and notes come in later stages on top of it.
     and booked on the same melding at `locationOf(report)` (never the current settings; `locationId`
     stays). A container whose claim grows (an old buyback there went elsewhere) needs that room as it
     was before the edit ("... zijn al opnieuw als verkocht gemeld; trek eerst die melding in"). The
-    plan's own refusals read "Wijzigen kan niet: er liggen nog maar ...".
+    plan's own refusals read "Wijzigen kan niet: ...". Review round 1: the plan does not check the gross
+    sale against the shelf again (the net check above is the rule; a sale part may dip for a moment,
+    `writeParts(..., dip)`), and pieces the old melding's own buyback had put back into a container,
+    since reported sold again by another melding, may be sold beyond that container's capacity up to
+    this entry's buyback (`backAgain`): an extra sale part on that container, written after the others
+    so the entry's buyback mirrors it first and whole (batch-exact; the container's net claim stays in
+    its capacity); what the buyback still brings back beyond that is an own part of its own, mirrored
+    whole too; only the own rest it keeps is checked against own batch stock. So "sold all 48, 5 back,
+    those 5 resold" can still change its day, count or buyback.
   - Both: the commission / transport snapshot stays unless the channel changes (then the settings on
     AUCTION, 0 on DIRECT); note, buyer and cost lines are replaced; `extra_cost_mode/value` are
     cleared (cost lines live in `partner_sale_report_cost`); `updated_at/by/by_name` (micro precision,

@@ -193,7 +193,7 @@ public class PartnerSaleReportService {
 
         /* ---- the plan: every part, checked, before anything is written */
         Plan plan = plan(customerId, resolved, input.moneyCosts(), commissionPct, transportPct, location, containers,
-                catalog, staff, false);
+                catalog, staff, false, Map.of());
 
         /* ---- the writes */
         ActorRef who = actor.current();
@@ -217,7 +217,7 @@ public class PartnerSaleReportService {
         reports.persist(report);
         reports.flush();
         writeCosts(report.id, input.costs());
-        writeParts(report, plan, location, catalog);
+        writeParts(report, plan, location, catalog, false);
 
         Tally tally = Tally.of(plan.written(), catalog);
         String number = PartnerPortalRules.reportNumber(report.id);
@@ -266,11 +266,14 @@ public class PartnerSaleReportService {
     /**
      * The parts of these entries at this location: each sale over the partner's containers (oldest first, up
      * to their capacity) and then own stock, each buyback over the sale parts it mirrors. Reads stock, capacity
-     * and open parts as they are now (an edit first takes its old parts out). edit only changes the wording.
+     * and open parts as they are now (an edit first takes its old parts out). edit: the rebook of an edit, whose
+     * shelf was checked on the net change; {@code backAgain} (edit only) per product and container the pieces the
+     * melding's own buyback had put back there, see {@link #planSale}.
      */
     private Plan plan(long customerId, List<EntryInput> resolved, List<PartnerSaleMoney.CostLine> costs,
                       BigDecimal commissionPct, BigDecimal transportPct, StockLocation location,
-                      List<PurchaseOrder> containers, Map<Long, Product> catalog, boolean staff, boolean edit) {
+                      List<PurchaseOrder> containers, Map<Long, Product> catalog, boolean staff, boolean edit,
+                      Map<Long, Map<Long, Integer>> backAgain) {
         boolean batchesOn = batches.active();
         List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
         List<PartnerSaleMoney.Sale> saleMoney = PartnerSaleMoney.sales(saleEntries.stream()
@@ -285,7 +288,8 @@ public class PartnerSaleReportService {
         for (int index = 0; index < saleEntries.size(); index++) {
             EntryInput entry = saleEntries.get(index);
             List<Planned> parts = planSale(entry, saleMoney.get(index), catalog.get(entry.productId()), location,
-                    slots.getOrDefault(entry.productId(), List.of()), batchesOn, staff, edit);
+                    slots.getOrDefault(entry.productId(), List.of()), batchesOn, staff, edit,
+                    backAgain.getOrDefault(entry.productId(), Map.of()));
             sales.addAll(parts);
             salesByEntry.put(entry.entryNo(), parts);
         }
@@ -298,14 +302,18 @@ public class PartnerSaleReportService {
         return new Plan(sales, buybacks, batchesOn);
     }
 
-    /** Writes the planned parts of this melding: one stock movement each, sales first, then the buybacks. */
+    /**
+     * Writes the planned parts of this melding: one stock movement each, sales first, then the buybacks. dip: a
+     * sale may take the shelf below zero for a moment (an edit's rebook: the buybacks that follow bring pieces
+     * back, the net was checked beforehand and is checked again after).
+     */
     private void writeParts(PartnerSaleReportEntity report, Plan plan, StockLocation location,
-                            Map<Long, Product> catalog) {
+                            Map<Long, Product> catalog, boolean dip) {
         String number = PartnerPortalRules.reportNumber(report.id);
         for (Planned part : plan.sales()) {
             Long movementId = stock.partnerMove(part.productId, location.id(), -part.quantity,
                     StockMovement.Kind.PARTNER_SALE, "Veilingverkoop " + number, part.purchaseOrderId, report.soldOn,
-                    StockBatchContext.pinned(part.purchaseOrderId));
+                    StockBatchContext.pinned(part.purchaseOrderId), dip);
             OwnCost cost = part.purchaseOrderId == null
                     ? ownUnitCost(catalog.get(part.productId), movementId, part.quantity, plan.batchesOn()) : null;
             part.written = write(report, part, movementId, cost == null ? null : cost.unitCostEur(), null);
@@ -388,14 +396,27 @@ public class PartnerSaleReportService {
         return EDIT_REFUSED + Character.toLowerCase(sentence.charAt(0)) + sentence.substring(1);
     }
 
-    /** The parts of one sale entry: the containers in order up to their capacity, the rest own stock. */
+    /**
+     * The parts of one sale entry: the containers in order up to their capacity, the rest own stock.
+     *
+     * <p>An edit's rebook plans on the shelf after its old parts went back, while its shelf was checked on the
+     * net change old -> new (sale minus buyback) beforehand. Pieces the old melding's own buyback had put back
+     * may have been reported sold again since, so its container (or own stock) now holds fewer than the gross
+     * sale, although this entry's own buyback brings them right back. Up to that buyback, and up to what the old
+     * buyback had put back per container ({@code backAgain}), the sale may go beyond a container's capacity: as an
+     * extra part on that container, placed after the others so this entry's buyback mirrors it first and whole
+     * (its pieces go straight back into that part's own takes, batch-exact, and the container's net claim stays
+     * within its capacity). What it still brings back beyond that goes on an own part of its own, mirrored whole
+     * too; only the own rest it keeps must lie in own stock. So "sold all, bought 5 back, those 5 resold" keeps its
+     * parts on the container through an edit of the date, the count or the buyback.
+     */
     private List<Planned> planSale(EntryInput entry, PartnerSaleMoney.Sale money, Product product,
                                    StockLocation location, List<PartnerContainerCapacity.Slot> slots,
-                                   boolean batchesOn, boolean staff, boolean edit) {
+                                   boolean batchesOn, boolean staff, boolean edit, Map<Long, Integer> backAgain) {
         PartnerProductNames.Names names = PartnerProductNames.of(product);
         int wanted = money.quantity();
         int atLocation = stock.quantityAt(product.id(), location.id());
-        if (wanted > atLocation) {
+        if (!edit && wanted > atLocation) {
             /* Typed in a count unit: told in pieces ("360 rozen"), else in sales units as round 1. */
             PartnerCountUnits.Counting counting = PartnerCountUnits.of(product);
             String left = entry.sale().typed()
@@ -407,23 +428,39 @@ public class PartnerSaleReportService {
         }
         List<Long> sources = new ArrayList<>();
         List<Integer> quantities = new ArrayList<>();
+        List<Long> backSources = new ArrayList<>();
+        List<Integer> backQuantities = new ArrayList<>();
         int rest = wanted;
         int available = 0;
+        /* What this entry's own buyback brings back right after (edit only), at most the sale. */
+        int comingBack = edit && entry.buyback() != null ? Math.min(entry.buyback().quantity(), wanted) : 0;
         for (PartnerContainerCapacity.Slot slot : slots) {
             int free = slot.capacity();
             available += free;
             int taken = Math.min(rest, free);
-            if (taken <= 0) continue;
-            sources.add(slot.purchaseOrderId());
-            quantities.add(taken);
-            rest -= taken;
+            if (taken > 0) {
+                sources.add(slot.purchaseOrderId());
+                quantities.add(taken);
+                rest -= taken;
+            }
+            int beyond = Math.min(Math.min(rest, comingBack), backAgain.getOrDefault(slot.purchaseOrderId(), 0));
+            if (beyond > 0) {
+                backSources.add(slot.purchaseOrderId());
+                backQuantities.add(beyond);
+                rest -= beyond;
+                comingBack -= beyond;
+            }
         }
         if (rest > 0) {
-            if (batchesOn) {
+            /* Own stock last. An edit puts what this entry's buyback still brings back on an own part of its own,
+               mirrored whole; only the rest (kept) has to lie in own stock. */
+            int ownBack = Math.min(rest, comingBack);
+            int ownKept = rest - ownBack;
+            if (ownKept > 0 && batchesOn) {
                 StockBatchService.Holdings held = batches.holdings(product.id());
                 int ownUnits = (held.ownPieces() + held.uncoveredPieces()) / Math.max(1, held.unitPieces());
                 available += ownUnits;
-                if (rest > ownUnits) {
+                if (ownKept > ownUnits) {
                     int blocked = Math.max(1, atLocation - available);
                     throw new BusinessRuleException(refusal(edit, PartnerSaleTexts.quantity(blocked, names.unitOne(),
                             names.unitOther()) + " van " + label(names) + (blocked == 1 ? " is" : " zijn")
@@ -431,9 +468,18 @@ public class PartnerSaleReportService {
                             + (staff ? "boek die eerst af." : "Enrosed boekt die eerst af.")));
                 }
             }
-            sources.add(null);
-            quantities.add(rest);
+            if (ownKept > 0) {
+                sources.add(null);
+                quantities.add(ownKept);
+            }
+            if (ownBack > 0) {
+                backSources.add(null);
+                backQuantities.add(ownBack);
+            }
         }
+        /* Last, so this entry's buyback mirrors them first (planBuyback walks the sale parts from the end). */
+        sources.addAll(backSources);
+        quantities.addAll(backQuantities);
         List<PartnerSaleMoney.Sale> split = PartnerSaleMoney.split(money, quantities);
         List<Planned> parts = new ArrayList<>();
         for (int index = 0; index < split.size(); index++) {
@@ -785,9 +831,9 @@ public class PartnerSaleReportService {
             lines.flush();
         } else {
             Plan plan = plan(customerId, resolved, input.moneyCosts(), commissionPct, transportPct, location,
-                    containers, catalog, staff, true);
+                    containers, catalog, staff, true, backAgain(old));
             requireRoom(old, plan, guarded.room(), catalog);
-            writeParts(report, plan, location, catalog);
+            writeParts(report, plan, location, catalog, true);
             /* The net was checked beforehand; this only makes sure no step on the way left the shelf lower. */
             for (Long productId : productIds) {
                 int after = stock.quantityAt(productId, locationId);
@@ -857,6 +903,24 @@ public class PartnerSaleReportService {
                     entry.buyback() == null ? 0 : entry.buyback().quantity())));
         }
         return before.equals(after);
+    }
+
+    /**
+     * Per product and container: the pieces the melding's buybacks put back there that mirrored its own sales (a
+     * buyback of another melding's sale is not counted, nor one into own stock). The rebook may sell that much
+     * beyond the container's capacity again, see {@link #planSale}.
+     */
+    private static Map<Long, Map<Long, Integer>> backAgain(List<PartnerSaleReportLineEntity> old) {
+        Set<Long> ownSales = new HashSet<>();
+        for (PartnerSaleReportLineEntity part : old) if (part.isSale()) ownSales.add(part.id);
+        Map<Long, Map<Long, Integer>> result = new HashMap<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            if (!part.isBuyback() || part.purchaseOrderId == null || part.mirrorsLineId == null
+                    || !ownSales.contains(part.mirrorsLineId)) continue;
+            result.computeIfAbsent(part.productId, key -> new HashMap<>())
+                    .merge(part.purchaseOrderId, part.quantityOrZero(), Integer::sum);
+        }
+        return result;
     }
 
     /**
