@@ -2596,8 +2596,10 @@ named constraints identical in `@Table` and the migration:
   sales units, sorted by family then name, `recentSales` = products of this partner's non-voided
   sale parts sold in the last 60 days, `reports` = 10 newest, `serverDate`); `GET /reports?before=&
   limit=` (newest first, limit 1..100, `more`); `GET /products/{id}/photo?size=small|medium&v=`
-  (404 unless the product is in this partner's current stock or meldingen); `POST /logout`. Never
-  a price, cost, supplier or container field of Enrosed's.
+  (404 unless the product is in this partner's current stock or meldingen, or since round 2 on a
+  container he may see); `POST /logout`. Never a price, cost, amount, supplier or free text of
+  Enrosed's; since round 2 container identity and logistics are allowed, only in
+  `PartnerContainerViews` (see "Containers for the partner (round 2)").
 - PartnerReport (`PartnerReportReader`): parts merged back per entry (sale and buyback), totals
   (sale gross, commission, transport, extra, sale net, buyback = terugkoopkost, net = sale net -
   buyback), status OPEN / PARTLY_INVOICED / INVOICED / VOIDED from the open-part rule, `canUndo` =
@@ -2850,6 +2852,43 @@ named constraints identical in `@Table` and the migration:
   (`ClosingSeparations.happenedBefore`, the same reading as `alreadyOut`) and a line the roll does
   not list by booking time before the cut-off (`ClosingSeparations.partnerReportedOut`); the batch
   start counts them by booking time before the run (`StockService.partnerReportedOut`).
+
+### Containers for the partner (round 2)
+- `GET /api/partner-portal/containers` (partner only; `PartnerContainerReader.page`, records in
+  `PartnerContainerViews`) -> `{serverDate, pallet {widthCm, depthCm, maxHeightCm}, containers[],
+  products[]}`. His answer: **every** purchase order except CONCEPT (a calculation; duplicates exist
+  to compare variants) and trashed ones (the entity's `@SQLRestriction`), archived and long
+  received ones included, for any partner.
+- **Allowlist** (the only container fields a partner ever gets): `id`, `number`, `name` (= the PO
+  number via `PurchaseOrderName.display(id, number, null)`; the alias "Herkenbare naam" is free
+  text and never sent), `own` (the container's partner is the caller; another partner is never
+  named), `status` (BESTELD | ONDERWEG | ONTVANGEN), `state` (BESTELD | ONDERWEG | BINNENKORT |
+  AANGEKOMEN, the frontend `product-incoming` rule: only a departed container within 14 days either
+  side is Binnenkort), `due`, `containerType` + `containerLabel`, `orderDate`, `shippedOn`,
+  `expectedArrival`, `receivedOn`, `arrivalMovedFrom` (tracking's earlier date, open containers
+  only, `ArrivalMoveStore.all()`), `stockBooked`, `old` (received > 60 days ago or without a
+  receipt date; an open one when archived), the ports, `locationName` (only for an own container
+  or one unloaded at MAIN, else null), `totals {products, units, pieces, cartons, cbm, capacityCbm,
+  fillPercent, pallets, palletsUnknown, weightKg, weightUnknown, cbmUnknown}` and `lines
+  [{productId, quantity (sales units; received: usable), orderedQuantity (received, only when it
+  differs), pieces, cartons, cbm, pallets, weightKg}]`. `products` = the portal ProductTile
+  (`@JsonUnwrapped`) + category, colour, size, product B×D×H and weight, packaging kind and size,
+  `unitsPerCarton`, omdoos B×D×H and weight, `cartonsPerPallet` (`CataloguePallet`, the sales
+  settings' pallet). Never: prices, costs, freight, duties, payments, amounts, supplier (id, name,
+  reference, version), notes / issue note / description / supplier note / tracking reference,
+  partner percents.
+- Cargo is counted like the purchase screen (cartons per line `Carton.cartonsFor`, m³ per line at
+  3 dp) but the reader never calls `LandedCostCalculator`, payables, reconciliation or the price
+  resolver. Fill = m³ of every line / capacity at 1 dp, null only for a type without capacity
+  (LCL); it never reads `priceBasis`, so on a container with DDP lines it differs from the staff
+  fill (which leaves DDP lines out). Pallets: each product on its own pallets (ceil(cartons /
+  cartonsPerPallet)), null for a line without a fit. Lines of one product are added up per
+  container (the ERP refuses duplicates, so only legacy rows have them).
+- Order: open containers by arrival (a date that can still hold first, then undated, departed
+  before not departed), then received ones newest receipt first.
+- **One predicate** `PartnerContainerReader.VISIBLE` (status BESTELD, ONDERWEG or ONTVANGEN) for the
+  list and the photo guard: `PartnerPortalReadService.photo` also answers for a product on a line of
+  such a not trashed order (`PartnerContainerQueries.productOnContainer`).
 
 ## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
 
