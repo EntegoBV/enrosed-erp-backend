@@ -2984,7 +2984,14 @@ the Factureren figures and notes come in later stages on top of it.
     is the same, and the channel changes only without a buyback: `rePrice` runs PartnerSaleMoney again
     over the same parts (their quantities in written order) and updates money and `entered_*` on the
     same line ids; no movement, no mirror or stock guard (a mirrored melding can get a price fix). An
-    edit that changes nothing writes nothing (the token stays).
+    edit that changes nothing writes nothing (the token stays; a round-1 melding's single extra cost
+    then stays in its old columns). Review round 1: a side sent at the price the melding shows (the
+    typed piece price, or a round-1 row's fallback = unit price / pieces per sales unit at 4 dp, as
+    `PartnerReportReader` shows it) keeps what it was booked with: a sale its gross (a round-1 typed
+    total stays exact; commission, transport and extra follow the percents and cost lines), a buyback
+    all its money (a round-1 buyback keeps 0 % commission and transport, contract section 2: no history
+    change); its `entered_*` stay as stored unless another unit or count was sent. Only a changed price
+    is priced again by the round-2 rules.
   - **rebook** otherwise: refused while a buyback of another live melding mirrors one of its sales
     ("Wijzigen kan niet: trek eerst de terugkoop in (VV-n); een prijs of kost wijzigen kan wel"); the
     shelf is checked on the net change per product (stock + old sale - old buyback - new sale + new

@@ -786,10 +786,11 @@ public class PartnerSaleReportService {
         List<CostInput> oldCosts = costInputs(report, costRows.byReport(reportId));
         boolean costsChanged = !oldCosts.equals(input.costs());
         if (moneyOnly) {
-            /* The money again over the same parts (no stock moves); an edit that changes nothing writes nothing. */
+            /* The money again over the same parts (no stock moves); an edit that changes nothing writes nothing
+               (a round-1 melding keeps its single extra cost in the old columns until something really changes). */
             String before = fingerprint(old);
-            rePrice(old, resolved, input.moneyCosts(), commissionPct, transportPct);
-            if (!costsChanged && report.extraCostMode == null && before.equals(fingerprint(old))
+            rePrice(old, resolved, input.moneyCosts(), commissionPct, transportPct, catalog);
+            if (!costsChanged && before.equals(fingerprint(old))
                     && !channelChanged && Objects.equals(report.note, input.note())
                     && Objects.equals(report.buyerCustomerId, buyerId)) {
                 return new Edited(reportId, false);
@@ -926,9 +927,16 @@ public class PartnerSaleReportService {
     /**
      * Money-only: the sale and buyback money of every entry again over the very same parts (their quantities, in
      * the order they were written), the entry numbers and what was typed as sent now.
+     *
+     * <p>A side whose price is the one the melding shows ({@link #shown}: what was typed, or for a round-1 row its
+     * sales-unit fallback) keeps what it was booked with: a sale its gross (a round-1 typed total stays exact; its
+     * costs follow the cost lines and percents as before), a buyback all its money (a round-1 buyback keeps its 0 %
+     * commission and transport; contract section 2: no history change). Only a changed price is priced again by
+     * the round-2 rules. What was typed stays as stored unless a different unit or count was sent.
      */
     private static void rePrice(List<PartnerSaleReportLineEntity> old, List<EntryInput> resolved,
-                                List<PartnerSaleMoney.CostLine> costs, BigDecimal commissionPct, BigDecimal transportPct) {
+                                List<PartnerSaleMoney.CostLine> costs, BigDecimal commissionPct, BigDecimal transportPct,
+                                Map<Long, Product> catalog) {
         Map<Long, List<PartnerSaleReportLineEntity>> salesOf = new HashMap<>();
         Map<Long, List<PartnerSaleReportLineEntity>> buybacksOf = new HashMap<>();
         for (PartnerSaleReportLineEntity part : old) {
@@ -938,10 +946,23 @@ public class PartnerSaleReportService {
         salesOf.values().forEach(list -> list.sort(written));
         buybacksOf.values().forEach(list -> list.sort(written));
         List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
-        List<PartnerSaleMoney.Sale> money = PartnerSaleMoney.sales(saleEntries.stream()
-                        .map(entry -> PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(),
-                                entry.sale().total())).toList(),
-                commissionPct, transportPct, costs);
+        List<PartnerSaleMoney.Priced> priced = new ArrayList<>();
+        List<Entered> saleTyped = new ArrayList<>();
+        for (EntryInput entry : saleEntries) {
+            List<PartnerSaleReportLineEntity> parts = salesOf.get(entry.productId());
+            Entered shown = shown(parts, factor(catalog, entry.productId()));
+            if (samePrice(entry.sale(), parts, shown)) {
+                BigDecimal gross = BigDecimal.ZERO;
+                for (PartnerSaleReportLineEntity part : parts) gross = gross.add(part.grossEur == null ? BigDecimal.ZERO : part.grossEur);
+                priced.add(new PartnerSaleMoney.Priced(entry.sale().quantity(), parts.getFirst().unitPriceEur,
+                        PartnerSaleMoney.round2(gross)));
+                saleTyped.add(kept(parts.getFirst(), entry.sale().entered(), shown));
+            } else {
+                priced.add(PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(), entry.sale().total()));
+                saleTyped.add(entry.sale().entered());
+            }
+        }
+        List<PartnerSaleMoney.Sale> money = PartnerSaleMoney.sales(priced, commissionPct, transportPct, costs);
         for (int index = 0; index < saleEntries.size(); index++) {
             EntryInput entry = saleEntries.get(index);
             List<PartnerSaleReportLineEntity> parts = salesOf.get(entry.productId());
@@ -950,12 +971,22 @@ public class PartnerSaleReportService {
             for (int part = 0; part < parts.size(); part++) {
                 PartnerSaleMoney.Sale share = split.get(part);
                 apply(parts.get(part), entry.entryNo(), share.unitPriceEur(), share.grossEur(), share.commissionEur(),
-                        share.transportEur(), share.extraCostEur(), share.netEur(), entry.sale().entered());
+                        share.transportEur(), share.extraCostEur(), share.netEur(), saleTyped.get(index));
             }
         }
         for (EntryInput entry : resolved) {
             if (entry.buyback() == null) continue;
             List<PartnerSaleReportLineEntity> parts = buybacksOf.get(entry.productId());
+            Entered shown = shown(parts, factor(catalog, entry.productId()));
+            if (samePrice(entry.buyback(), parts, shown)) {
+                /* The clock price as shown: the buyback keeps the money it was booked with. */
+                Entered typed = kept(parts.getFirst(), entry.buyback().entered(), shown);
+                for (PartnerSaleReportLineEntity part : parts) {
+                    apply(part, entry.entryNo(), part.unitPriceEur, part.grossEur, part.commissionEur, part.transportEur,
+                            part.extraCostEur, part.netEur, typed);
+                }
+                continue;
+            }
             PartnerSaleMoney.Buyback buyback = PartnerSaleMoney.buyback(PartnerSaleMoney.price(entry.buyback().quantity(),
                     entry.buyback().unitPrice(), entry.buyback().total()), commissionPct, transportPct);
             List<PartnerSaleMoney.Buyback> split = PartnerSaleMoney.splitBuyback(buyback,
@@ -966,6 +997,55 @@ public class PartnerSaleReportService {
                         share.transportEur(), PartnerSaleMoney.ZERO, share.netEur(), entry.buyback().entered());
             }
         }
+    }
+
+    private static int factor(Map<Long, Product> catalog, long productId) {
+        return Math.max(1, PartnerCountUnits.of(catalog.get(productId)).piecesPerSalesUnit());
+    }
+
+    /**
+     * What one side of an entry reads as typed, exactly as {@code PartnerReportReader} shows it: the typed unit,
+     * count and piece price when they still match the booked pieces, else (a round-1 row) the sales units per
+     * display on a display basis, else per stuk, at the stored unit price / pieces per sales unit (4 dp).
+     */
+    private static Entered shown(List<PartnerSaleReportLineEntity> parts, int factor) {
+        PartnerSaleReportLineEntity first = parts.getFirst();
+        int quantity = 0;
+        for (PartnerSaleReportLineEntity part : parts) quantity += part.quantityOrZero();
+        if (first.enteredUnit != null && first.enteredCount != null && first.enteredPiecesPerUnit != null
+                && first.piecePriceEur != null && (long) first.enteredCount * first.enteredPiecesPerUnit == (long) quantity * factor) {
+            return new Entered(first.enteredUnit, first.enteredCount, first.piecePriceEur, first.enteredPiecesPerUnit);
+        }
+        BigDecimal piece = first.unitPriceEur == null ? null
+                : first.unitPriceEur.divide(BigDecimal.valueOf(factor), 4, RoundingMode.HALF_UP);
+        return new Entered(factor > 1 ? PartnerCountUnits.VERPAKKING : PartnerCountUnits.STUK, quantity, piece, factor);
+    }
+
+    /**
+     * Whether this side was sent at the price the melding shows: the same piece price (a round-2 body), or the same
+     * unit price or total as booked (a round-1 body). The quantity is the same on the money-only path.
+     */
+    private static boolean samePrice(PartInput sent, List<PartnerSaleReportLineEntity> parts, Entered shown) {
+        PartnerSaleReportLineEntity first = parts.getFirst();
+        if (sent.entered() != null) {
+            return shown.piecePriceEur() != null && sent.entered().piecePriceEur().compareTo(shown.piecePriceEur()) == 0;
+        }
+        if (sent.unitPrice() != null) {
+            return first.unitPriceEur != null
+                    && sent.unitPrice().setScale(4, RoundingMode.HALF_UP).compareTo(first.unitPriceEur) == 0;
+        }
+        BigDecimal gross = BigDecimal.ZERO;
+        for (PartnerSaleReportLineEntity part : parts) gross = gross.add(part.grossEur == null ? BigDecimal.ZERO : part.grossEur);
+        return sent.total() != null && PartnerSaleMoney.round2(sent.total()).compareTo(PartnerSaleMoney.round2(gross)) == 0;
+    }
+
+    /** What stays typed on an unchanged side: as stored, unless another unit or count was sent (then that). */
+    private static Entered kept(PartnerSaleReportLineEntity first, Entered sent, Entered shown) {
+        boolean sameShape = sent == null || (sent.unit().equals(shown.unit()) && sent.count() == shown.count());
+        if (!sameShape) return sent;
+        if (first.enteredUnit == null || first.enteredCount == null || first.piecePriceEur == null
+                || first.enteredPiecesPerUnit == null) return null;
+        return new Entered(first.enteredUnit, first.enteredCount, first.piecePriceEur, first.enteredPiecesPerUnit);
     }
 
     private static void apply(PartnerSaleReportLineEntity line, int entryNo, BigDecimal unitPrice, BigDecimal gross,
