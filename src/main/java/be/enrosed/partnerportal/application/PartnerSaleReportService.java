@@ -9,6 +9,8 @@ import be.enrosed.catalog.domain.StockBatchContext;
 import be.enrosed.catalog.domain.StockBatchMove;
 import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.catalog.domain.StockMovement;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerCustomerLinkEntity;
+import be.enrosed.partnerportal.adapter.out.persistence.PartnerCustomerQueries;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalRepositories;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerPortalSettingsEntity;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerSaleReportEntity;
@@ -40,18 +42,21 @@ import java.time.Instant;
 import java.time.LocalDate;
 import java.time.temporal.ChronoUnit;
 import java.util.ArrayList;
+import java.util.Collection;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Optional;
 import java.util.Set;
 import java.util.TreeSet;
 
 /**
- * Writes meldingen and withdraws them (contract sections 1 and 3).
+ * Writes meldingen, edits them (money-only or rebooked, round 2) and withdraws them (contract sections 1 and 3).
  *
  * <p>Every write runs in one transaction that first takes, in this order, the partner lock
  * ({@code partner_portal_settings} FOR UPDATE), every container of the partner (ascending id) and
@@ -72,6 +77,13 @@ public class PartnerSaleReportService {
     public static final String ACTION_VOIDED = "VOIDED";
     static final String OLD_VERSION = "Dit is een oude versie";
     static final String CONFIRMED_FOR_PARTNER = "Enrosed heeft deze melding al bevestigd; vraag Enrosed om een wijziging.";
+    static final String CHANGED = "Deze melding is intussen gewijzigd; laad ze opnieuw";
+    static final String WITHDRAWN = "Deze melding is ingetrokken";
+    static final String TOKEN_MISSING = "Laad de melding opnieuw voor je ze wijzigt";
+    static final String EDIT_REFUSED = "Wijzigen kan niet: ";
+    static final String UNKNOWN_BUYER = "Onbekende klant";
+    /** The void reason of an archive row (the old version of an edited melding). */
+    public static final String ARCHIVE_REASON = "Gewijzigd";
 
     static final int MAX_ENTRIES = 60;
     static final int MAX_DAYS_BACK = 90;
@@ -92,6 +104,8 @@ public class PartnerSaleReportService {
     private final PartnerPortalRepositories.Reports reports;
     private final PartnerPortalRepositories.Lines lines;
     private final PartnerPortalRepositories.Costs costRows;
+    private final PartnerPortalRepositories.CustomerLinks customerLinks;
+    private final PartnerCustomerQueries customerQueries;
     private final PartnerPortalSettings settings;
     private final PartnerContainerCapacity capacity;
     private final PartnerOpenParts openParts;
@@ -108,6 +122,8 @@ public class PartnerSaleReportService {
     public PartnerSaleReportService(PartnerPortalRepositories.Settings settingsRows,
                                     PartnerPortalRepositories.Reports reports, PartnerPortalRepositories.Lines lines,
                                     PartnerPortalRepositories.Costs costRows,
+                                    PartnerPortalRepositories.CustomerLinks customerLinks,
+                                    PartnerCustomerQueries customerQueries,
                                     PartnerPortalSettings settings, PartnerContainerCapacity capacity,
                                     PartnerOpenParts openParts, StockService stock, StockBatchService batches,
                                     ProductRepository products, ProductCostHistoryService costHistory,
@@ -118,6 +134,8 @@ public class PartnerSaleReportService {
         this.reports = reports;
         this.lines = lines;
         this.costRows = costRows;
+        this.customerLinks = customerLinks;
+        this.customerQueries = customerQueries;
         this.settings = settings;
         this.capacity = capacity;
         this.openParts = openParts;
@@ -155,57 +173,27 @@ public class PartnerSaleReportService {
     }
 
     private Outcome createLocked(long customerId, Long loginId, Input input, boolean staff) {
-        Customer customer = customers.findById(customerId).orElseThrow(() -> new NotFoundException("Klant", customerId));
-        if (!customer.partner()) throw new BusinessRuleException("Deze klant is geen partner");
+        Customer customer = partnerCustomer(customerId);
         /* Lock 1: the partner. A retry of the same melding waits here and then finds it. */
         PartnerPortalSettingsEntity row = settingsRows.lockOrCreate(customerId);
         if (input.clientRef() != null) {
             Optional<PartnerSaleReportEntity> existing = reports.findByClientRef(customerId, input.clientRef());
             if (existing.isPresent()) return new Outcome(existing.get().id, false);
         }
-        Long buyerId = buyer(customerId, input, staff);
+        Long buyerId = buyer(customerId, input, staff, null);
         PartnerPortalSettings.Effective applied = settings.of(customerId, row);
         StockLocation location = applied.location();
         /* Lock 2: the partner's containers, ascending. Lock 3: the products, ascending. */
         List<PurchaseOrder> containers = capacity.lockContainers(customerId);
-        Map<Long, Product> catalog = new LinkedHashMap<>();
-        for (Long productId : new TreeSet<>(input.productIds())) {
-            stock.lockProduct(productId);
-            catalog.put(productId, products.findById(productId)
-                    .orElseThrow(() -> new BusinessRuleException("Product #" + productId + " bestaat niet meer")));
-        }
-        /* Round-2 parts are typed in a count unit: converted to sales units now the product is known. */
-        List<EntryInput> resolved = new ArrayList<>();
-        for (EntryInput entry : input.entries()) resolved.add(entry.resolve(catalog.get(entry.productId())));
-        boolean batchesOn = batches.active();
+        Map<Long, Product> catalog = lockProducts(input.productIds());
+        List<EntryInput> resolved = resolve(input, catalog);
         boolean auction = PartnerPortalRules.CHANNEL_AUCTION.equals(input.channel());
         BigDecimal commissionPct = auction ? applied.auctionCommissionPct() : BigDecimal.ZERO;
         BigDecimal transportPct = auction ? applied.auctionTransportPct() : BigDecimal.ZERO;
 
         /* ---- the plan: every part, checked, before anything is written */
-        List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
-        List<PartnerSaleMoney.Sale> saleMoney = PartnerSaleMoney.sales(saleEntries.stream()
-                        .map(entry -> PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(),
-                                entry.sale().total())).toList(),
-                commissionPct, transportPct, input.moneyCosts());
-        List<PurchaseOrder> candidates = PartnerContainerCapacity.candidates(containers, location);
-        Map<Long, List<PartnerContainerCapacity.Slot>> slots = capacity.slots(customerId, candidates,
-                saleEntries.stream().map(EntryInput::productId).toList(), batchesOn);
-        List<Planned> sales = new ArrayList<>();
-        Map<Integer, List<Planned>> salesByEntry = new HashMap<>();
-        for (int index = 0; index < saleEntries.size(); index++) {
-            EntryInput entry = saleEntries.get(index);
-            List<Planned> parts = planSale(entry, saleMoney.get(index), catalog.get(entry.productId()), location,
-                    slots.getOrDefault(entry.productId(), List.of()), batchesOn, staff);
-            sales.addAll(parts);
-            salesByEntry.put(entry.entryNo(), parts);
-        }
-        List<Planned> buybacks = new ArrayList<>();
-        for (EntryInput entry : resolved) {
-            if (entry.buyback() == null) continue;
-            buybacks.addAll(planBuyback(customerId, entry, catalog.get(entry.productId()),
-                    salesByEntry.getOrDefault(entry.entryNo(), List.of()), commissionPct, transportPct));
-        }
+        Plan plan = plan(customerId, resolved, input.moneyCosts(), commissionPct, transportPct, location, containers,
+                catalog, staff, false);
 
         /* ---- the writes */
         ActorRef who = actor.current();
@@ -229,19 +217,103 @@ public class PartnerSaleReportService {
         reports.persist(report);
         reports.flush();
         writeCosts(report.id, input.costs());
+        writeParts(report, plan, location, catalog);
+
+        Tally tally = Tally.of(plan.written(), catalog);
         String number = PartnerPortalRules.reportNumber(report.id);
-        for (Planned part : sales) {
+        activity.record(ActivityLogService.ACTION_CREATED, ENTITY, report.id.toString(),
+                number + " · " + customer.company(), tally.summary(report.channel));
+        pushReady.fire(new PartnerSalePushNotifier.Ready(report.id, tally.pushQuantity(),
+                PartnerSaleTexts.kind(report.channel, tally.buybackOnly()), staff ? who.username() : null));
+        return new Outcome(report.id, true);
+    }
+
+    /** The partner customer behind a melding; refused when it is gone or no longer a partner. */
+    private Customer partnerCustomer(long customerId) {
+        Customer customer = customers.findById(customerId).orElseThrow(() -> new NotFoundException("Klant", customerId));
+        if (!customer.partner()) throw new BusinessRuleException("Deze klant is geen partner");
+        return customer;
+    }
+
+    /** Lock 3: the products, ascending (each with its row lock), as known now. */
+    private Map<Long, Product> lockProducts(Collection<Long> productIds) {
+        Map<Long, Product> catalog = new LinkedHashMap<>();
+        for (Long productId : new TreeSet<>(productIds)) {
+            stock.lockProduct(productId);
+            catalog.put(productId, products.findById(productId)
+                    .orElseThrow(() -> new BusinessRuleException("Product #" + productId + " bestaat niet meer")));
+        }
+        return catalog;
+    }
+
+    /** Round-2 parts are typed in a count unit: converted to sales units once the products are locked. */
+    private static List<EntryInput> resolve(Input input, Map<Long, Product> catalog) {
+        List<EntryInput> resolved = new ArrayList<>();
+        for (EntryInput entry : input.entries()) resolved.add(entry.resolve(catalog.get(entry.productId())));
+        return resolved;
+    }
+
+    /** Every new part of a melding, planned and checked; nothing is written yet. */
+    private record Plan(List<Planned> sales, List<Planned> buybacks, boolean batchesOn) {
+        List<PartnerSaleReportLineEntity> written() {
+            List<PartnerSaleReportLineEntity> result = new ArrayList<>();
+            for (Planned part : sales) if (part.written != null) result.add(part.written);
+            for (Planned part : buybacks) if (part.written != null) result.add(part.written);
+            return result;
+        }
+    }
+
+    /**
+     * The parts of these entries at this location: each sale over the partner's containers (oldest first, up
+     * to their capacity) and then own stock, each buyback over the sale parts it mirrors. Reads stock, capacity
+     * and open parts as they are now (an edit first takes its old parts out). edit only changes the wording.
+     */
+    private Plan plan(long customerId, List<EntryInput> resolved, List<PartnerSaleMoney.CostLine> costs,
+                      BigDecimal commissionPct, BigDecimal transportPct, StockLocation location,
+                      List<PurchaseOrder> containers, Map<Long, Product> catalog, boolean staff, boolean edit) {
+        boolean batchesOn = batches.active();
+        List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
+        List<PartnerSaleMoney.Sale> saleMoney = PartnerSaleMoney.sales(saleEntries.stream()
+                        .map(entry -> PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(),
+                                entry.sale().total())).toList(),
+                commissionPct, transportPct, costs);
+        List<PurchaseOrder> candidates = PartnerContainerCapacity.candidates(containers, location);
+        Map<Long, List<PartnerContainerCapacity.Slot>> slots = capacity.slots(customerId, candidates,
+                saleEntries.stream().map(EntryInput::productId).toList(), batchesOn);
+        List<Planned> sales = new ArrayList<>();
+        Map<Integer, List<Planned>> salesByEntry = new HashMap<>();
+        for (int index = 0; index < saleEntries.size(); index++) {
+            EntryInput entry = saleEntries.get(index);
+            List<Planned> parts = planSale(entry, saleMoney.get(index), catalog.get(entry.productId()), location,
+                    slots.getOrDefault(entry.productId(), List.of()), batchesOn, staff, edit);
+            sales.addAll(parts);
+            salesByEntry.put(entry.entryNo(), parts);
+        }
+        List<Planned> buybacks = new ArrayList<>();
+        for (EntryInput entry : resolved) {
+            if (entry.buyback() == null) continue;
+            buybacks.addAll(planBuyback(customerId, entry, catalog.get(entry.productId()),
+                    salesByEntry.getOrDefault(entry.entryNo(), List.of()), commissionPct, transportPct, edit));
+        }
+        return new Plan(sales, buybacks, batchesOn);
+    }
+
+    /** Writes the planned parts of this melding: one stock movement each, sales first, then the buybacks. */
+    private void writeParts(PartnerSaleReportEntity report, Plan plan, StockLocation location,
+                            Map<Long, Product> catalog) {
+        String number = PartnerPortalRules.reportNumber(report.id);
+        for (Planned part : plan.sales()) {
             Long movementId = stock.partnerMove(part.productId, location.id(), -part.quantity,
                     StockMovement.Kind.PARTNER_SALE, "Veilingverkoop " + number, part.purchaseOrderId, report.soldOn,
                     StockBatchContext.pinned(part.purchaseOrderId));
             OwnCost cost = part.purchaseOrderId == null
-                    ? ownUnitCost(catalog.get(part.productId), movementId, part.quantity, batchesOn) : null;
+                    ? ownUnitCost(catalog.get(part.productId), movementId, part.quantity, plan.batchesOn()) : null;
             part.written = write(report, part, movementId, cost == null ? null : cost.unitCostEur(), null);
             if (cost != null && cost.estimated()) part.written.unitCostEstimated = true;
         }
-        Map<Long, List<Long>> earlierReversals = lines.reversedBuybackMovements(buybacks.stream()
+        Map<Long, List<Long>> earlierReversals = lines.reversedBuybackMovements(plan.buybacks().stream()
                 .filter(part -> part.mirrorsExisting != null).map(part -> part.mirrorsExisting.id).toList());
-        for (Planned part : buybacks) {
+        for (Planned part : plan.buybacks()) {
             PartnerSaleReportLineEntity mirrored = part.mirrorsExisting != null ? part.mirrorsExisting
                     : part.mirrorsPlanned.written;
             /* Back into the takes that hold the mirrored sale's pieces: its own, and those of withdrawn
@@ -261,30 +333,65 @@ public class PartnerSaleReportService {
                     && Boolean.TRUE.equals(mirrored.unitCostEstimated)) part.written.unitCostEstimated = true;
         }
         lines.flush();
+    }
 
-        int saleQuantity = sales.stream().mapToInt(part -> part.quantity).sum();
-        int buybackQuantity = buybacks.stream().mapToInt(part -> part.quantity).sum();
-        int salePieces = sales.stream().mapToInt(part -> part.quantity * piecesPerSalesUnit(catalog.get(part.productId))).sum();
-        int buybackPieces = buybacks.stream().mapToInt(part -> part.quantity * piecesPerSalesUnit(catalog.get(part.productId))).sum();
-        boolean buybackOnly = saleQuantity == 0;
-        /* A buyback part's net is -(gross + commission + transport): the terugkoopkost is subtracted whole. */
-        BigDecimal net = sales.stream().map(part -> part.net).reduce(BigDecimal.ZERO, BigDecimal::add)
-                .add(buybacks.stream().map(part -> part.net).reduce(BigDecimal.ZERO, BigDecimal::add));
-        String summary = PartnerSaleTexts.title(report.channel, buybackOnly) + ": "
-                + (buybackOnly ? buybackPieces + " teruggekocht · terugkoop " + PartnerSaleTexts.euro(net.negate())
-                : salePieces + " verkocht" + (buybackPieces > 0 ? " · " + buybackPieces + " teruggekocht" : "")
-                + " · netto " + PartnerSaleTexts.euro(net));
-        activity.record(ActivityLogService.ACTION_CREATED, ENTITY, report.id.toString(),
-                number + " · " + customer.company(), summary);
-        pushReady.fire(new PartnerSalePushNotifier.Ready(report.id, buybackOnly ? buybackPieces : salePieces,
-                PartnerSaleTexts.kind(report.channel, buybackOnly), staff ? who.username() : null));
-        return new Outcome(report.id, true);
+    /**
+     * What a melding's parts come to, for the activity line and the push: quantities in sales units and
+     * pieces, and the net (a buyback part's net is -(gross + commission + transport), subtracted whole).
+     */
+    private record Tally(int saleQuantity, int buybackQuantity, int salePieces, int buybackPieces, BigDecimal net) {
+        static Tally of(Collection<PartnerSaleReportLineEntity> parts, Map<Long, Product> catalog) {
+            int saleQuantity = 0;
+            int buybackQuantity = 0;
+            int salePieces = 0;
+            int buybackPieces = 0;
+            BigDecimal net = BigDecimal.ZERO;
+            for (PartnerSaleReportLineEntity part : parts) {
+                if (!part.isSale() && !part.isBuyback()) continue;
+                int pieces = part.quantityOrZero() * piecesPerSalesUnit(catalog.get(part.productId));
+                if (part.isSale()) {
+                    saleQuantity += part.quantityOrZero();
+                    salePieces += pieces;
+                } else {
+                    buybackQuantity += part.quantityOrZero();
+                    buybackPieces += pieces;
+                }
+                if (part.netEur != null) net = net.add(part.netEur);
+            }
+            return new Tally(saleQuantity, buybackQuantity, salePieces, buybackPieces, net);
+        }
+
+        boolean buybackOnly() {
+            return saleQuantity == 0;
+        }
+
+        int pushQuantity() {
+            return buybackOnly() ? buybackPieces : salePieces;
+        }
+
+        /** "120 verkocht · 12 teruggekocht" or "12 teruggekocht" (pieces). */
+        String counts() {
+            return buybackOnly() ? buybackPieces + " teruggekocht"
+                    : salePieces + " verkocht" + (buybackPieces > 0 ? " · " + buybackPieces + " teruggekocht" : "");
+        }
+
+        /** "Veiling verkocht: 120 verkocht · netto € 98,40", "Teruggekocht op de klok: 12 teruggekocht · terugkoop € 13,20". */
+        String summary(String channel) {
+            return PartnerSaleTexts.title(channel, buybackOnly()) + ": " + counts() + " · "
+                    + (buybackOnly() ? "terugkoop " + PartnerSaleTexts.euro(net.negate()) : "netto " + PartnerSaleTexts.euro(net));
+        }
+    }
+
+    /** "Wijzigen kan niet: er liggen ..." for an edit, the create's own sentence otherwise. */
+    private static String refusal(boolean edit, String sentence) {
+        if (!edit || sentence.isEmpty()) return sentence;
+        return EDIT_REFUSED + Character.toLowerCase(sentence.charAt(0)) + sentence.substring(1);
     }
 
     /** The parts of one sale entry: the containers in order up to their capacity, the rest own stock. */
     private List<Planned> planSale(EntryInput entry, PartnerSaleMoney.Sale money, Product product,
                                    StockLocation location, List<PartnerContainerCapacity.Slot> slots,
-                                   boolean batchesOn, boolean staff) {
+                                   boolean batchesOn, boolean staff, boolean edit) {
         PartnerProductNames.Names names = PartnerProductNames.of(product);
         int wanted = money.quantity();
         int atLocation = stock.quantityAt(product.id(), location.id());
@@ -295,8 +402,8 @@ public class PartnerSaleReportService {
                     ? counting.pieces((long) Math.max(0, atLocation) * counting.piecesPerSalesUnit())
                     : PartnerSaleTexts.quantity(Math.max(0, atLocation), names.unitOne(), names.unitOther());
             String head = "Er liggen nog maar " + left + " van " + label(names);
-            throw new BusinessRuleException(staff ? head + " op " + location.name() + ". Werk eerst de voorraad bij."
-                    : head + ". " + callEnrosed() + " om de voorraad bij te werken.");
+            throw new BusinessRuleException(refusal(edit, staff ? head + " op " + location.name() + ". Werk eerst de voorraad bij."
+                    : head + ". " + callEnrosed() + " om de voorraad bij te werken."));
         }
         List<Long> sources = new ArrayList<>();
         List<Integer> quantities = new ArrayList<>();
@@ -318,10 +425,10 @@ public class PartnerSaleReportService {
                 available += ownUnits;
                 if (rest > ownUnits) {
                     int blocked = Math.max(1, atLocation - available);
-                    throw new BusinessRuleException(PartnerSaleTexts.quantity(blocked, names.unitOne(), names.unitOther())
-                            + " van " + label(names) + (blocked == 1 ? " is" : " zijn")
+                    throw new BusinessRuleException(refusal(edit, PartnerSaleTexts.quantity(blocked, names.unitOne(),
+                            names.unitOther()) + " van " + label(names) + (blocked == 1 ? " is" : " zijn")
                             + " al afgerekend maar nog niet afgeboekt; "
-                            + (staff ? "boek die eerst af." : "Enrosed boekt die eerst af."));
+                            + (staff ? "boek die eerst af." : "Enrosed boekt die eerst af.")));
                 }
             }
             sources.add(null);
@@ -343,7 +450,7 @@ public class PartnerSaleReportService {
      * to its quantity minus what live buybacks already mirror.
      */
     private List<Planned> planBuyback(long customerId, EntryInput entry, Product product, List<Planned> sameMelding,
-                                      BigDecimal commissionPct, BigDecimal transportPct) {
+                                      BigDecimal commissionPct, BigDecimal transportPct, boolean edit) {
         PartnerProductNames.Names names = PartnerProductNames.of(product);
         PartnerSaleMoney.Priced priced = PartnerSaleMoney.price(entry.buyback().quantity(), entry.buyback().unitPrice(),
                 entry.buyback().total());
@@ -381,11 +488,11 @@ public class PartnerSaleReportService {
         }
         if (rest > 0) {
             int found = priced.quantity() - rest;
-            throw new BusinessRuleException(found == 0
+            throw new BusinessRuleException(refusal(edit, found == 0
                     ? "Meld eerst de verkoop op de veiling; een terugkoop hoort bij een gemelde verkoop."
                     : "Van " + label(names) + " " + (found == 1 ? "staat" : "staan") + " maar "
                     + PartnerSaleTexts.quantity(found, names.unitOne(), names.unitOther())
-                    + " als verkocht gemeld; een terugkoop hoort bij een gemelde verkoop.");
+                    + " als verkocht gemeld; een terugkoop hoort bij een gemelde verkoop."));
         }
         List<PartnerSaleMoney.Buyback> split = PartnerSaleMoney.splitBuyback(money, quantities);
         Entered entered = entry.buyback().entered();
@@ -461,10 +568,12 @@ public class PartnerSaleReportService {
     /**
      * The buyer of a direct sale, checked after the partner lock for partner and staff alike: an
      * existing customer that is no partner and not this partner, else one uniform "Onbekende klant"
-     * (so an id never tells whether a customer exists). Required only on a round-2 partner request
-     * of a direct sale; older requests without a buyer are accepted.
+     * (so an id never tells whether a customer exists). A partner may also only name a customer its
+     * search would show (not one known only from website requests still waiting for review, unless it
+     * added it), except the buyer the melding already has ({@code kept}). Required only on a round-2
+     * partner request of a direct sale; older requests without a buyer are accepted.
      */
-    private Long buyer(long partnerId, Input input, boolean staff) {
+    private Long buyer(long partnerId, Input input, boolean staff, Long kept) {
         Long buyerId = input.buyerCustomerId();
         if (buyerId == null) {
             if (!staff && input.roundTwo() && PartnerPortalRules.CHANNEL_DIRECT.equals(input.channel())) {
@@ -473,7 +582,11 @@ public class PartnerSaleReportService {
             return null;
         }
         Customer buyer = buyerId == partnerId ? null : customers.findById(buyerId).orElse(null);
-        if (buyer == null || buyer.partner()) throw new BusinessRuleException("Onbekende klant");
+        if (buyer == null || buyer.partner()) throw new BusinessRuleException(UNKNOWN_BUYER);
+        if (!staff && !buyerId.equals(kept)) {
+            boolean added = customerLinks.find(partnerId, buyerId).map(PartnerCustomerLinkEntity::isAddedByPartner).orElse(false);
+            if (!customerQueries.visible(partnerId, buyerId, added)) throw new BusinessRuleException(UNKNOWN_BUYER);
+        }
         return buyerId;
     }
 
@@ -539,6 +652,447 @@ public class PartnerSaleReportService {
         return fullCost.subtract(enrosed.enrosedIn(productId, fullCost)).max(BigDecimal.ZERO);
     }
 
+    /* ================================================================== edit */
+
+    /** What an edit did: rebooked = its stock was reversed and booked again (else only its money changed). */
+    public record Edited(long reportId, boolean rebooked) {}
+
+    /**
+     * Bewerken (partner {@code PUT /api/partner-portal/reports/{id}}, staff {@code PUT /api/partner-sales/reports/{id}}):
+     * the create body plus {@code expectedToken}, the editToken the client loaded. One transaction with the create's
+     * lock order (the partner, its containers ascending, the old and new products together ascending); every check
+     * runs after the partner lock, and any refusal leaves the melding as it was. Two paths, the server decides:
+     * <ul>
+     * <li><b>money-only</b>: per product the sale and buyback quantities (sales units) are unchanged, the sold-on day
+     *     too, and the channel changes only without a buyback. The money is computed again over the same parts and
+     *     written on the same line ids (prices, costs, what was typed); no stock movement, no archive of lines, no
+     *     mirror or stock guards (an open part is held by nothing);</li>
+     * <li><b>rebook</b>: every part is reversed as a withdrawal does (reference "Gewijzigd: VV-n"), the old lines
+     *     move to an archive row (revision_of = this melding, voided "Gewijzigd"), and the new parts are planned and
+     *     booked on this same melding at its own location. Refused while a buyback of another live melding mirrors
+     *     one of its sales; the shelf and the containers are checked on the net change old -> new.</li>
+     * </ul>
+     * The commission and transport snapshot stays unless the channel changes; the 90-day rule applies only to a
+     * changed sold-on day; a partner cannot edit a confirmed melding, staff can (and it stays confirmed). The cost
+     * lines replace the old ones, which move to the archive row when they changed.
+     */
+    @Transactional
+    public Edited update(Long partnerCustomerId, long reportId, PartnerSaleRequests.Report request, boolean staff) {
+        PartnerSaleReportEntity report = reports.findById(reportId);
+        if (report == null || (partnerCustomerId != null && !partnerCustomerId.equals(report.customerId))) {
+            throw new NotFoundException("Melding", reportId);
+        }
+        if (request == null) throw new BusinessRuleException("Geen gegevens ontvangen");
+        if (staff && request.customerId() != null && !request.customerId().equals(report.customerId)) {
+            throw PartnerRefusals.badRequest("Deze melding hoort bij een andere partner");
+        }
+        String token = request.expectedToken() == null ? "" : request.expectedToken().strip();
+        if (token.isEmpty()) throw PartnerRefusals.badRequest(TOKEN_MISSING);
+        Input input = validate(request, report.soldOn, false);
+        long customerId = report.customerId;
+        Customer customer = partnerCustomer(customerId);
+        /* Lock 1, then the melding as it is now: everything below is checked against that. */
+        PartnerPortalSettingsEntity row = settingsRows.lockOrCreate(customerId);
+        reports.getEntityManager().refresh(report);
+        if (report.isArchive()) throw new BusinessRuleException(OLD_VERSION);
+        if (report.isVoided()) throw new BusinessRuleException(WITHDRAWN);
+        if (!token.equals(report.editToken())) throw new BusinessRuleException(CHANGED);
+        if (!staff && report.confirmedAt != null) throw new BusinessRuleException(CONFIRMED_FOR_PARTNER);
+        LocalDate soldOn = request.soldOn() == null ? report.soldOn : input.soldOn();
+        boolean dateChanged = !soldOn.equals(report.soldOn);
+        if (dateChanged && soldOn.isBefore(PartnerPortalRules.today().minusDays(MAX_DAYS_BACK))) {
+            throw new BusinessRuleException("Een melding gaat hoogstens " + MAX_DAYS_BACK + " dagen terug");
+        }
+        Long buyerId = buyer(customerId, input, staff, report.buyerCustomerId);
+        /* Lock 2 and 3: the containers, then the old and the new products together, ascending. */
+        List<PurchaseOrder> containers = capacity.lockContainers(customerId);
+        List<PartnerSaleReportLineEntity> old = parts(lines.byReport(reportId));
+        Set<Long> productIds = new TreeSet<>(input.productIds());
+        for (PartnerSaleReportLineEntity part : old) if (part.productId != null) productIds.add(part.productId);
+        Map<Long, Product> catalog = lockProducts(productIds);
+        PartnerOpenParts.Rule rule = openParts.forLines(old);
+        if (old.stream().anyMatch(part -> !rule.isOpen(part, false))) {
+            throw new BusinessRuleException("Deze melding is al (deels) gefactureerd; wijzigen kan niet meer");
+        }
+        List<EntryInput> resolved = resolve(input, catalog);
+        boolean channelChanged = !input.channel().equals(report.channel);
+        BigDecimal commissionPct;
+        BigDecimal transportPct;
+        if (channelChanged) {
+            /* Another channel: the percents that apply to it now (the settings on AUCTION, 0 on DIRECT). */
+            PartnerPortalSettings.Effective applied = settings.of(customerId, row);
+            boolean auction = PartnerPortalRules.CHANNEL_AUCTION.equals(input.channel());
+            commissionPct = auction ? applied.auctionCommissionPct() : BigDecimal.ZERO;
+            transportPct = auction ? applied.auctionTransportPct() : BigDecimal.ZERO;
+        } else {
+            commissionPct = report.commissionPct == null ? BigDecimal.ZERO : report.commissionPct;
+            transportPct = report.transportPct == null ? BigDecimal.ZERO : report.transportPct;
+        }
+        boolean anyBuyback = old.stream().anyMatch(PartnerSaleReportLineEntity::isBuyback)
+                || resolved.stream().anyMatch(entry -> entry.buyback() != null);
+        boolean moneyOnly = !dateChanged && (!channelChanged || !anyBuyback) && sameQuantities(old, resolved);
+        long locationId = locationOf(report);
+        StockLocation location = location(locationId);
+        String number = PartnerPortalRules.reportNumber(reportId);
+        Guarded guarded = moneyOnly ? null : rebookGuards(report, old, resolved, containers, catalog, locationId, staff);
+
+        BigDecimal netBefore = Tally.of(old, catalog).net();
+        List<CostInput> oldCosts = costInputs(report, costRows.byReport(reportId));
+        boolean costsChanged = !oldCosts.equals(input.costs());
+        if (moneyOnly) {
+            /* The money again over the same parts (no stock moves); an edit that changes nothing writes nothing. */
+            String before = fingerprint(old);
+            rePrice(old, resolved, input.moneyCosts(), commissionPct, transportPct);
+            if (!costsChanged && report.extraCostMode == null && before.equals(fingerprint(old))
+                    && !channelChanged && Objects.equals(report.note, input.note())
+                    && Objects.equals(report.buyerCustomerId, buyerId)) {
+                return new Edited(reportId, false);
+            }
+        }
+        ActorRef who = actor.current();
+        Instant now = nextEditInstant(report);
+        PartnerSaleReportEntity archive = !moneyOnly || costsChanged ? archive(report, now, who) : null;
+        if (!moneyOnly) {
+            /* The old parts go back exactly as a withdrawal puts them (the shelf may dip: the net was checked). */
+            reverse(report, old, locationId, "Gewijzigd: " + number, true);
+            lines.flush();
+            for (PartnerSaleReportLineEntity line : lines.byReport(reportId)) line.reportId = archive.id;
+            lines.flush();
+        }
+        /* The cost lines: the old ones to the archive row when they changed (or the melding rebooked), else as they are. */
+        List<PartnerSaleReportCostEntity> currentCosts = costRows.byReport(reportId);
+        boolean writeCosts = archive != null || currentCosts.isEmpty();
+        if (archive != null) {
+            for (PartnerSaleReportCostEntity cost : currentCosts) cost.reportId = archive.id;
+            costRows.flush();
+        }
+
+        report.channel = input.channel();
+        report.soldOn = soldOn;
+        report.commissionPct = commissionPct.setScale(4, RoundingMode.HALF_UP);
+        report.transportPct = transportPct.setScale(4, RoundingMode.HALF_UP);
+        report.note = input.note();
+        report.buyerCustomerId = buyerId;
+        /* The cost lines live in partner_sale_report_cost from now on, also for a round-1 melding. */
+        report.extraCostMode = null;
+        report.extraCostValue = null;
+        report.updatedAt = now;
+        report.updatedBy = who.username();
+        report.updatedByName = cut(who.displayName(), 100);
+        reports.flush();
+
+        if (moneyOnly) {
+            lines.flush();
+        } else {
+            Plan plan = plan(customerId, resolved, input.moneyCosts(), commissionPct, transportPct, location,
+                    containers, catalog, staff, true);
+            requireRoom(old, plan, guarded.room(), catalog);
+            writeParts(report, plan, location, catalog);
+            /* The net was checked beforehand; this only makes sure no step on the way left the shelf lower. */
+            for (Long productId : productIds) {
+                int after = stock.quantityAt(productId, locationId);
+                if (after < 0 && after < guarded.shelf().getOrDefault(productId, 0)) {
+                    throw new BusinessRuleException(EDIT_REFUSED + "de teruggekochte stuks van "
+                            + productLabel(catalog, productId) + " liggen niet meer op voorraad");
+                }
+            }
+        }
+        if (writeCosts) writeCosts(reportId, input.costs());
+
+        Tally tally = Tally.of(parts(lines.byReport(reportId)), catalog);
+        activity.record(ActivityLogService.ACTION_UPDATED, ENTITY, Long.toString(reportId),
+                number + " · " + customer.company(),
+                cut((moneyOnly ? "Bedragen gewijzigd: " : "Gewijzigd: ") + tally.counts() + " · netto "
+                        + PartnerSaleTexts.euro(netBefore) + " → " + PartnerSaleTexts.euro(tally.net()), 500));
+        pushReady.fire(new PartnerSalePushNotifier.Ready(reportId, tally.pushQuantity(),
+                PartnerSaleTexts.kind(report.channel, tally.buybackOnly()), staff ? who.username() : null,
+                PartnerSalePushNotifier.TITLE_CHANGED));
+        return new Edited(reportId, !moneyOnly);
+    }
+
+    /** What a money-only edit may change on the parts, to tell an edit that changes nothing. */
+    private static String fingerprint(List<PartnerSaleReportLineEntity> parts) {
+        StringBuilder text = new StringBuilder();
+        for (PartnerSaleReportLineEntity part : parts) {
+            text.append(part.id).append('|').append(part.entryNo).append('|').append(plain(part.unitPriceEur))
+                    .append('|').append(plain(part.grossEur)).append('|').append(plain(part.commissionEur))
+                    .append('|').append(plain(part.transportEur)).append('|').append(plain(part.extraCostEur))
+                    .append('|').append(plain(part.netEur)).append('|').append(part.enteredUnit).append('|')
+                    .append(part.enteredCount).append('|').append(plain(part.piecePriceEur)).append('|')
+                    .append(part.enteredPiecesPerUnit).append(';');
+        }
+        return text.toString();
+    }
+
+    private static String plain(BigDecimal value) {
+        return value == null ? "-" : value.stripTrailingZeros().toPlainString();
+    }
+
+    /** SALE and BUYBACK rows only (a REVERSAL row is never a part). */
+    private static List<PartnerSaleReportLineEntity> parts(List<PartnerSaleReportLineEntity> rows) {
+        return rows.stream().filter(line -> line.isSale() || line.isBuyback()).toList();
+    }
+
+    /**
+     * The edit's token instant: now at micro precision (as the database keeps it), and always after the
+     * token it replaces, so two edits never answer the same editToken.
+     */
+    private static Instant nextEditInstant(PartnerSaleReportEntity report) {
+        Instant now = Instant.now().truncatedTo(ChronoUnit.MICROS);
+        Instant last = report.updatedAt != null ? report.updatedAt : report.createdAt;
+        if (last != null && !now.isAfter(last)) now = last.truncatedTo(ChronoUnit.MICROS).plus(1, ChronoUnit.MICROS);
+        return now;
+    }
+
+    /** Per product: the same sale and buyback quantity (sales units), and no product added or dropped. */
+    private static boolean sameQuantities(List<PartnerSaleReportLineEntity> old, List<EntryInput> resolved) {
+        Map<Long, List<Integer>> before = new HashMap<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            List<Integer> sums = before.computeIfAbsent(part.productId, key -> new ArrayList<>(List.of(0, 0)));
+            sums.set(part.isSale() ? 0 : 1, sums.get(part.isSale() ? 0 : 1) + part.quantityOrZero());
+        }
+        Map<Long, List<Integer>> after = new HashMap<>();
+        for (EntryInput entry : resolved) {
+            after.put(entry.productId(), new ArrayList<>(List.of(entry.sale() == null ? 0 : entry.sale().quantity(),
+                    entry.buyback() == null ? 0 : entry.buyback().quantity())));
+        }
+        return before.equals(after);
+    }
+
+    /**
+     * Money-only: the sale and buyback money of every entry again over the very same parts (their quantities, in
+     * the order they were written), the entry numbers and what was typed as sent now.
+     */
+    private static void rePrice(List<PartnerSaleReportLineEntity> old, List<EntryInput> resolved,
+                                List<PartnerSaleMoney.CostLine> costs, BigDecimal commissionPct, BigDecimal transportPct) {
+        Map<Long, List<PartnerSaleReportLineEntity>> salesOf = new HashMap<>();
+        Map<Long, List<PartnerSaleReportLineEntity>> buybacksOf = new HashMap<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            (part.isSale() ? salesOf : buybacksOf).computeIfAbsent(part.productId, key -> new ArrayList<>()).add(part);
+        }
+        Comparator<PartnerSaleReportLineEntity> written = Comparator.comparing(line -> line.id);
+        salesOf.values().forEach(list -> list.sort(written));
+        buybacksOf.values().forEach(list -> list.sort(written));
+        List<EntryInput> saleEntries = resolved.stream().filter(entry -> entry.sale() != null).toList();
+        List<PartnerSaleMoney.Sale> money = PartnerSaleMoney.sales(saleEntries.stream()
+                        .map(entry -> PartnerSaleMoney.price(entry.sale().quantity(), entry.sale().unitPrice(),
+                                entry.sale().total())).toList(),
+                commissionPct, transportPct, costs);
+        for (int index = 0; index < saleEntries.size(); index++) {
+            EntryInput entry = saleEntries.get(index);
+            List<PartnerSaleReportLineEntity> parts = salesOf.get(entry.productId());
+            List<PartnerSaleMoney.Sale> split = PartnerSaleMoney.split(money.get(index),
+                    parts.stream().map(PartnerSaleReportLineEntity::quantityOrZero).toList());
+            for (int part = 0; part < parts.size(); part++) {
+                PartnerSaleMoney.Sale share = split.get(part);
+                apply(parts.get(part), entry.entryNo(), share.unitPriceEur(), share.grossEur(), share.commissionEur(),
+                        share.transportEur(), share.extraCostEur(), share.netEur(), entry.sale().entered());
+            }
+        }
+        for (EntryInput entry : resolved) {
+            if (entry.buyback() == null) continue;
+            List<PartnerSaleReportLineEntity> parts = buybacksOf.get(entry.productId());
+            PartnerSaleMoney.Buyback buyback = PartnerSaleMoney.buyback(PartnerSaleMoney.price(entry.buyback().quantity(),
+                    entry.buyback().unitPrice(), entry.buyback().total()), commissionPct, transportPct);
+            List<PartnerSaleMoney.Buyback> split = PartnerSaleMoney.splitBuyback(buyback,
+                    parts.stream().map(PartnerSaleReportLineEntity::quantityOrZero).toList());
+            for (int part = 0; part < parts.size(); part++) {
+                PartnerSaleMoney.Buyback share = split.get(part);
+                apply(parts.get(part), entry.entryNo(), share.unitPriceEur(), share.grossEur(), share.commissionEur(),
+                        share.transportEur(), PartnerSaleMoney.ZERO, share.netEur(), entry.buyback().entered());
+            }
+        }
+    }
+
+    private static void apply(PartnerSaleReportLineEntity line, int entryNo, BigDecimal unitPrice, BigDecimal gross,
+                              BigDecimal commission, BigDecimal transport, BigDecimal extra, BigDecimal net,
+                              Entered entered) {
+        line.entryNo = entryNo;
+        line.unitPriceEur = unitPrice;
+        line.grossEur = gross;
+        line.commissionEur = commission;
+        line.transportEur = transport;
+        line.extraCostEur = extra;
+        line.netEur = net;
+        line.enteredUnit = entered == null ? null : entered.unit();
+        line.enteredCount = entered == null ? null : entered.count();
+        line.piecePriceEur = entered == null ? null : entered.piecePriceEur();
+        line.enteredPiecesPerUnit = entered == null ? null : entered.piecesPerUnit();
+    }
+
+    /**
+     * The rebook's checks before anything is written: no buyback of another live melding mirrors one of its sales,
+     * and per product the shelf holds the net change (what the new melding takes beyond the old one). Answers the
+     * room every container of the old parts has now (unclamped), for {@link #requireRoom}, and the shelf now.
+     */
+    private Guarded rebookGuards(PartnerSaleReportEntity report, List<PartnerSaleReportLineEntity> old,
+                                 List<EntryInput> resolved, List<PurchaseOrder> containers,
+                                 Map<Long, Product> catalog, long locationId, boolean staff) {
+        Map<Long, Integer> shelf = new HashMap<>();
+        Set<Long> saleIds = new HashSet<>();
+        for (PartnerSaleReportLineEntity part : old) if (part.isSale()) saleIds.add(part.id);
+        Set<Long> mirroring = new TreeSet<>();
+        for (Object[] row : lines.liveBuybacksMirroring(saleIds)) {
+            long other = ((Number) row[1]).longValue();
+            if (other != report.id) mirroring.add(other);
+        }
+        if (!mirroring.isEmpty()) {
+            throw new BusinessRuleException(EDIT_REFUSED + "trek eerst de terugkoop in ("
+                    + String.join(", ", mirroring.stream().map(PartnerPortalRules::reportNumber).toList())
+                    + "); een prijs of kost wijzigen kan wel");
+        }
+        Map<Long, int[]> oldSides = new HashMap<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            oldSides.computeIfAbsent(part.productId, key -> new int[2])[part.isSale() ? 0 : 1] += part.quantityOrZero();
+        }
+        Map<Long, int[]> newSides = new HashMap<>();
+        for (EntryInput entry : resolved) {
+            int[] sides = newSides.computeIfAbsent(entry.productId(), key -> new int[2]);
+            if (entry.sale() != null) sides[0] += entry.sale().quantity();
+            if (entry.buyback() != null) sides[1] += entry.buyback().quantity();
+        }
+        Set<Long> productIds = new TreeSet<>(oldSides.keySet());
+        productIds.addAll(newSides.keySet());
+        for (Long productId : productIds) {
+            int[] before = oldSides.getOrDefault(productId, new int[2]);
+            int[] after = newSides.getOrDefault(productId, new int[2]);
+            int at = stock.quantityAt(productId, locationId);
+            shelf.put(productId, at);
+            /* Stock now + what the old melding took out net - what the new one takes out net; refused only when
+               the edit itself takes the shelf below zero. */
+            int change = (before[0] - before[1]) - (after[0] - after[1]);
+            if (change >= 0 || at + change >= 0) continue;
+            Product product = catalog.get(productId);
+            if (after[0] > before[0]) {
+                int left = Math.max(0, at + before[0] - before[1]);
+                PartnerProductNames.Names names = PartnerProductNames.of(product);
+                PartnerCountUnits.Counting counting = PartnerCountUnits.of(product);
+                String head = EDIT_REFUSED + "er liggen nog maar "
+                        + counting.pieces((long) left * counting.piecesPerSalesUnit()) + " van " + label(names);
+                throw new BusinessRuleException(staff ? head + " op " + location(locationId).name() + ". Werk eerst de voorraad bij."
+                        : head + ". " + callEnrosed() + " om de voorraad bij te werken.");
+            }
+            throw new BusinessRuleException(EDIT_REFUSED + "de teruggekochte stuks van " + productLabel(catalog, productId)
+                    + " liggen niet meer op voorraad");
+        }
+        /* The room the old parts' containers have now, before anything goes back. */
+        Set<Long> containerIds = new HashSet<>();
+        Set<Long> containerProducts = new HashSet<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            if (part.purchaseOrderId == null) continue;
+            containerIds.add(part.purchaseOrderId);
+            containerProducts.add(part.productId);
+        }
+        Map<String, Integer> room = new HashMap<>();
+        if (containerIds.isEmpty()) return new Guarded(room, shelf);
+        List<PurchaseOrder> involved = containers.stream().filter(order -> containerIds.contains(order.id())).toList();
+        capacity.slots(report.customerId, involved, containerProducts, batches.active()).forEach((productId, slots) -> {
+            for (PartnerContainerCapacity.Slot slot : slots) {
+                int left = slot.ledgerRemaining() - slot.historicShipped() - slot.openNet();
+                if (slot.batchUnitsLeft() != null) left = Math.min(left, slot.batchUnitsLeft());
+                room.put(PartnerContainerCapacity.key(slot.purchaseOrderId(), productId), left);
+            }
+        });
+        return new Guarded(room, shelf);
+    }
+
+    /** What a rebook checked before writing: the room per container:product (unclamped), the shelf per product. */
+    private record Guarded(Map<String, Integer> room, Map<Long, Integer> shelf) {}
+
+    /**
+     * A rebook that leaves a container claimed more than before (its old buybacks there now go elsewhere, or
+     * nowhere) needs that room in the container as it was before the edit: pieces a buyback put back may have
+     * been reported sold from it again since. A new sale only takes the room the plan found.
+     */
+    private static void requireRoom(List<PartnerSaleReportLineEntity> old, Plan plan, Map<String, Integer> roomBefore,
+                                    Map<Long, Product> catalog) {
+        Map<String, Integer> delta = new LinkedHashMap<>();
+        Set<String> hadOld = new HashSet<>();
+        for (PartnerSaleReportLineEntity part : old) {
+            if (part.purchaseOrderId == null) continue;
+            String key = PartnerContainerCapacity.key(part.purchaseOrderId, part.productId);
+            hadOld.add(key);
+            delta.merge(key, part.isSale() ? -part.quantityOrZero() : part.quantityOrZero(), Integer::sum);
+        }
+        for (Planned part : plan.sales()) {
+            if (part.purchaseOrderId != null) {
+                delta.merge(PartnerContainerCapacity.key(part.purchaseOrderId, part.productId), part.quantity, Integer::sum);
+            }
+        }
+        for (Planned part : plan.buybacks()) {
+            if (part.purchaseOrderId != null) {
+                delta.merge(PartnerContainerCapacity.key(part.purchaseOrderId, part.productId), -part.quantity, Integer::sum);
+            }
+        }
+        delta.forEach((key, more) -> {
+            if (more <= 0 || !hadOld.contains(key)) return;
+            if (roomBefore.getOrDefault(key, 0) < more) {
+                long productId = Long.parseLong(key.split(":")[1]);
+                throw new BusinessRuleException(EDIT_REFUSED + "de teruggekochte stuks van " + productLabel(catalog, productId)
+                        + " zijn al opnieuw als verkocht gemeld; trek eerst die melding in");
+            }
+        });
+    }
+
+    /**
+     * The archive row of an edit: the melding as it was (channel, day, percents, note, location, buyer, login,
+     * who made it and when, confirmation, last edit), voided "Gewijzigd" now, revision_of = the melding,
+     * client_ref null. Never listed; staff read it by id for the audit trail.
+     */
+    private PartnerSaleReportEntity archive(PartnerSaleReportEntity report, Instant now, ActorRef who) {
+        PartnerSaleReportEntity copy = new PartnerSaleReportEntity();
+        copy.customerId = report.customerId;
+        copy.loginId = report.loginId;
+        copy.channel = report.channel;
+        copy.soldOn = report.soldOn;
+        copy.commissionPct = report.commissionPct;
+        copy.transportPct = report.transportPct;
+        copy.extraCostMode = report.extraCostMode;
+        copy.extraCostValue = report.extraCostValue;
+        copy.note = report.note;
+        copy.locationId = report.locationId;
+        copy.clientRef = null;
+        copy.createdAt = report.createdAt;
+        copy.createdBy = report.createdBy;
+        copy.createdByName = report.createdByName;
+        copy.confirmedAt = report.confirmedAt;
+        copy.confirmedBy = report.confirmedBy;
+        copy.confirmedByName = report.confirmedByName;
+        copy.updatedAt = report.updatedAt;
+        copy.updatedBy = report.updatedBy;
+        copy.updatedByName = report.updatedByName;
+        copy.buyerCustomerId = report.buyerCustomerId;
+        copy.revisionOf = report.id;
+        copy.voidedAt = now;
+        copy.voidedBy = who.username();
+        copy.voidReason = ARCHIVE_REASON;
+        reports.persist(copy);
+        reports.flush();
+        return copy;
+    }
+
+    /** The cost lines as they stand: the stored rows, or a round-1 melding's single extra cost. */
+    private static List<CostInput> costInputs(PartnerSaleReportEntity report, List<PartnerSaleReportCostEntity> rows) {
+        List<CostInput> result = new ArrayList<>();
+        if (!rows.isEmpty()) {
+            for (PartnerSaleReportCostEntity row : rows) result.add(storedCost(row.description, row.costMode, row.costValue));
+            return result;
+        }
+        if (report.extraCostMode != null) result.add(storedCost(null, report.extraCostMode, report.extraCostValue));
+        return result;
+    }
+
+    private static CostInput storedCost(String description, String mode, BigDecimal value) {
+        BigDecimal scaled = value == null ? null
+                : value.setScale(PartnerSaleMoney.AMOUNT.equals(mode) ? 2 : 4, RoundingMode.HALF_UP);
+        return new CostInput(description, mode, scaled);
+    }
+
+    private StockLocation location(long locationId) {
+        for (StockLocation location : stock.locations()) if (location.id() == locationId) return location;
+        return stock.mainLocation();
+    }
+
     /* ================================================================== void */
 
     /**
@@ -563,8 +1117,7 @@ public class PartnerSaleReportService {
         /* Re-checked after the partner lock: staff may have confirmed it a moment ago. */
         if (!staff && report.confirmedAt != null) throw new BusinessRuleException(CONFIRMED_FOR_PARTNER);
         List<PurchaseOrder> containers = capacity.lockContainers(customerId);
-        List<PartnerSaleReportLineEntity> all = lines.byReport(reportId);
-        List<PartnerSaleReportLineEntity> parts = all.stream().filter(line -> line.isSale() || line.isBuyback()).toList();
+        List<PartnerSaleReportLineEntity> parts = parts(lines.byReport(reportId));
         Map<Long, Product> catalog = new LinkedHashMap<>();
         for (Long productId : new TreeSet<>(parts.stream().map(line -> line.productId).toList())) {
             stock.lockProduct(productId);
@@ -589,12 +1142,10 @@ public class PartnerSaleReportService {
         /* The withdrawal's net effect: per product sale - buyback back on the shelf, per container
            buyback - sale more claimed by meldingen. Checked as a whole, so a melding that sold 100
            and bought 1 back can be withdrawn even when that 1 piece was sold again since. */
-        Map<Long, Integer> saleByProduct = new HashMap<>();
         Map<Long, Integer> netBackByProduct = new HashMap<>();
         Map<String, Integer> containerNeed = new LinkedHashMap<>();
         for (PartnerSaleReportLineEntity part : parts) {
             int signed = part.isSale() ? part.quantityOrZero() : -part.quantityOrZero();
-            if (part.isSale()) saleByProduct.merge(part.productId, part.quantityOrZero(), Integer::sum);
             netBackByProduct.merge(part.productId, signed, Integer::sum);
             if (part.purchaseOrderId != null) {
                 containerNeed.merge(PartnerContainerCapacity.key(part.purchaseOrderId, part.productId), -signed, Integer::sum);
@@ -607,7 +1158,36 @@ public class PartnerSaleReportService {
             }
         }
         requireContainerRoom(customerId, containers, containerNeed, catalog);
-        String reference = "Ingetrokken: " + PartnerPortalRules.reportNumber(reportId);
+        reverse(report, parts, locationId, "Ingetrokken: " + PartnerPortalRules.reportNumber(reportId), false);
+        ActorRef who = actor.current();
+        report.voidedAt = Instant.now();
+        report.voidedBy = who.username();
+        report.voidReason = reason == null || reason.isBlank() ? null : cut(reason.strip(), MAX_REASON);
+        reports.flush();
+        Customer customer = customers.findById(customerId).orElse(null);
+        activity.record(ACTION_VOIDED, ENTITY, Long.toString(reportId),
+                PartnerPortalRules.reportNumber(reportId) + (customer == null ? "" : " · " + customer.company()),
+                (staff ? "Ingetrokken" : "Ongedaan gemaakt")
+                        + (report.voidReason == null ? "" : ": " + report.voidReason));
+    }
+
+    /**
+     * Gives every part of a melding back, batch-correct, as a withdrawal and a rebooking edit both do: buybacks
+     * first (a take pinned to their container), then sales (back into their own takes, those of this melding's
+     * buyback reversals that mirrored them, and those of earlier withdrawn buybacks of them). Each reversal
+     * writes a REVERSAL row on the melding. A buyback may take the shelf below zero for a moment only when the
+     * caller checked the net beforehand: a withdrawal when the melding's own sale of that product follows, an
+     * edit always (its new parts come right after, the net change was checked).
+     */
+    private void reverse(PartnerSaleReportEntity report, List<PartnerSaleReportLineEntity> parts, long locationId,
+                         String reference, boolean dipAlways) {
+        Map<Long, Integer> saleByProduct = new HashMap<>();
+        Set<Long> saleIds = new HashSet<>();
+        for (PartnerSaleReportLineEntity part : parts) {
+            if (!part.isSale()) continue;
+            saleByProduct.merge(part.productId, part.quantityOrZero(), Integer::sum);
+            saleIds.add(part.id);
+        }
         /* Pieces of a sale part may sit in the takes of buyback withdrawals: those of other meldingen
            withdrawn earlier (read now, before this melding's own are written) and this melding's own
            (collected below); the sale's pieces go back into all of them. */
@@ -615,11 +1195,10 @@ public class PartnerSaleReportService {
         Map<Long, List<Long>> reversalsOfMirroredSale = new HashMap<>();
         for (PartnerSaleReportLineEntity part : parts) {
             if (!part.isBuyback() || part.quantityOrZero() <= 0) continue;
-            /* Only when this melding's own sale of the product goes back right after may the shelf dip for a moment. */
-            boolean saleFollows = saleByProduct.getOrDefault(part.productId, 0) > 0;
+            boolean dip = dipAlways || saleByProduct.getOrDefault(part.productId, 0) > 0;
             Long movementId = stock.partnerMove(part.productId, locationId, -part.quantityOrZero(),
                     StockMovement.Kind.PARTNER_SALE, reference, part.purchaseOrderId, report.soldOn,
-                    StockBatchContext.pinned(part.purchaseOrderId), saleFollows);
+                    StockBatchContext.pinned(part.purchaseOrderId), dip);
             if (part.mirrorsLineId != null) {
                 reversalsOfMirroredSale.computeIfAbsent(part.mirrorsLineId, key -> new ArrayList<>()).add(movementId);
             }
@@ -636,16 +1215,6 @@ public class PartnerSaleReportService {
                     StockBatchContext.partnerReturn(sources));
             writeReversal(part, movementId);
         }
-        ActorRef who = actor.current();
-        report.voidedAt = Instant.now();
-        report.voidedBy = who.username();
-        report.voidReason = reason == null || reason.isBlank() ? null : cut(reason.strip(), MAX_REASON);
-        reports.flush();
-        Customer customer = customers.findById(customerId).orElse(null);
-        activity.record(ACTION_VOIDED, ENTITY, Long.toString(reportId),
-                PartnerPortalRules.reportNumber(reportId) + (customer == null ? "" : " · " + customer.company()),
-                (staff ? "Ingetrokken" : "Ongedaan gemaakt")
-                        + (report.voidReason == null ? "" : ": " + report.voidReason));
     }
 
     /**
@@ -778,15 +1347,23 @@ public class PartnerSaleReportService {
     }
 
     static Input validate(PartnerSaleRequests.Report request) {
+        return validate(request, null, true);
+    }
+
+    /**
+     * fallbackSoldOn: the day when none is sent (null = today); daysBack: refuse a day more than 90 days back
+     * (an edit checks that itself, and only when the day changes).
+     */
+    static Input validate(PartnerSaleRequests.Report request, LocalDate fallbackSoldOn, boolean daysBack) {
         if (request == null) throw new BusinessRuleException("Geen gegevens ontvangen");
         String channel = request.channel() == null ? "" : request.channel().strip().toUpperCase(Locale.ROOT);
         if (!PartnerPortalRules.CHANNEL_AUCTION.equals(channel) && !PartnerPortalRules.CHANNEL_DIRECT.equals(channel)) {
             throw new BusinessRuleException("Kies veiling of direct");
         }
         LocalDate today = PartnerPortalRules.today();
-        LocalDate soldOn = request.soldOn() == null ? today : request.soldOn();
+        LocalDate soldOn = request.soldOn() != null ? request.soldOn() : fallbackSoldOn != null ? fallbackSoldOn : today;
         if (soldOn.isAfter(today)) throw new BusinessRuleException("De verkoopdatum ligt in de toekomst");
-        if (soldOn.isBefore(today.minusDays(MAX_DAYS_BACK))) {
+        if (daysBack && soldOn.isBefore(today.minusDays(MAX_DAYS_BACK))) {
             throw new BusinessRuleException("Een melding gaat hoogstens " + MAX_DAYS_BACK + " dagen terug");
         }
         String clientRef = request.clientRef() == null || request.clientRef().isBlank() ? null : request.clientRef().strip();

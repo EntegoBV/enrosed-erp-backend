@@ -16,6 +16,7 @@ import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.HeaderParam;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -84,6 +85,19 @@ public class PartnerPortalResource {
         PartnerSaleReportService.Outcome outcome = meldingen.create(caller.customerId(), caller.loginId(), request, false);
         return Response.status(outcome.created() ? Response.Status.CREATED : Response.Status.OK)
                 .entity(portal.report(caller.customerId(), outcome.reportId())).build();
+    }
+
+    /**
+     * Bewerken: the create body plus expectedToken (the editToken loaded). Only an own melding (404 otherwise),
+     * only while Enrosed has not confirmed it and every part is open; 409 when it changed since it was loaded.
+     */
+    @PUT
+    @Path("/reports/{id}")
+    @Consumes(MediaType.APPLICATION_JSON)
+    public PartnerPortalViews.PartnerReport edit(@PathParam("id") long id, PartnerSaleRequests.Report request) {
+        PartnerCaller caller = PartnerCaller.of(identity);
+        meldingen.update(caller.customerId(), id, request, false);
+        return portal.report(caller.customerId(), id);
     }
 
     /** Ongedaan maken: withdraws an own melding while nothing of it is invoiced. */

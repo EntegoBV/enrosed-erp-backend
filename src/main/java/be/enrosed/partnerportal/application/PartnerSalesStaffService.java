@@ -105,6 +105,17 @@ public class PartnerSalesStaffService {
         return views(reader.load(List.of(report))).getFirst();
     }
 
+    /** These meldingen as staff see them, in the given order (archive rows too: read by id). */
+    @Transactional
+    public List<PartnerPortalViews.StaffReport> reports(List<Long> reportIds) {
+        List<PartnerSaleReportEntity> found = new ArrayList<>();
+        for (Long id : reportIds) {
+            PartnerSaleReportEntity report = id == null ? null : reports.findById(id);
+            if (report != null) found.add(report);
+        }
+        return views(reader.load(found));
+    }
+
     private static boolean matches(String filter, String status) {
         return switch (filter) {
             case "OPEN" -> PartnerPortalRules.STATUS_OPEN.equals(status) || PartnerPortalRules.STATUS_PARTLY_INVOICED.equals(status);
@@ -148,7 +159,8 @@ public class PartnerSalesStaffService {
                         line.quantityOrZero() * Math.max(1, tile.piecesPerSalesUnit())));
             }
             long customerId = report.customerId == null ? 0 : report.customerId;
-            result.add(PartnerPortalViews.StaffReport.of(reader.view(item, catalog), item.staffCanEdit(), customerId,
+            result.add(PartnerPortalViews.StaffReport.of(reader.view(item, catalog), item.staffCanEdit(),
+                    item.staffCanUndo(), customerId,
                     names.get(customerId), report.createdBy, report.voidedAt, report.voidedBy, report.voidReason, parts,
                     report.revisionOf));
         }

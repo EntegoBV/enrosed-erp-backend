@@ -122,8 +122,9 @@ public final class PartnerPortalViews {
      * One melding with its parts merged back per entry. status OPEN | PARTLY_INVOICED | INVOICED | VOIDED.
      * note (additive) is what was typed with it. Round 2 (additive): editToken (send it back as
      * expectedToken on an edit), updatedAt/By, the extra cost lines, the buyer, confirmed (staff
-     * confirmed it, or a document holds a part) and canEdit / canUndo for the partner (open, no buyback of
-     * another melding mirrors it, not confirmed).
+     * confirmed it, or a document holds a part) and, for the partner, canEdit (open, not confirmed) and
+     * canUndo (also no buyback of another melding mirrors it). An edit that changes a quantity or product
+     * of a mirrored melding is refused by the server; a price, cost or note fix is not.
      */
     public record PartnerReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
                                 String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
@@ -192,8 +193,8 @@ public final class PartnerPortalViews {
 
     /**
      * PartnerReport plus who and for whom, the withdrawal and the parts per source. canEdit and canUndo are
-     * the staff rule (open and no buyback of another melding mirrors it; also when confirmed); revisionOf is
-     * set on an archive row (an old version, read by id only).
+     * the staff rule (also when confirmed): canEdit = open, canUndo = open and no buyback of another melding
+     * mirrors it; revisionOf is set on an archive row (an old version, read by id only).
      */
     public record StaffReport(long id, String number, String channel, LocalDate soldOn, Instant createdAt,
                               String createdByName, BigDecimal commissionPct, BigDecimal transportPct,
@@ -203,17 +204,20 @@ public final class PartnerPortalViews {
                               String editToken, Instant updatedAt, String updatedByName, List<CostLine> extraCosts,
                               Buyer buyer, boolean confirmed, Instant confirmedAt, String confirmedByName,
                               boolean canEdit, Long revisionOf) {
-        static StaffReport of(PartnerReport base, boolean staffCanEdit, long customerId, String customerName,
-                              String createdBy, Instant voidedAt, String voidedBy, String voidReason,
-                              List<StaffPart> parts, Long revisionOf) {
+        static StaffReport of(PartnerReport base, boolean staffCanEdit, boolean staffCanUndo, long customerId,
+                              String customerName, String createdBy, Instant voidedAt, String voidedBy,
+                              String voidReason, List<StaffPart> parts, Long revisionOf) {
             return new StaffReport(base.id(), base.number(), base.channel(), base.soldOn(), base.createdAt(),
                     base.createdByName(), base.commissionPct(), base.transportPct(), base.extraCost(), base.entries(),
-                    base.totals(), base.status(), staffCanEdit, base.note(), customerId, customerName, createdBy,
+                    base.totals(), base.status(), staffCanUndo, base.note(), customerId, customerName, createdBy,
                     voidedAt, voidedBy, voidReason, parts, base.editToken(), base.updatedAt(), base.updatedByName(),
                     base.extraCosts(), base.buyer(), base.confirmed(), base.confirmedAt(), base.confirmedByName(),
                     staffCanEdit, revisionOf);
         }
     }
+
+    /** POST /api/partner-sales/reports/confirm | unconfirm: the meldingen as they are now. */
+    public record ConfirmResult(List<StaffReport> reports) {}
 
     /** What is still to invoice: meldingen with an open part, their open sale quantity and open net. */
     public record OpenTotals(int openReports, int openSaleQuantity, BigDecimal openNetEur) {}

@@ -50,24 +50,37 @@ public class PartnerReportReader {
                          List<PartnerSaleReportCostEntity> costs, PartnerOpenParts.Rule rule, String status,
                          boolean confirmed, boolean mirroredElsewhere, PartnerPortalViews.Buyer buyer) {
 
-        /** Every part open, nothing of another melding mirrors it, no archive row: the shared part of both rules. */
-        private boolean editable() {
-            return PartnerPortalRules.STATUS_OPEN.equals(status) && !mirroredElsewhere && !report.isArchive();
+        /** Every part open and no archive row: the shared part of every rule. */
+        private boolean open() {
+            return PartnerPortalRules.STATUS_OPEN.equals(status) && !report.isArchive();
         }
 
-        /** The partner's rule for Bewerken and Ongedaan maken: also not confirmed. */
+        /**
+         * The partner's rule for Bewerken: open and not confirmed. A melding another melding's buyback mirrors
+         * can still get a price, cost or note fix (the money-only path); a quantity change is refused then.
+         */
         public boolean partnerCanEdit() {
-            return editable() && !confirmed;
+            return open() && !confirmed;
         }
 
-        /** The staff rule for Bewerken and Intrekken: also when confirmed. */
+        /** The partner's rule for Ongedaan maken: also no buyback of another live melding mirrors it. */
+        public boolean partnerCanUndo() {
+            return partnerCanEdit() && !mirroredElsewhere;
+        }
+
+        /** The staff rule for Bewerken: open, also when confirmed. */
         public boolean staffCanEdit() {
-            return editable();
+            return open();
         }
 
-        /** Round 1's name for the partner flag. */
+        /** The staff rule for Intrekken: also no buyback of another live melding mirrors it. */
+        public boolean staffCanUndo() {
+            return open() && !mirroredElsewhere;
+        }
+
+        /** Round 1's name for the partner's undo flag. */
         public boolean canUndo() {
-            return partnerCanEdit();
+            return partnerCanUndo();
         }
 
         /** For the list filters: VOIDED > INVOICED (nothing open) > CONFIRMED > UNCONFIRMED. */
@@ -221,7 +234,7 @@ public class PartnerReportReader {
         return new PartnerPortalViews.PartnerReport(report.id, PartnerPortalRules.reportNumber(report.id),
                 report.channel, report.soldOn, report.createdAt, report.createdByName,
                 PartnerNumbers.pct(report.commissionPct), PartnerNumbers.pct(report.transportPct),
-                legacyExtraCost(costLines, totals), entries, totals, loaded.status(), loaded.partnerCanEdit(),
+                legacyExtraCost(costLines, totals), entries, totals, loaded.status(), loaded.partnerCanUndo(),
                 report.note, report.editToken(), report.updatedAt, report.updatedByName, costLines, loaded.buyer(),
                 loaded.confirmed(), report.confirmedAt, report.confirmedByName, loaded.partnerCanEdit());
     }

@@ -1,6 +1,7 @@
 package be.enrosed.partnerportal.adapter.in.rest;
 
 import be.enrosed.partnerportal.application.PartnerPortalViews;
+import be.enrosed.partnerportal.application.PartnerSaleConfirmations;
 import be.enrosed.partnerportal.application.PartnerSaleInvoicing;
 import be.enrosed.partnerportal.application.PartnerSaleReportService;
 import be.enrosed.partnerportal.application.PartnerSaleRequests;
@@ -12,6 +13,7 @@ import jakarta.ws.rs.Consumes;
 import jakarta.ws.rs.DELETE;
 import jakarta.ws.rs.GET;
 import jakarta.ws.rs.POST;
+import jakarta.ws.rs.PUT;
 import jakarta.ws.rs.Path;
 import jakarta.ws.rs.PathParam;
 import jakarta.ws.rs.Produces;
@@ -36,12 +38,14 @@ public class PartnerSalesResource {
     private final PartnerSalesStaffService staff;
     private final PartnerSaleReportService meldingen;
     private final PartnerSaleInvoicing invoicing;
+    private final PartnerSaleConfirmations confirmations;
 
     public PartnerSalesResource(PartnerSalesStaffService staff, PartnerSaleReportService meldingen,
-                                PartnerSaleInvoicing invoicing) {
+                                PartnerSaleInvoicing invoicing, PartnerSaleConfirmations confirmations) {
         this.staff = staff;
         this.meldingen = meldingen;
         this.invoicing = invoicing;
+        this.confirmations = confirmations;
     }
 
     /** Factureren, step 1: what would be made now (reportIds null = every open melding; until by sold_on). Writes nothing. */
@@ -95,6 +99,31 @@ public class PartnerSalesResource {
         PartnerSaleReportService.Outcome outcome = meldingen.create(request.customerId(), null, request, true);
         return Response.status(outcome.created() ? Response.Status.CREATED : Response.Status.OK)
                 .entity(staff.report(outcome.reportId())).build();
+    }
+
+    /**
+     * Bewerken by staff: the create body plus expectedToken; customerId may be left out (else it must be the
+     * melding's partner). Allowed while every part is open, also once confirmed (it stays confirmed).
+     */
+    @PUT
+    @Path("/reports/{id}")
+    public PartnerPortalViews.StaffReport edit(@PathParam("id") long id, PartnerSaleRequests.Report request) {
+        meldingen.update(null, id, request, true);
+        return staff.report(id);
+    }
+
+    /** Bevestigen: {"reports": [{id, token}]} (or the legacy {"reportIds": [..]}); all or nothing. */
+    @POST
+    @Path("/reports/confirm")
+    public PartnerPortalViews.ConfirmResult confirm(PartnerSaleRequests.ConfirmRequest request) {
+        return new PartnerPortalViews.ConfirmResult(staff.reports(confirmations.apply(request, true)));
+    }
+
+    /** Terugzetten: back to "te bevestigen", refused once a document holds a part of it; all or nothing. */
+    @POST
+    @Path("/reports/unconfirm")
+    public PartnerPortalViews.ConfirmResult unconfirm(PartnerSaleRequests.ConfirmRequest request) {
+        return new PartnerPortalViews.ConfirmResult(staff.reports(confirmations.apply(request, false)));
     }
 
     /** Intrekken: puts the stock back, while nothing of the melding is invoiced. */
