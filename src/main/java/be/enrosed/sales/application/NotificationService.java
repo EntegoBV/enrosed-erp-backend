@@ -45,7 +45,7 @@ public class NotificationService {
     @Inject Instance<WebOrderDeliveries> deliveries;
     @Inject Instance<SalesOrderService> salesOrders;
     @Inject Instance<be.enrosed.sourcing.tracking.ContainerArrivalReminders> containerArrivals;
-    /** Partner meldingen of the last 14 days (be.enrosed.partnerportal); absent in pure unit tests. */
+    /** Partner meldingen of the last 14 days and customers a partner added (be.enrosed.partnerportal); absent in pure unit tests. */
     @Inject Instance<PartnerSaleNotificationFeed> partnerSales;
     /** How long the news that a customer cancelled their own order stays in the feed. */
     private static final Duration CUSTOMER_CANCEL_NEWS = Duration.ofDays(14);
@@ -84,7 +84,13 @@ public class NotificationService {
          * A partner reported an auction or direct sale, or a buyback on the clock (Veilingverkopen). News, never
          * work; orderId is null (older screens must not open /sales/<id>), the melding is in url and notificationId.
          */
-        PARTNER_VERKOOP
+        PARTNER_VERKOOP,
+        /**
+         * A partner added a customer itself in the partner portal (the buyer of a direct sale); work until staff
+         * mark it reviewed on the customer sheet. orderId is null; url "/customers?klant=<id>", notificationId
+         * "partner-customer:<id>".
+         */
+        PARTNER_KLANT
     }
 
     public record Notification(
