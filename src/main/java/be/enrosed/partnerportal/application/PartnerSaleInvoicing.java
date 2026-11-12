@@ -128,11 +128,16 @@ public class PartnerSaleInvoicing {
      * niet bevestigd: bevestig of trek in"). Nothing is written or locked; a container group is planned
      * with createAuctionSettlement's own arithmetic in a transaction of its own, so its refusal becomes
      * {@code blocked} and touches nothing else. Every figure comes from {@link PartnerInvoiceFigures}.
+     * includeUnconfirmed (with explicit reportIds only): those meldingen count as confirmed for this read
+     * (Veilingverkopen's Inkoop en winst of one melding before Bevestigen: the figures Factureren will make
+     * once it is confirmed). Meldingen that come along by a mirror link still need their own confirmation,
+     * as in Factureren; invoice() never takes this path.
      */
     @Transactional
-    public PartnerPortalViews.InvoicePreview preview(Long customerId, List<Long> reportIds, LocalDate until) {
+    public PartnerPortalViews.InvoicePreview preview(Long customerId, List<Long> reportIds, LocalDate until,
+                                                     boolean includeUnconfirmed) {
         Customer partner = requirePartner(customerId);
-        Selection selection = select(partner.id(), reportIds, until);
+        Selection selection = select(partner.id(), reportIds, until, includeUnconfirmed && reportIds != null);
         List<OpenPart> parts = selection.parts();
         PartnerProductTiles.Catalog catalog = tiles.load();
         Map<Long, Map<Long, ProductSum>> bySource = group(parts);
@@ -560,7 +565,7 @@ public class PartnerSaleInvoicing {
      * along ({@link #select}). runGroup calls this again after the partner lock.
      */
     private List<OpenPart> selectOpen(long customerId, Collection<Long> reportIds, LocalDate until) {
-        return select(customerId, reportIds, until).parts();
+        return select(customerId, reportIds, until, false).parts();
     }
 
     /**
@@ -571,7 +576,8 @@ public class PartnerSaleInvoicing {
      */
     record Selection(List<OpenPart> parts, Map<Long, String> joined) {}
 
-    private Selection select(long customerId, Collection<Long> reportIds, LocalDate until) {
+    /** asConfirmed: the explicit reportIds count as confirmed (the read-only preview of one melding, never an invoice). */
+    private Selection select(long customerId, Collection<Long> reportIds, LocalDate until, boolean asConfirmed) {
         List<Long> ids = reportIds == null
                 ? lines.reportsWithOpenParts(customerId, openParts.releasing(lines.liveInvoiceIdsOf(customerId)), until)
                 : reportIds.stream().filter(Objects::nonNull).distinct().sorted().toList();
@@ -584,20 +590,24 @@ public class PartnerSaleInvoicing {
         }
         if (chosen.isEmpty()) return new Selection(List.of(), Map.of());
         Set<Long> unconfirmed = new TreeSet<>();
-        List<OpenPart> open = openOf(chosen, unconfirmed);
+        Set<Long> taken = asConfirmed ? Set.copyOf(chosen.keySet()) : Set.of();
+        List<OpenPart> open = openOf(chosen, unconfirmed, taken);
         if (reportIds != null && !unconfirmed.isEmpty()) throw new BusinessRuleException(notConfirmed(unconfirmed));
         Map<Long, String> joined = new LinkedHashMap<>();
         for (Map<Long, String> more = linked(customerId, open, chosen.keySet()); !more.isEmpty();
              more = linked(customerId, open, chosen.keySet())) {
             for (PartnerSaleReportEntity report : reports.list("id in ?1", more.keySet())) chosen.put(report.id, report);
             joined.putAll(more);
-            open = openOf(chosen, new TreeSet<>());
+            open = openOf(chosen, new TreeSet<>(), taken);
         }
         return new Selection(open, joined);
     }
 
-    /** The open parts of these meldingen that are confirmed; the open ones of unconfirmed meldingen go to unconfirmed. */
-    private List<OpenPart> openOf(Map<Long, PartnerSaleReportEntity> chosen, Set<Long> unconfirmed) {
+    /**
+     * The open parts of these meldingen that are confirmed (or in {@code taken}: counted as confirmed for a
+     * read-only preview); the open ones of other unconfirmed meldingen go to unconfirmed.
+     */
+    private List<OpenPart> openOf(Map<Long, PartnerSaleReportEntity> chosen, Set<Long> unconfirmed, Set<Long> taken) {
         List<PartnerSaleReportLineEntity> found = lines.byReports(chosen.keySet()).stream()
                 .filter(line -> line.isSale() || line.isBuyback()).toList();
         PartnerOpenParts.Rule rule = openParts.forLines(found);
@@ -607,7 +617,7 @@ public class PartnerSaleInvoicing {
         for (PartnerSaleReportLineEntity line : found) {
             PartnerSaleReportEntity report = chosen.get(line.reportId);
             if (report == null || line.productId == null || !rule.isOpen(line, report.isVoided())) continue;
-            if (report.confirmedAt == null && !held.contains(report.id)) {
+            if (report.confirmedAt == null && !held.contains(report.id) && !taken.contains(report.id)) {
                 unconfirmed.add(report.id);
                 continue;
             }

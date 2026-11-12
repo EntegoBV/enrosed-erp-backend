@@ -3089,6 +3089,11 @@ the Factureren figures and notes come in later stages on top of it.
   VV-2". An unconfirmed one stays out and is named: "Terugkoop VV-4 hoort bij deze verkopen maar is nog
   niet bevestigd; ze gaat niet mee" (and "Verkoop VV-n hoort bij deze terugkopen ..."). The manual
   Veilingafrekening's limit text now ends "...; bevestig en factureer die via Veilingverkopen".
+  The preview alone takes `includeUnconfirmed: true` (review round 2, with explicit `reportIds` only;
+  ignored without them): those meldingen count as confirmed for that read, so Veilingverkopen shows the
+  Inkoop en winst of a melding before Bevestigen as Factureren will reckon it; meldingen that come along
+  by a mirror link still need their own confirmation (else the usual warning); `/invoice` has no such
+  field and stays confirmed-only.
 - **One set of figures per document** (`PartnerInvoiceFigures`, never computed another way): per
   product of a source (lines first in plan order, then the absorbed q = 0 products, or own stock's
   extra-line products) the open parts' sale gross / commission / transport / extra, the buyback cost

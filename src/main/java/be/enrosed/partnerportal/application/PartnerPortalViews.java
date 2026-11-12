@@ -282,8 +282,13 @@ public final class PartnerPortalViews {
 
     /* ------------------------------------------------------------------ Factureren */
 
-    /** POST /api/partner-sales/invoice-preview; reportIds null = every open melding of the partner, until by sold_on. */
-    public record InvoicePreviewRequest(Long customerId, List<Long> reportIds, LocalDate until) {}
+    /**
+     * POST /api/partner-sales/invoice-preview; reportIds null = every open melding of the partner, until by sold_on.
+     * includeUnconfirmed (round 2, preview only, with explicit reportIds): those meldingen count as confirmed for
+     * this read, so Veilingverkopen can show the Inkoop en winst of a melding before Bevestigen, as Factureren will
+     * reckon it once confirmed; /invoice has no such field and stays confirmed-only.
+     */
+    public record InvoicePreviewRequest(Long customerId, List<Long> reportIds, LocalDate until, Boolean includeUnconfirmed) {}
 
     /** POST /api/partner-sales/invoice: the preview's reportIds; parts of other meldingen are never taken. */
     public record InvoiceRequest(Long customerId, List<Long> reportIds) {}

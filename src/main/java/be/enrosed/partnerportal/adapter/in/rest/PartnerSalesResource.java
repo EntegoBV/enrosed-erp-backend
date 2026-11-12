@@ -52,12 +52,17 @@ public class PartnerSalesResource {
         this.breakdowns = breakdowns;
     }
 
-    /** Factureren, step 1: what would be made now (reportIds null = every open melding; until by sold_on). Writes nothing. */
+    /**
+     * Factureren, step 1: what would be made now (reportIds null = every open melding; until by sold_on). Writes
+     * nothing. includeUnconfirmed with explicit reportIds: those count as confirmed for this read (Inkoop en winst
+     * of one melding before Bevestigen).
+     */
     @POST
     @Path("/invoice-preview")
     public PartnerPortalViews.InvoicePreview invoicePreview(PartnerPortalViews.InvoicePreviewRequest request) {
         if (request == null) throw new BusinessRuleException("Kies de partner");
-        return invoicing.preview(request.customerId(), request.reportIds(), request.until());
+        return invoicing.preview(request.customerId(), request.reportIds(), request.until(),
+                Boolean.TRUE.equals(request.includeUnconfirmed()));
     }
 
     /** Factureren, step 2: one invoice per source for the preview's meldingen; a refused source blocks only itself. */
