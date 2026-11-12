@@ -2776,11 +2776,11 @@ named constraints identical in `@Table` and the migration:
   0, PALLETS without pallets, the customer's VAT. Per product c = round2(sum of sale unit_cost x
   qty - buyback unit_cost x qty), v = c + round2((p - c) x share / 100) with share =
   `Customer.partnerSharePctOrDefault()`. q > 0 and v / q > 0 at 4 dp: a line at v / q (unit cost
-  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, ons deel € v" (container-cost
+  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, onze waarde € v" (container-cost
   pricing would replace a price of 0 by the card cost). "Afronding veilingverkopen" closes the cent
   gap: the invoice excl. VAT is exactly the sum of v. A sale part with unit cost 0 warns "Geen
   kostprijs bekend voor <product>". Notes in the settlement style (per product n stuks, netto,
-  kost, resultaat, ons deel); round 2: the compact note of stage 3, the per-product detail internal.
+  kost, resultaat, onze waarde); round 2: the compact note of stage 3, the per-product detail internal.
 - **Transactions**: the invoice run is not transactional. Every source runs in
   `QuarkusTransaction.requiringNew()` with the section 3 locks (partner row, the partner's
   containers ascending, the products ascending), reads its parts again after them (still open,
@@ -3102,7 +3102,7 @@ the Factureren figures and notes come in later stages on top of it.
   every product counts per piece, else left out. The partner's short name is
   `PartnerSaleTexts.shortName` (the frontend's `partnerShortName`). The internal note (off the PDF)
   reads "Veilingverkopen VV-… (period) · n meldingen" + the per-product detail (container:
-  `plan.detail()`; own: "<product>: n stuks; netto; kost; resultaat; ons deel"). The manual
+  `plan.detail()`; own: "<product>: n stuks; netto; kost; resultaat; onze waarde"). The manual
   Veilingafrekening keeps its texts (`ReportTexts` null).
 - **Breakdown** (`PartnerDocumentBreakdowns`): `GET /api/partner-sales/documents/{salesOrderId}/breakdown`
   (admin) -> `{salesOrderId, source CONTAINER|OWN, purchaseOrderId, finalSettlement, channel

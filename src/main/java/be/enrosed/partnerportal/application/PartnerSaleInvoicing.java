@@ -833,7 +833,7 @@ public class PartnerSaleInvoicing {
             } else {
                 SalesExtraLine extra = new SalesExtraLine(label(catalog, sum.productId) + ": " + quantity
                         + (quantity == 1 ? " stuk" : " stuks") + (quantity == 0 ? " (verkocht en teruggekocht)" : "")
-                        + ", ons deel " + PartnerSaleTexts.euro(product.valueEur()), BigDecimal.ONE, product.valueEur());
+                        + ", onze waarde " + PartnerSaleTexts.euro(product.valueEur()), BigDecimal.ONE, product.valueEur());
                 extras.add(extra);
                 onExtras = onExtras.add(extra.total());
             }
@@ -855,7 +855,8 @@ public class PartnerSaleInvoicing {
 
     /**
      * The own-stock invoice's per-product detail for the internal note (off the PDF): per product the
-     * pieces, netto, kost, resultaat and ons deel, from the document's figures.
+     * pieces, netto, kost, resultaat and onze waarde (the Documentnotitie's word for the value; "ons deel"
+     * there is our share of the profit), from the document's figures.
      */
     private static String ownDetail(PartnerInvoiceFigures.Group figures, PartnerProductTiles.Catalog catalog) {
         StringBuilder detail = new StringBuilder();
@@ -868,7 +869,7 @@ public class PartnerSaleInvoicing {
                     .append("; netto ").append(PartnerSaleTexts.euro(row.proceedsEur()))
                     .append("; kost ").append(PartnerSaleTexts.euro(row.costEur()))
                     .append("; resultaat ").append(PartnerSaleTexts.euro(row.profitEur()))
-                    .append("; ons deel ").append(PartnerSaleTexts.euro(row.valueEur()));
+                    .append("; onze waarde ").append(PartnerSaleTexts.euro(row.valueEur()));
         }
         return detail.toString();
     }
