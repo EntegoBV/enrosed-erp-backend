@@ -425,7 +425,7 @@ public class PartnerSaleInvoicing {
 
                         @Override
                         public String internalNotes(SalesOrderService.AuctionSettlementPlan settlement) {
-                            return head + "\n" + settlement.detail().strip();
+                            return head + "\n" + containerDetail(figuresOf(containerId, plan, settlement, catalog), catalog);
                         }
                     });
             SalesOrder created = made.order();
@@ -964,15 +964,32 @@ public class PartnerSaleInvoicing {
      * there is our share of the profit), from the document's figures.
      */
     private static String ownDetail(PartnerInvoiceFigures.Group figures, PartnerProductTiles.Catalog catalog) {
+        return detail(figures.rows(), catalog, "netto", "kost");
+    }
+
+    /**
+     * A container document's per-product detail for the internal note (review round 2): its invoice lines from
+     * the document's own figures, as the Documentnotitie, the preview and the breakdown read them, in pieces with
+     * the piece noun and with the ERP's minus sign ("resultaat − € 220,29"), in the manual settlement's words
+     * (netto veiling, externe kost). The manual Veilingafrekening keeps its own detail text.
+     */
+    private static String containerDetail(PartnerInvoiceFigures.Group figures, PartnerProductTiles.Catalog catalog) {
+        return detail(figures.rows().stream().filter(PartnerInvoiceFigures.Row::onLine).toList(), catalog,
+                "netto veiling", "externe kost");
+    }
+
+    /** "<product>: n rozen; <netto> € p; <kost> € c; resultaat € r; onze waarde € v", one product per line. */
+    private static String detail(List<PartnerInvoiceFigures.Row> rows, PartnerProductTiles.Catalog catalog,
+                                 String proceedsWord, String costWord) {
         StringBuilder detail = new StringBuilder();
-        for (PartnerInvoiceFigures.Row row : figures.rows()) {
+        for (PartnerInvoiceFigures.Row row : rows) {
             PartnerPortalViews.ProductTile tile = catalog.tile(row.productId());
             int pieces = row.quantity() * Math.max(1, tile.piecesPerSalesUnit());
             if (!detail.isEmpty()) detail.append('\n');
             detail.append(label(catalog, row.productId())).append(": ")
                     .append(PartnerSaleTexts.quantity(pieces, tile.pieceOne(), tile.pieceOther()))
-                    .append("; netto ").append(PartnerSaleTexts.euro(row.proceedsEur()))
-                    .append("; kost ").append(PartnerSaleTexts.euro(row.costEur()))
+                    .append("; ").append(proceedsWord).append(' ').append(PartnerSaleTexts.euro(row.proceedsEur()))
+                    .append("; ").append(costWord).append(' ').append(PartnerSaleTexts.euro(row.costEur()))
                     .append("; resultaat ").append(PartnerSaleTexts.euro(row.profitEur()))
                     .append("; onze waarde ").append(PartnerSaleTexts.euro(row.valueEur()));
         }

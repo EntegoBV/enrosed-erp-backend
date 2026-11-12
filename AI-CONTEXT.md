@@ -3137,8 +3137,10 @@ the Factureren figures and notes come in later stages on top of it.
   dd/mm/jjjj); the quantity is the invoiced pieces with the piece noun for one product, "n stuks" when
   every product counts per piece, else left out. The partner's short name is
   `PartnerSaleTexts.shortName` (the frontend's `partnerShortName`). The internal note (off the PDF)
-  reads "Veilingverkopen VV-… (period) · n meldingen" + the per-product detail (container:
-  `plan.detail()`; own: "<product>: n stuks; netto; kost; resultaat; onze waarde"). The manual
+  reads "Veilingverkopen VV-… (period) · n meldingen" + the per-product detail from the document's
+  figures, in pieces with the piece noun (container, its invoice lines: "<product>: 42 stuks; netto
+  veiling € p; externe kost € c; resultaat − € r; onze waarde € v", since review round 2 no longer the
+  settlement's own `plan.detail()`; own: "<product>: 36 rozen; netto; kost; resultaat; onze waarde"). The manual
   Veilingafrekening keeps its texts (`ReportTexts` null). Every amount in these notes (and in the bell,
   push, activity and preview warning texts) comes from `PartnerSaleTexts.euro` / `unitEuro`: below zero
   "− € 220,29" (U+2212 before the euro sign, the frontend's `signedEur` and the staff screens), never
