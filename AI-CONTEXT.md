@@ -2920,15 +2920,105 @@ the Factureren figures and notes come in later stages on top of it.
   AnalyticsProduct `salePieces` (netEur = sale net - cost); InvoicePreviewLine `buybackGrossEur`,
   `salePieces` (buybackEur = cost); StaffPart `commissionEur, transportEur, extraCostEur, pieces`.
   `GET /api/partner-portal/reports/{id}`: an own melding, 404 otherwise and for archive rows.
-- **Flags per audience** (`PartnerReportReader.Loaded`): partner `canEdit = canUndo` = OPEN, no
-  buyback of another live melding mirrors it, not confirmed, not an archive row; staff (StaffReport)
-  the same without "not confirmed". `Loaded.state()` = VOIDED > INVOICED > CONFIRMED > UNCONFIRMED
-  for the list filters. The partner's withdrawal re-checks `confirmed_at` after the partner lock:
+- **Flags per audience** (`PartnerReportReader.Loaded`; stage 2 split edit from undo): partner
+  `canEdit` = OPEN, not confirmed, not an archive row; partner `canUndo` = that and no buyback of
+  another live melding mirrors it; staff (StaffReport) the same two without "not confirmed".
+  `Loaded.state()` = VOIDED > INVOICED > CONFIRMED > UNCONFIRMED for the list filters. The partner's withdrawal re-checks `confirmed_at` after the partner lock:
   "Enrosed heeft deze melding al bevestigd; vraag Enrosed om een wijziging.".
 - **Customer delete**: refused while the customer is the buyer of a melding (voided included,
   archive rows not): "Deze klant staat op een directe verkoop (VV-n)"; otherwise its
   `partner_product_unit` rows and every `partner_customer_link` naming it go too.
 - Push and bell texts count pieces ("120 rozen · gem. € 1,20 · netto ..."), averages per piece.
+
+### Round 2, stage 2 (2026-11-12): edit, confirm, buyers and partner-made customers
+- **Lock 1 on every write**: create, edit, withdraw, confirm / unconfirm (every partner involved,
+  ascending), adding a customer and "Nagekeken" take `Settings.lockOrCreate` of the partner first and
+  read the melding again after it (`refresh`); Factureren's `runGroup` already did. A partner's edit
+  and withdrawal re-check `confirmed_at` after the lock ("Enrosed heeft deze melding al bevestigd;
+  vraag Enrosed om een wijziging."). `createLocked` is split into `partnerCustomer` / `lockProducts` /
+  `resolve` / `plan` / `writeParts` / `Tally`, shared by create and edit; `reverse` (the reversal
+  of every part, batch-correct) is shared by withdraw and edit.
+- **Bewerken** = `PUT /api/partner-portal/reports/{id}` (partner; 404 unless his own) and
+  `PUT /api/partner-sales/reports/{id}` (staff; `customerId` absent or the melding's, else 400): the
+  create body plus `expectedToken` (required, 400 without; the `editToken` the client loaded; another
+  one is 409 "Deze melding is intussen gewijzigd; laad ze opnieuw"). Answers PartnerReport /
+  StaffReport. Refused: an archive row ("Dit is een oude versie"), a withdrawn melding ("Deze melding
+  is ingetrokken"), any part not open ("... al (deels) gefactureerd; wijzigen kan niet meer"), a
+  changed sold-on day more than 90 days back (an unchanged day of any age is fine; `validate(request,
+  fallbackSoldOn, daysBack)`; no soldOn on an edit keeps the melding's day). The server picks the path:
+  - **money-only** when per product the sale and buyback quantity (sales units) are the same, the day
+    is the same, and the channel changes only without a buyback: `rePrice` runs PartnerSaleMoney again
+    over the same parts (their quantities in written order) and updates money and `entered_*` on the
+    same line ids; no movement, no mirror or stock guard (a mirrored melding can get a price fix). An
+    edit that changes nothing writes nothing (the token stays).
+  - **rebook** otherwise: refused while a buyback of another live melding mirrors one of its sales
+    ("Wijzigen kan niet: trek eerst de terugkoop in (VV-n); een prijs of kost wijzigen kan wel"); the
+    shelf is checked on the net change per product (stock + old sale - old buyback - new sale + new
+    buyback; refused only when the edit itself takes it below zero); every part is reversed as a
+    withdrawal does (reference "Gewijzigd: VV-n", a buyback reversal may dip, the net was checked),
+    the old SALE / BUYBACK / REVERSAL rows move to the **archive row**, then the new parts are planned
+    and booked on the same melding at `locationOf(report)` (never the current settings; `locationId`
+    stays). A container whose claim grows (an old buyback there went elsewhere) needs that room as it
+    was before the edit ("... zijn al opnieuw als verkocht gemeld; trek eerst die melding in"). The
+    plan's own refusals read "Wijzigen kan niet: er liggen nog maar ...".
+  - Both: the commission / transport snapshot stays unless the channel changes (then the settings on
+    AUCTION, 0 on DIRECT); note, buyer and cost lines are replaced; `extra_cost_mode/value` are
+    cleared (cost lines live in `partner_sale_report_cost`); `updated_at/by/by_name` (micro precision,
+    always after the previous token); a staff edit keeps `confirmed_at`. Activity `UPDATED` "Bedragen
+    gewijzigd: 110 verkocht · netto € 203,50 → € 212,50" or "Gewijzigd: ..."; push "Veilingverkoop
+    gewijzigd" (`PartnerSalePushNotifier.Ready.title`).
+  - **Archive row** (rebook, or a money-only edit whose cost lines changed): copies customer, login,
+    channel, day, percents, the round-1 extra cost, note, location, created_*, confirmed_*, updated_*,
+    buyer; `client_ref` null, `revision_of` = the melding, voided now "Gewijzigd"; the old cost rows are
+    re-pointed to it. Never listed, staff read it by id.
+- **Bevestigen / Terugzetten** (`PartnerSaleConfirmations`): `POST /api/partner-sales/reports/confirm`
+  and `/unconfirm` with `{reports: [{id, token}]}` (legacy `{reportIds}` without a token check) ->
+  `{reports: [StaffReport]}`. One transaction, all or nothing, at most 500: unknown id, archive row,
+  withdrawn melding and a token that differs ("VV-n is intussen gewijzigd; bekijk ze opnieuw") are
+  refused; unconfirm also once a document holds a part ("VV-n staat al op F-...; terugzetten kan niet
+  meer"). A melding already in the asked state is left alone. Activity `CONFIRMED` "Bevestigd" /
+  `UNCONFIRMED`. Factureren does not yet look at confirmation (a later stage).
+- **Bell**: PARTNER_VERKOOP feeds meldingen made or edited in the last 14 days
+  (`Reports.liveTouchedSince`), `at` = the later of created / updated, notificationId
+  `partner-sale:<id>` until edited, then `partner-sale:<id>:<editToken>` (each edit is a new item, the
+  dismissed state of never-edited items survives the deploy), detail ends in " · gewijzigd". New kind
+  **PARTNER_KLANT** (same port): one per customer a partner added that staff have not reviewed,
+  actionNeeded true, orderId and orderNumber null, customer = its company, title "Nieuwe klant via het
+  partnerportaal", detail "Aangemaakt door Frans (Verhoeven) · vul de gegevens aan", url
+  `/customers?klant=<id>`, notificationId `partner-customer:<id>`, at = when it was added.
+- **Buyer** (`buyer(...)` after lock 1): DIRECT only, an existing customer, no partner, not the
+  partner itself; a partner request may also only name a customer its search would show (below),
+  except the buyer the melding already has; one text "Onbekende klant" for all of these.
+- **Customers for the partner** (`PartnerCustomerService`, native SQL in `PartnerCustomerQueries`,
+  only id / company / city / countryCode read): `GET /api/partner-portal/customers?q=` -> `[{customerId,
+  company, city, countryCode, addedByYou}]`: q needs 2 letters or digits (else `[]`, not counted),
+  at most 100 characters, `\`, `%`, `_` taken literally (escaped, `escape '\'`), company or city
+  contains it, names starting with it first, at most 20; partners and the caller never; left out: a
+  customer whose every sales document (trashed ones too) is a website request still waiting for review
+  (CONCEPT, OFFERTE, internal note starting with `[WEBSITE_AANVRAAG]`), unless this partner added it.
+  No q = the buyers of his last live meldingen, then the customers he added, at most 8. 300 searches
+  per login per day (`PublicFormRateLimiter.checkKey(PARTNER_CUSTOMER_SEARCH, "LOGIN", ...)`, fixed UTC
+  day), then 429 "Je zocht vandaag al heel vaak naar klanten; probeer het morgen opnieuw." with
+  Retry-After (`PartnerRefusals.tooMany`). `POST /api/partner-portal/customers {company, countryCode?,
+  city?, email?, phone?}`: control characters out; company required (<= 160, spaces collapsed), city
+  <= 100, email <= 160 and a@b.c, phone <= 40, countryCode in `Locale.getISOCountries()` (default the
+  partner's own country, else NL); under lock 1: the same normalized name (accents, case, punctuation
+  and spaces aside) among the customers this partner added answers that one (200), at most 20 new per
+  partner per Brussels day ("Vandaag kwamen er al 20 nieuwe klanten bij; ..."), then
+  `CustomerService.createMinimal` (no VAT rule, NIEUW, NL, notes "Aangemaakt via Partnerportaal door
+  Frans op dd/mm/jjjj", activity "Klant aangemaakt via Partnerportaal (Frans)") and a
+  `partner_customer_link` (added_by_partner, login, created_*) -> 201. Picking an existing customer
+  writes no link.
+- **Staff side of partner-made customers**: `/api/customers` (list, get, create and update answers)
+  now answers `CustomerView` = the Customer record unwrapped plus `partnerOrigin {partnerName,
+  createdByName, createdAt, reviewedAt}` only for a customer a partner added (port
+  `sales.application.CustomerPartnerOrigins`, implemented by `PartnerCustomerOriginReader`; the request
+  body stays `Customer`, unknown fields are ignored). `CustomerService.update` skips the VAT rule while
+  the stored record has no VAT number and a partner-made link is unreviewed. `POST
+  /api/partner-portal-admin/customers/{customerId}/reviewed` ("Nagekeken") stamps reviewed_at/by on its
+  partner-made links under the partners' locks and answers the origin; 404 for a customer no partner
+  added; activity on CUSTOMER "Nagekeken (aangemaakt via Partnerportaal)". Deletion (stage 1 listener):
+  a buyer of a non-archive melding stays; otherwise its links go.
 
 ## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
 
