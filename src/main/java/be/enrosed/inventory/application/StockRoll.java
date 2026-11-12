@@ -307,6 +307,11 @@ public final class StockRoll {
                 row.businessDateSource = "TICA-verkoopdatum";
                 // Keep the immutable ledger booking date; a later import across the year boundary needs review.
                 row.review = !row.businessDate.isAfter(input.closingDate()) != at.isBefore(input.cutoffAt());
+            } else if (movement.sourceSoldAt() != null && movement.kind().isPartnerReport()) {
+                /* A partner melding: sold (or bought back) on its sold_on, booked when it was reported. */
+                row.businessDate = movement.sourceSoldAt().toLocalDate();
+                row.businessDateSource = "Veilingverkoopdatum";
+                row.review = !row.businessDate.isAfter(input.closingDate()) != at.isBefore(input.cutoffAt());
             } else if (invoiceDate != null) {
                 row.businessDate = invoiceDate;
                 row.businessDateSource = SOURCE_INVOICE;

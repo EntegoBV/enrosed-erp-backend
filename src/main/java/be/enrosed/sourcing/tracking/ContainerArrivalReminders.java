@@ -26,11 +26,12 @@ public class ContainerArrivalReminders {
     private static final List<String> DISPATCHABLE = List.of("PENDING", "WAITING_FOR_DEVICES", "PARTIAL", "PROCESSING");
     private final SourcingRepositories.PurchaseOrders orders;
     private final EntityManager entities;
+    private final ArrivalMoveStore moves;
     @ConfigProperty(name = "enrosed.tracking.enabled", defaultValue = "true") boolean trackingEnabled = true;
     @ConfigProperty(name = "enrosed.tracking.arrival-reminders.enabled", defaultValue = "true") boolean enabled = true;
 
-    public ContainerArrivalReminders(SourcingRepositories.PurchaseOrders orders, EntityManager entities) {
-        this.orders = orders; this.entities = entities;
+    public ContainerArrivalReminders(SourcingRepositories.PurchaseOrders orders, EntityManager entities, ArrivalMoveStore moves) {
+        this.orders = orders; this.entities = entities; this.moves = moves;
     }
 
     public record Preview(long orderId, String orderNumber, String containerName, int thresholdDays, long daysRemaining,
@@ -73,17 +74,21 @@ public class ContainerArrivalReminders {
     }
     static String referenceHash(PurchaseOrder order) { return ContainerTracking.hash(shipmentIdentity(order.trackingReference())); }
 
-    /** Presentation-only edits must not replay a threshold notification for the same purchase/container. */
+    /**
+     * Presentation-only edits must not replay a threshold notification for the same purchase/container.
+     * It keeps the parser of 2026-10-26 (strictReference): a reference that only the wider rule of 2026-11-10
+     * recognises keeps the identity it had, so no reminder is repeated.
+     */
     static String shipmentIdentity(String reference) {
         String raw = Objects.toString(reference, "").strip().toUpperCase(Locale.ROOT).replaceAll("\\s+", " ");
         String containerText = raw.replaceFirst("^(?:B/?L|BOOKING)\\s*:\\s*", "")
                 .replaceAll("(?<=[A-Z]{4})\\s*-\\s*(?=\\d{7}(?![A-Z0-9]))", "-");
-        var parsed = ContainerTracking.reference(containerText);
+        var parsed = ContainerTracking.strictReference(containerText);
         if (parsed != null && parsed.container() && BexyClient.validBox(parsed.number()))
             return "CONTAINER:" + parsed.number();
         var typed = java.util.regex.Pattern.compile("^(B/?L|BOOKING)(?:\\s*:\\s*|\\s+)([A-Z0-9/ -]{6,80})$").matcher(raw);
         // Both BL:ABC123 and BL: ABC123 are accepted by the existing parser.
-        parsed = ContainerTracking.reference(raw);
+        parsed = ContainerTracking.strictReference(raw);
         if (parsed != null && !parsed.container())
             return (raw.startsWith("BOOKING:") ? "BOOKING:" : "BL:") + parsed.number();
         if (typed.matches()) {
@@ -145,13 +150,21 @@ public class ContainerArrivalReminders {
         Map<String, Notice> saved = new HashMap<>();
         for (Notice row : Notice.<Notice>listAll()) saved.put(row.id, row);
         List<NotificationService.Notification> result = new ArrayList<>();
-        for (PurchaseOrder order : orders.findAll()) {
+        List<PurchaseOrder> all = orders.findAll();
+        for (PurchaseOrder order : all) {
             Preview current = preview(order, now);
             if (current == null) continue;
             Notice row = saved.get(id(order, current.thresholdDays()));
             if (row == null || row.status.equals("SUSPENDED")) continue;
             result.add(new NotificationService.Notification(NotificationService.Kind.CONTAINER_AANKOMST, order.id(),
                     order.number(), current.containerName(), current.title(), current.detail(), true, row.createdAt, current.url(), row.id));
+        }
+        /* Tracking moved an arrival by two days or more: one row per container, never a push. It stands beside
+           the 10/3-day reminder when both apply: one says when the container comes, the other that it changed. */
+        Map<Long, ArrivalMoveStore.Move> moved = moves.all();
+        if (!moved.isEmpty()) for (PurchaseOrder order : all) {
+            NotificationService.Notification notice = ArrivalMoveStore.notice(order, moved.get(order.id()), now);
+            if (notice != null) result.add(notice);
         }
         return result;
     }

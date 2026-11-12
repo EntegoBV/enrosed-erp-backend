@@ -195,6 +195,18 @@ public class StockBatchBackfillService {
 
     private record Level(long locationId, int quantity, int loose) {}
 
+    /**
+     * What left a partner container by the run: what its shipped advances and non report-backed
+     * settlements took, plus what partner meldingen reported sold from it minus bought back by
+     * booking time (their stock lines name the container; a settlement made from them ships nothing),
+     * as {@link ClosingSeparations#partnerShipped} adds them up.
+     */
+    private Map<Long, Integer> shippedFromContainer(long purchaseOrderId, List<SalesOrder> sales, Set<Long> reportBacked,
+                                                    Instant runAt) {
+        return ClosingSeparations.partnerShipped(purchaseOrderId, sales, runAt, reportBacked,
+                stock.partnerReportedOut(purchaseOrderId, runAt));
+    }
+
     private Report build(boolean write) {
         Instant runAt = Instant.now();
         PurchaseOrderService orders = purchaseOrders.get();
@@ -234,6 +246,7 @@ public class StockBatchBackfillService {
         Map<Long, String> locationNames = stock.locations().stream()
                 .collect(Collectors.toMap(StockLocation::id, StockLocation::name, (a, b) -> a));
         List<SalesOrder> sales = anyPartner ? salesOrders.get().list() : List.of();
+        Set<Long> reportBacked = anyPartner ? salesOrders.get().reportBackedIds(sales) : Set.of();
         Map<Long, Map<Long, Integer>> partnerShipped = new HashMap<>();
         Map<Long, List<Level>> allLevels = write ? Map.of() : levels(null);
 
@@ -308,7 +321,7 @@ public class StockBatchBackfillService {
             for (Planned batch : planned.stream().filter(Planned::partner).sorted(newestFirst).toList()) {
                 long orderId = batch.order.id();
                 Map<Long, Integer> shipped = partnerShipped.computeIfAbsent(orderId,
-                        id -> ClosingSeparations.partnerShipped(id, sales, runAt));
+                        id -> shippedFromContainer(id, sales, reportBacked, runAt));
                 int out = shippedLeft.computeIfAbsent(orderId, id -> shipped.getOrDefault(productId, 0));
                 int usable = batch.line.usable();
                 int taken = Math.min(out, usable);

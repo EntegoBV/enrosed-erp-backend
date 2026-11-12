@@ -13,13 +13,24 @@ final class SalesMapper {
 
     /* --------------------------------------------------------- customer */
 
+    /** The customer without its contact moments (null = not loaded); the adapter adds them. */
     static Customer toDomain(CustomerEntity entity) {
+        return toDomain(entity, null);
+    }
+
+    static Customer toDomain(CustomerEntity entity, List<CustomerTouchpointEntity> touchpoints) {
         return new Customer(entity.id, entity.company, entity.contact, entity.email, entity.phone,
                 entity.vatNumber, entity.countryCode, entity.language,
                 entity.address, entity.postalCode, entity.city,
                 entity.incoterm, entity.paymentTerms, entity.notes, entity.createdAt,
                 Boolean.TRUE.equals(entity.partner), entity.partnerSharePct, entity.partnerCostPct,
-                Boolean.TRUE.equals(entity.fiscalRepresentative), entity.invoiceNote);
+                Boolean.TRUE.equals(entity.fiscalRepresentative), entity.invoiceNote,
+                entity.crmStatus,
+                touchpoints == null ? null : touchpoints.stream().map(SalesMapper::toDomain).toList());
+    }
+
+    static CustomerTouchpoint toDomain(CustomerTouchpointEntity entity) {
+        return new CustomerTouchpoint(entity.kind, entity.doneAt, entity.doneBy);
     }
 
     static void apply(Customer customer, CustomerEntity entity) {
@@ -40,6 +51,7 @@ final class SalesMapper {
         entity.partnerCostPct = customer.partnerCostPct();
         entity.fiscalRepresentative = customer.fiscalRepresentative();
         entity.invoiceNote = customer.invoiceNote();
+        entity.crmStatus = customer.crmStatus();
         entity.notes = customer.notes();
         entity.createdAt = customer.createdAt();
     }
@@ -77,7 +89,8 @@ final class SalesMapper {
         for (SalesOrderLineEntity line : entity.lines) {
             lines.add(new SalesOrderLine(line.id, line.productId, line.quantity,
                     line.unitPriceEur, line.manualDiscountPct, line.deliveryWeek, line.unitCostEur,
-                    line.unavailable, line.requestedQuantity, line.unitsPerOrderStep, line.stockCostEur));
+                    line.unavailable, line.requestedQuantity, line.unitsPerOrderStep, line.stockCostEur,
+                    line.priceSource, Boolean.TRUE.equals(line.perPiece) ? Boolean.TRUE : null));
         }
         List<OrderPallet> pallets = new ArrayList<>();
         for (SalesEntities.SalesPalletEntity pallet : entity.pallets) {
@@ -196,6 +209,8 @@ final class SalesMapper {
             target.unavailable = line.isUnavailable();
             target.requestedQuantity = line.requestedQuantity();
             target.unitsPerOrderStep = line.unitsPerOrderStep();
+            target.priceSource = line.priceSource();
+            target.perPiece = line.countsPerPiece() ? Boolean.TRUE : null;
         }
 
         /* Pallets carry no outside references, so wipe-and-rebuild is the

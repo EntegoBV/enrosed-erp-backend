@@ -51,24 +51,24 @@ public class WebOrderService {
     @Inject Event<WebOrderEvents.Changed> changed;
     @Inject Event<WebOrderEvents.Cancelled> cancelled;
 
-    /** The estimate of a new order, or of an order being changed: its products keep their stored price. */
+    /**
+     * The estimate of a new order, or of an order being changed: its products keep their stored
+     * price and its pallets count by its own rule, as the change will be stored and priced.
+     */
     public EstimateResponse previewByCustomer(OrderPreviewRequest request, CustomerSession session) {
-        Map<Long, BigDecimal> kept = Map.of();
-        if (request != null && request.orderId() != null) {
-            SalesOrder order = changeable(request.orderId(), session);
-            kept = PublicQuoteService.keptUnitPrices(order);
-        }
-        return publicQuotes.previewOrder(request, session.customerId(), kept);
+        SalesOrder changing = request != null && request.orderId() != null
+                ? changeable(request.orderId(), session) : null;
+        return publicQuotes.previewOrder(request, session.customerId(), changing);
     }
 
     /** Read-only, before the challenge is spent: the fields, the basket and the minimum order value. */
     public void validatePlace(OrderRequest request, CustomerSession session) {
-        publicQuotes.validateOrder(request, session.customerId(), Map.of());
+        publicQuotes.validateOrder(request, session.customerId(), null);
     }
 
     @Transactional(Transactional.TxType.MANDATORY)
     public OrderReceipt placeByCustomer(OrderRequest request, CustomerSession session) {
-        OrderFacts facts = publicQuotes.orderFacts(request, session.customerId(), Map.of());
+        OrderFacts facts = publicQuotes.orderFacts(request, session.customerId(), null);
         SalesOrder saved = publicQuotes.storeOrder(request, session.customerId(), session.email());
         deliveries.save(saved.id(), delivery(facts, session.customerId()));
         /* The ERP's own pricing of the saved document, after the delivery row: never the preview. */
@@ -91,7 +91,7 @@ public class WebOrderService {
         if (request == null) throw new PublicQuoteValidationException(Map.of("request", "REQUIRED"));
         if (request.baseRevision() == null) throw new PublicQuoteValidationException(Map.of("baseRevision", "REQUIRED"));
         requireRevision(webOrders.find(id).orElseThrow(WebOrderService::notFound), request.baseRevision(), true);
-        publicQuotes.validateOrder(request, session.customerId(), PublicQuoteService.keptUnitPrices(order));
+        publicQuotes.validateOrder(request, session.customerId(), order);
     }
 
     @Transactional(Transactional.TxType.MANDATORY)
@@ -105,7 +105,7 @@ public class WebOrderService {
         WebOrderSnapshot before = WebOrderSnapshot.fromJson(row.orderSnapshot());
         Optional<WebOrderDeliveries.Delivery> deliveryBefore = deliveries.find(id);
         Map<Long, BigDecimal> kept = PublicQuoteService.keptUnitPrices(order);
-        OrderFacts facts = publicQuotes.orderFacts(request, session.customerId(), kept);
+        OrderFacts facts = publicQuotes.orderFacts(request, session.customerId(), order);
         SalesOrder saved = publicQuotes.replaceOrder(order, request, session.email());
         WebOrderDeliveries.Delivery delivery = delivery(facts, session.customerId());
         deliveries.save(id, delivery);
@@ -188,8 +188,9 @@ public class WebOrderService {
 
     /**
      * What the customer changed, for staff: the team mail, the push, the history and the
-     * banner on the order. A kept price that is no longer the list price is named, so staff
-     * decide about it before they take the order.
+     * banner on the order. A kept price that is no longer what a new line would cost this
+     * customer (their agreed price, else the list price) is named, so staff decide about it
+     * before they take the order.
      */
     static String summary(WebOrderSnapshot before, WebOrderSnapshot after, WebOrderDeliveries.Delivery deliveryBefore,
                           WebOrderDeliveries.Delivery deliveryAfter, OrderFacts facts, Map<Long, BigDecimal> kept) {
@@ -215,7 +216,8 @@ public class WebOrderService {
             BigDecimal listPrice = facts.listPrices().get(line.productId());
             if (keptPrice != null && listPrice != null && keptPrice.compareTo(listPrice) != 0)
                 parts.add("prijs " + line.sku() + " behouden: " + WebOrderTerms.euro(keptPrice)
-                        + ", prijslijst nu " + WebOrderTerms.euro(listPrice));
+                        + (facts.customerPriced().contains(line.productId()) ? ", klantprijs nu " : ", prijslijst nu ")
+                        + WebOrderTerms.euro(listPrice));
         }
         old.values().forEach(line -> parts.add(line.sku() + " verwijderd"));
 

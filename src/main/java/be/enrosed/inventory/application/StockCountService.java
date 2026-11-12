@@ -805,9 +805,11 @@ public class StockCountService {
             SalesAdvanceBillingService.Views billing = advanceBilling != null && advanceBilling.isResolvable()
                     ? advanceBilling.get().views(all) : null;
             LocalDate from = LocalDate.of(count.countYear, 1, 1);
+            /* Made from partner meldingen: those took the pieces out themselves; such an invoice explains nothing. */
+            Set<Long> reportBacked = salesOrders.get().reportBackedIds(all);
             for (SalesOrder order : all) {
                 if (!order.isInvoice() || order.purpose() != SalesPurpose.STANDARD || !ISSUED.contains(order.status())
-                        || order.goodsShippedAt() != null) continue;
+                        || order.goodsShippedAt() != null || reportBacked.contains(order.id())) continue;
                 if (billing != null) {
                     var role = billing.billing(order);
                     if (role != null && role.stage() == SalesAdvanceBilling.Stage.ADVANCE) continue;

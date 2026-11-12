@@ -165,4 +165,12 @@ exec psql \
     --file=/app/migrations/odoo-document-mark-postgresql.sql \
     --file=/app/migrations/container-tracking-postgresql.sql \
     --file=/app/migrations/container-vessel-link-postgresql.sql \
-    --file=/app/migrations/container-arrival-reminders-postgresql.sql
+    --file=/app/migrations/container-arrival-reminders-postgresql.sql \
+    --file=/app/migrations/stock-radar-postgresql.sql \
+    --file=/app/migrations/sales-order-pallet-count-rule-postgresql.sql \
+    --file=/app/migrations/customer-prices-and-catalog-exports-postgresql.sql \
+    --file=/app/migrations/sales-line-price-source-postgresql.sql \
+    --file=/app/migrations/customer-crm-status-touchpoints-postgresql.sql \
+    --file=/app/migrations/purchase-order-arrival-moved-postgresql.sql \
+    --file=/app/migrations/sales-line-per-piece-postgresql.sql \
+    --file=/app/migrations/partner-portal-postgresql.sql

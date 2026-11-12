@@ -65,6 +65,12 @@ public class SalesOrderService {
     /** The delivery address a customer typed for one website order; freight is priced on it. */
     @Inject Instance<WebOrderDeliveries> deliveries;
     @Inject Instance<StaffWebOrderRevision> staffRevision;
+    /** The customers' agreed prices (klantprijzen); absent in the hand-built tests. */
+    @Inject Instance<CustomerPriceService> customerPrices;
+    /** Documents made from partner meldingen (Veilingverkopen); absent means none is report-backed. */
+    @Inject Instance<PartnerReportBacking> reportBacking;
+    /** Whether a document's pallet height was set by hand or is the standard of its day. */
+    @Inject Instance<PalletHeightPicks> heightPicks;
     static final String WEBSITE_REQUEST_MARKER = "[WEBSITE_AANVRAAG]";
     static final String WEBSITE_CARTON_UNRESOLVED_MARKER = "[DOOSINHOUD_TE_BEPALEN]";
     static final String SALES_ORDER_ACTIVITY_TYPE = "SALES_ORDER";
@@ -150,14 +156,20 @@ public class SalesOrderService {
 
     public SalesOrder preview(long id, SalesOrder proposed) {
         SalesOrder stored = get(id);
+        /* No height from the client: the document's own, as a save keeps it. */
+        if (proposed != null && proposed.maxPalletHeightCm() == null)
+            proposed = proposed.withMaxPalletHeightCm(stored.maxPalletHeightCm());
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
-        /* Priced with the step a save would remember: today's for a document that rounds, the stored one
-           otherwise; whatever step the client sent is never used. Nothing is saved here. */
-        List<SalesOrderLine> lines = keepsExactQuantities(stored, proposed)
-                ? withStoredOrderSteps(normalized.lines(), stored.lines())
-                : stampOrderSteps(normalized.lines());
-        return normalized.withLinesAndPallets(lines, normalized.pallets());
+        /* Priced with the step a save would remember: today's for a document that rounds (1 on a line
+           staff set to per piece), the stored one otherwise; whatever step the client sent is never
+           used. Nothing is saved here. */
+        boolean exact = keepsExactQuantities(stored, proposed);
+        List<SalesOrderLine> chosen = withPerPieceChoices(normalized.lines(), stored.lines(), !exact);
+        List<SalesOrderLine> lines = exact ? withStoredOrderSteps(chosen, stored.lines()) : stampOrderSteps(chosen);
+        /* Under the stored document's id, whatever id the client sent: the draft counts its pallets
+           by that document's rule and shows its links. Its lines get the prices a save would pin. */
+        return withPriceSources(stored, normalized.withLinesAndPallets(lines, normalized.pallets()).withId(stored.id()));
     }
 
     public void captureCustomerRequest(long id) {
@@ -181,6 +193,70 @@ public class SalesOrderService {
         return advanceBilling != null && advanceBilling.isResolvable() ? advanceBilling.get() : null;
     }
 
+    static final String REPORT_BACKED_FROZEN = "Deze factuur komt uit Veilingverkopen: producten, bedragen en klant liggen vast. "
+            + "Verwijder het concept en factureer opnieuw via Veilingverkopen";
+
+    private PartnerReportBacking reportBacking() {
+        return reportBacking != null && reportBacking.isResolvable() ? reportBacking.get() : null;
+    }
+
+    /** Made from partner meldingen (Veilingverkopen): its pieces left stock through the meldingen. */
+    public boolean isReportBacked(SalesOrder order) {
+        PartnerReportBacking backing = reportBacking();
+        return order != null && order.id() != null && backing != null
+                && backing.reportBacked(List.of(order.id())).contains(order.id());
+    }
+
+    /**
+     * Per product on this document's lines, what its meldingen already booked out of stock; null
+     * when the document is not report-backed.
+     */
+    public Map<Long, Integer> reportBookedQuantities(SalesOrder order) {
+        PartnerReportBacking backing = reportBacking();
+        if (order == null || order.id() == null || backing == null) return null;
+        return backing.bookedQuantities(List.of(order)).get(order.id());
+    }
+
+    /** The ids among these documents that were made from partner meldingen, in one read. */
+    public Set<Long> reportBackedIds(java.util.Collection<SalesOrder> documents) {
+        PartnerReportBacking backing = reportBacking();
+        if (backing == null || documents == null || documents.isEmpty()) return Set.of();
+        return backing.bookedQuantities(documents).keySet();
+    }
+
+    /** The same for a whole page of documents, in one read. */
+    public Map<Long, Map<Long, Integer>> reportBookedQuantities(List<SalesOrder> page) {
+        PartnerReportBacking backing = reportBacking();
+        return backing == null || page == null || page.isEmpty() ? Map.of() : backing.bookedQuantities(page);
+    }
+
+    /** Every product line is covered by what the meldingen booked: nothing is left for a shipment to book. */
+    private static boolean fullyBooked(SalesOrder order, Map<Long, Integer> booked) {
+        if (booked == null) return false;
+        Map<Long, Integer> onLines = order.lines().stream().filter(line -> !line.isUnavailable() && line.quantity() > 0
+                        && line.productId() != null)
+                .collect(Collectors.toMap(SalesOrderLine::productId, SalesOrderLine::quantity, Integer::sum));
+        return onLines.entrySet().stream().allMatch(entry -> booked.getOrDefault(entry.getKey(), 0) >= entry.getValue());
+    }
+
+    /**
+     * Issuing or sending a document made from meldingen whose pieces all left through them stamps the
+     * shipment at once (time = the newest stock line of its parts): no stock is booked, no stock cost
+     * stamped, and nothing nags "nog te verzenden".
+     */
+    private SalesOrder shipFromReports(SalesOrder saved) {
+        if (saved.goodsShippedAt() != null || saved.isCreditNote()) return saved;
+        Map<Long, Integer> booked = reportBookedQuantities(saved);
+        if (!fullyBooked(saved, booked)) return saved;
+        Instant at = reportBacking().lastMovementAt(saved.id());
+        SalesOrder shipped = orders.save(withGoodsShipped(saved, at == null ? Instant.now() : at));
+        String summary = "Voorraad al afgeboekt via veilingverkopen";
+        events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.BESTELLING_VERZONDEN, Instant.now(),
+                currentActor().displayName(), false, summary, null));
+        recordActivity(SALES_ACTION_SHIPPED, shipped, summary);
+        return shipped;
+    }
+
     /** A part of a delivery split. */
     boolean isSplitPart(SalesOrder order) {
         return splitOrders != null && splitOrders.isResolvable() && splitOrders.get().fulfillment(order) != null;
@@ -201,14 +277,29 @@ public class SalesOrderService {
     }
 
     /**
+     * The rule this document counts its automatic pallets by. A stored document has the one it was
+     * made with, and only the id says which: a draft of it, or any copy of the record rebuilt in
+     * memory, counts exactly as the stored document does. A document not made yet counts as it will
+     * be made: a credit note like its invoice, an invoice like the quote it comes from, any other
+     * new document mixed.
+     */
+    PalletCountRule palletRule(SalesOrder order) {
+        if (order.id() != null) return orders.palletCountRule(order.id());
+        if (order.creditedInvoiceId() != null) return orders.palletCountRule(order.creditedInvoiceId());
+        if (order.sourceQuoteId() != null) return orders.palletCountRule(order.sourceQuoteId());
+        return PalletCountRule.MIXED;
+    }
+
+    /**
      * Prices a page of documents with one read of the catalogue, of the two
-     * tier tables and of the delivery rows, and one read per customer and
-     * country, in the order they were given.
+     * tier tables, of the pallet count rules and of the delivery rows, and one
+     * read per customer and country, in the order they were given.
      */
     public List<PricedOrder> priceAll(List<SalesOrder> orders) {
         if (orders == null || orders.isEmpty()) return List.of();
         PageLookups page = new PageLookups(products.list().stream().collect(Collectors.toMap(Product::id, Function.identity())),
-                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>());
+                tiers.list(TierScope.LINE), tiers.list(TierScope.ORDER), new HashMap<>(), new HashMap<>(),
+                this.orders.palletCountRules());
         if (deliveries() != null) deliveries().preloadForRequest();
         List<PricedOrder> priced = new java.util.ArrayList<>(orders.size());
         for (SalesOrder order : orders)
@@ -218,13 +309,28 @@ public class SalesOrderService {
 
     /** What every document of one page is priced with; customers and countries are read once each. */
     private record PageLookups(Map<Long, Product> products, List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
-                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries) {}
+                               Map<Long, Customer> customers, Map<String, Optional<Country>> countries,
+                               Map<Long, PalletCountRule> palletRules) {}
 
     PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing) {
         return priceSplit(order, splitPricing, (PageLookups) null);
     }
 
+    /**
+     * The pricing of one document for its own staff view: every priced line says where its price
+     * comes from and, where that is worth a look, carries the catalogue price and this customer's
+     * active agreed price of today. Never on the list, a PDF, the portal or the website.
+     */
+    public PricedOrder priceForStaff(SalesOrder order) {
+        return priceSplit(order, splitOrders != null && splitOrders.isResolvable() ? splitOrders.get().pricing(order) : null,
+                null, true);
+    }
+
     private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page) {
+        return priceSplit(order, splitPricing, page, false);
+    }
+
+    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page, boolean staffHints) {
         splitPricing = SalesSplits.activePricing(order, splitPricing);
         Map<Long, Product> byId = page != null ? page.products()
                 : products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
@@ -237,6 +343,8 @@ public class SalesOrderService {
 
         be.enrosed.shipping.domain.Carrier carrier = order.freightCarrierId() == null
                 ? null : shippingCarriers.findById(order.freightCarrierId()).orElse(null);
+        PalletCountRule palletRule = page != null && order.id() != null && page.palletRules().containsKey(order.id())
+                ? page.palletRules().get(order.id()) : palletRule(order);
 
         return pricing.price(order, byId, new SalesPricingCalculator.Context(
                 country,
@@ -246,7 +354,119 @@ public class SalesOrderService {
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vat.determine(country, customer),
-                carrier, splitPricing));
+                carrier, splitPricing, palletRule, staffHints ? priceHints(order, byId) : null, minimumExempt(order)));
+    }
+
+    /**
+     * A document made from partner meldingen bills what the partner sold: no country minimum. Only
+     * an own-stock Veilingverkopen invoice can be one (settlements are partner deals, exempt anyway),
+     * so only such a document costs a lookup.
+     */
+    private boolean minimumExempt(SalesOrder order) {
+        return order.id() != null && order.isInvoice() && order.markupMode() == MarkupMode.CONTAINER_COST
+                && "PARTNER".equals(order.rawSalesChannel()) && !order.isPartnerDeal() && isReportBacked(order);
+    }
+
+    /**
+     * What the staff view shows beside each price: lines with a source always get the catalogue and
+     * customer price of today; on a live concept that pins customer prices (not archived, as a quote
+     * is once invoiced), so does a line without a source whose product has an agreed price (so
+     * "Klantprijs gebruiken" can be offered). Null on documents where neither applies, which keeps
+     * their answer exactly as before.
+     */
+    private SalesPricingCalculator.PriceHints priceHints(SalesOrder order, Map<Long, Product> byId) {
+        if (order.customerId() == null || customerPrices() == null || order.lines() == null) return null;
+        boolean pins = pinsCustomerPrices(order);
+        boolean sourced = order.lines().stream().anyMatch(line -> line != null && line.priceSource() != null);
+        if (!pins && !sourced) return null;
+        List<Product> onLines = order.lines().stream().filter(Objects::nonNull).map(SalesOrderLine::productId)
+                .filter(Objects::nonNull).distinct().map(byId::get).filter(Objects::nonNull).toList();
+        return new SalesPricingCalculator.PriceHints(customerPrices().activeFor(order.customerId(), onLines),
+                pins && order.status() == QuoteStatus.CONCEPT && !order.isArchived());
+    }
+
+    private CustomerPriceService customerPrices() {
+        return customerPrices != null && customerPrices.isResolvable() ? customerPrices.get() : null;
+    }
+
+    /**
+     * Whether a staff save gives a new line this customer's agreed price by default (Emre,
+     * 2026-11-06): a regular quote or invoice of a customer, priced per product or order markup, a
+     * website request or order included once staff work on it. Never a credit note, a partner deal, a
+     * container-cost document, a split part or an advance invoice. The website's own intake of a
+     * request ({@link #updateWebsiteRequest}) pins nothing: its lines carry the prices it showed.
+     */
+    public boolean pinsCustomerPrices(SalesOrder order) {
+        return order != null && pinsCustomerPrices(order, order.markupMode());
+    }
+
+    private boolean pinsCustomerPrices(SalesOrder order, MarkupMode markup) {
+        return order.customerId() != null && customerPrices() != null
+                && !order.isCreditNote() && !order.isPartnerDeal() && order.purpose() == SalesPurpose.STANDARD
+                && markup != MarkupMode.CONTAINER_COST
+                && (order.id() == null || advanceBilling() == null || !advanceBilling().isAdvance(order))
+                && !isSplitPart(order);
+    }
+
+    /**
+     * A new copy's lines on an agreed price take the customer's price of today, or the catalogue once
+     * that price no longer applies (ended, or its unit changed); on a copy that pins, a line that
+     * follows the catalogue by default takes the agreed price too, as a new line would.
+     */
+    private SalesOrder withTodaysCustomerPrices(SalesOrder copy) {
+        if (copy.lines() == null || copy.lines().isEmpty() || copy.customerId() == null || customerPrices() == null) return copy;
+        boolean pins = pinsCustomerPrices(copy);
+        boolean any = copy.lines().stream().anyMatch(line -> line != null && (SalesOrderLine.PRICE_CUSTOMER.equals(line.priceSource())
+                || (pins && line.priceSource() == null && !line.hasUnitPrice())));
+        if (!any) return copy;
+        Map<Long, BigDecimal> today = activePrices(copy.customerId(), copy.lines());
+        List<SalesOrderLine> lines = copy.lines().stream().map(line -> {
+            if (line == null) return null;
+            boolean agreedLine = SalesOrderLine.PRICE_CUSTOMER.equals(line.priceSource());
+            if (!agreedLine && !(pins && line.priceSource() == null && !line.hasUnitPrice())) return line;
+            BigDecimal agreed = today.get(line.productId());
+            if (agreed != null) return line.withPrice(agreed, SalesOrderLine.PRICE_CUSTOMER);
+            return agreedLine ? line.withPrice(null, null) : line;
+        }).toList();
+        return copy.withLinesAndPallets(lines, copy.pallets());
+    }
+
+    /**
+     * {@code updated} with every line's price source settled for a staff save or preview
+     * ({@link SalesLinePrices}): new lines without a price take the customer's agreed price on a
+     * document that pins them, a concept that changes customer is pinned again, the rest keeps its
+     * prices. {@code stored} is the document as saved, null for one being made.
+     */
+    SalesOrder withPriceSources(SalesOrder stored, SalesOrder updated) {
+        if (updated == null || updated.lines() == null || updated.lines().isEmpty()) return updated;
+        /* A client may leave the markup out; the stored document's then stands, as a save keeps it. */
+        MarkupMode markup = updated.markupMode() == null && stored != null ? stored.markupMode() : updated.markupMode();
+        boolean pins = pinsCustomerPrices(updated, markup);
+        boolean customerChanged = stored != null && stored.status() == QuoteStatus.CONCEPT
+                && !Objects.equals(stored.customerId(), updated.customerId());
+        List<SalesOrderLine> lines = SalesLinePrices.settle(updated.lines(), stored == null ? List.of() : stored.lines(),
+                pins, customerChanged, updated.isCreditNote(),
+                () -> activePrices(updated.customerId(), updated.lines()));
+        return lines == updated.lines() ? updated : updated.withLinesAndPallets(lines, updated.pallets());
+    }
+
+    /** The customer's active agreed prices of today for the products on these lines. */
+    private Map<Long, BigDecimal> activePrices(Long customerId, List<SalesOrderLine> lines) {
+        if (customerId == null || customerPrices() == null) return Map.of();
+        Set<Long> ids = lines.stream().filter(Objects::nonNull).map(SalesOrderLine::productId)
+                .filter(Objects::nonNull).collect(Collectors.toSet());
+        if (ids.isEmpty()) return Map.of();
+        List<Product> onLines = products.list().stream().filter(product -> ids.contains(product.id())).toList();
+        return customerPrices().activeFor(customerId, onLines);
+    }
+
+    /**
+     * The customer's active agreed prices of these products where this document takes them (the quote
+     * link's product list offers them, as a staff line would get them); empty everywhere else.
+     */
+    public Map<Long, BigDecimal> customerPricesFor(SalesOrder order, java.util.Collection<Product> forProducts) {
+        if (!pinsCustomerPrices(order)) return Map.of();
+        return customerPrices().activeFor(order.customerId(), forProducts);
     }
 
     /** Price this order uses for this product; the portal uses it too. */
@@ -290,7 +510,8 @@ public class SalesOrderService {
                 null, null,
                 null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, null,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                /* A new document keeps the height it is made with: a later standard never re-prices it. */
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 defaultCarrierId == null
                         ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
                 null, defaultCarrierId, null,
@@ -298,7 +519,8 @@ public class SalesOrderService {
                 List.of(), List.of())
                 .withSalesChannel(staffAction ? null : "WEBSITE");
         validateForSave(draft);
-        SalesOrder created = orders.save(draft);
+        /* A new quote, invoice, website request or website order counts mixed pallets. */
+        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator == null ? null : creator.displayName(), false,
@@ -361,7 +583,7 @@ public class SalesOrderService {
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -374,8 +596,12 @@ public class SalesOrderService {
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
         validatePartnerAdvanceReservation(invoice, null);
+        /* The hand layout is copied as the quote stands, never brought in line here as a save and
+           Overnemen do: a layout its lines outgrew (an omdoos content changed after acceptance) is
+           refused by name, so an invoice never bills fewer hand pallets than its quote unannounced. */
         validateForSave(invoice);
-        SalesOrder created = orders.save(invoice);
+        /* The invoice, a slotfactuur included, bills the pallets its quote counted. */
+        SalesOrder created = orders.create(invoice, palletRule(source));
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().copyToInvoice(source, created);
         copyCustomerRequest(source, created);
         captureAdvanceContents(created);
@@ -592,7 +818,7 @@ public class SalesOrderService {
                 DeliveryTermsState.VOLLEDIG,
                 /* The container's freight is already inside the landed cost; a cost quote adds none of its own. */
                 atCost ? FreightState.AANGEVULD : FreightState.BEREKEND, atCost ? BigDecimal.ZERO : null,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 /* At cost the freight is a fixed zero, whatever carrier the house normally uses. */
                 atCost ? FreightPricingStrategy.FIXED
                         : defaultCarrierId == null ? FreightPricingStrategy.COUNTRY_PALLET : FreightPricingStrategy.CARRIER,
@@ -605,6 +831,8 @@ public class SalesOrderService {
                 .withPurpose(partner ? SalesPurpose.PARTNER_ADVANCE : SalesPurpose.STANDARD, container.id(),
                         request.paymentPlan() != null ? request.paymentPlan()
                                 : partner ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL);
+        /* At sales prices the lines are new lines like any other: the customer's agreed prices come first. */
+        if (!atCost) draft = withPriceSources(null, draft);
         if (partner) {
             List<SalesOrder> existing = orders.findAll().stream().filter(order -> order.isInvoice() && order.isPartnerAdvance()
                     && Objects.equals(order.linkedPurchaseOrderId(), request.purchaseOrderId()) && PartnerFinancingService.live(order)).toList();
@@ -625,7 +853,8 @@ public class SalesOrderService {
             validatePartnerAdvanceReservation(draft, null);
         }
         validateForSave(draft);
-        SalesOrder created = orders.save(draft);
+        /* A container's goods on a new document: mixed pallets. */
+        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
 
         String how = partner
                 ? " als partnercontainer: " + pct(share) + " % winstdeling, " + pct(costPct) + " % van de kost vooraf"
@@ -785,7 +1014,7 @@ public class SalesOrderService {
                 isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), null, notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null, null, null, null, 0, null, null, null, null,
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO, LoadMode.PALLETS,
-                PalletProfile.EURO_120X80, null, FreightPricingStrategy.FIXED, null, null, null,
+                PalletProfile.EURO_120X80, settings.standardMaxHeightCm(), FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, dueDate == null ? BusinessDays.add(today, 30) : dueDate, null, sourceQuoteId, null, List.of(), List.of())
                 .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, amount)))
                 .withPartnerDeal(purchase.id(), purchase.partnerSharePctOrDefault()).withSalesChannel("PARTNER")
@@ -793,7 +1022,9 @@ public class SalesOrderService {
         requireAdvanceBeforeSettlement(invoice);
         validatePartnerAdvanceReservation(invoice, rowId);
         validateForSave(invoice);
-        SalesOrder saved = orders.save(invoice);
+        /* A term made from a quote counts like that quote; a term of the plan alone is new: mixed. */
+        SalesOrder saved = orders.create(invoice,
+                sourceQuoteId == null ? PalletCountRule.MIXED : orders.palletCountRule(sourceQuoteId));
         captureAdvanceContents(saved);
         events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Voorschottermijn " + label + " aangemaakt", null));
@@ -963,6 +1194,17 @@ public class SalesOrderService {
         }
     }
 
+    /** The availability as the purchase screens show it: with what open meldingen still claim per line. */
+    public PartnerSettlementLedger.Availability partnerSettlementAvailabilityWithReports(long purchaseId) {
+        PartnerSettlementLedger.Availability availability = partnerSettlementAvailability(purchaseId);
+        return reportBacking() == null ? availability : availability.withOpenReported(openReported(purchaseId));
+    }
+
+    /** Per product of this container: what open partner meldingen still claim (empty without the portal). */
+    public Map<Long, PartnerReportBacking.OpenReported> openReported(long purchaseId) {
+        return reportBacking() == null ? Map.of() : reportBacking().openReported(purchaseId);
+    }
+
     public PartnerSettlementLedger.Availability partnerSettlementAvailability(long purchaseId) {
         PurchaseOrder purchase = purchaseOrders.get().get(purchaseId);
         var linked = orders.findAll().stream().filter(order -> Objects.equals(purchaseId, order.linkedPurchaseOrderId())).toList();
@@ -972,13 +1214,110 @@ public class SalesOrderService {
     }
 
     /**
+     * What a settlement of these lines on this container comes to: createAuctionSettlement's checks
+     * and arithmetic (cost share of what remains, our value, advance credit, final true-up, snapshot
+     * allocation, extra lines), computed once and shared with the Veilingverkopen preview. Nothing is
+     * written. {@code balanceEur} = what the invoice still claims after the advance credit.
+     */
+    public record AuctionSettlementPlan(PurchaseOrder container, long customerId, BigDecimal profitSharePct,
+                                        boolean finalSettlement, List<SalesOrderLine> lines,
+                                        List<PartnerSettlements.Line> snapshotLines, List<SalesExtraLine> extras,
+                                        BigDecimal costTotalEur, BigDecimal proceedsTotalEur, BigDecimal valueEur,
+                                        BigDecimal advanceEur, String detail, SalesOrder source) {
+        public BigDecimal balanceEur() {
+            return valueEur.subtract(advanceEur);
+        }
+    }
+
+    /**
      * Settles every usable piece once at external container cost plus our agreed
      * share of the net profit or loss. Issued advances are credited in full,
      * independently of their cash receipts. The container lock serializes drafts;
      * cancelled documents keep their immutable snapshots and may be replaced.
+     *
+     * Pieces that open partner meldingen still claim (Veilingverkopen) are not available here: they
+     * are invoiced through Veilingverkopen, which calls {@link #createAuctionSettlementFromReports}.
      */
     @Transactional
     public SalesOrder createAuctionSettlement(AuctionSettlementRequest request) {
+        return createAuctionSettlement(request, false);
+    }
+
+    /**
+     * The Veilingverkopen entry point: the lines ARE the open meldingen of this container, so the
+     * plain ledger remaining applies (no limit for open meldingen). Runs in the caller's transaction,
+     * which holds the partner, container and product locks.
+     */
+    @Transactional
+    public SalesOrder createAuctionSettlementFromReports(AuctionSettlementRequest request) {
+        return createAuctionSettlement(request, true);
+    }
+
+    /** What {@link #createAuctionSettlementFromReports} would make, without the lock and without writing. */
+    public AuctionSettlementPlan previewAuctionSettlementFromReports(AuctionSettlementRequest request) {
+        return planAuctionSettlement(request, true, false);
+    }
+
+    private SalesOrder createAuctionSettlement(AuctionSettlementRequest request, boolean fromReports) {
+        AuctionSettlementPlan plan = planAuctionSettlement(request, fromReports, true);
+        PurchaseOrder container = plan.container();
+        long purchaseId = container.id();
+        SalesOrder source = plan.source();
+        BigDecimal profitShare = plan.profitSharePct();
+        boolean finalSettlement = plan.finalSettlement();
+        BigDecimal costTotal = plan.costTotalEur();
+        BigDecimal proceedsTotal = plan.proceedsTotalEur();
+        BigDecimal fullTotal = plan.valueEur();
+        BigDecimal advance = plan.advanceEur();
+        Customer partner = customers.get(plan.customerId());
+        String reference = container.number();
+        String audited = containerReference(container);
+        String documentName = finalSettlement ? "Slotfactuur" : "Deelfactuur";
+        String notes = documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
+                + " % van netto veilingresultaat (ook verlies).\n" + plan.detail()
+                + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
+                + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
+                + "; saldo € " + money(fullTotal.subtract(advance)) + "."
+                + (fullTotal.compareTo(advance) < 0 ? " Negatief saldo: tegoed voor de partner, geen inkomende betaling." : "")
+                + " Open voorschotfacturen blijven afzonderlijk te betalen; ontvangen bedragen staan in het betaalregister.";
+        LocalDate today = LocalDate.now();
+        SalesOrder invoice = new SalesOrder(null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
+                today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
+                isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
+                MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
+                null, null, null, 0, null, null, null, request.note(),
+                DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
+                FreightPricingStrategy.FIXED, null, null, null,
+                DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, plan.lines(), List.of())
+                .withExtraLines(plan.extras()).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
+                .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
+        validateForSave(invoice);
+        /* The auction's own lines on a new document: mixed pallets. */
+        SalesOrder created = orders.create(invoice, PalletCountRule.MIXED);
+        if (partnerSettlements != null && partnerSettlements.isResolvable())
+            partnerSettlements.get().save(created.id(), purchaseId, new PartnerSettlements.Snapshot(fullTotal, costTotal, advance,
+                    finalSettlement, List.copyOf(plan.snapshotLines())));
+        adoptPartnerContainer(purchaseId, partner.id(), request.costSharePct() == null ? container.partnerCostPctOrDefault()
+                : HUNDRED.subtract(percentage(request.costSharePct(), "Eigen aandeel in de kost")), profitShare);
+        String made = documentName + " partnercontainer " + audited + (fromReports ? " uit veilingverkopen" : "");
+        events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
+                made, null));
+        if (source != null) events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD, Instant.now(),
+                currentActor().displayName(), false, documentName + " " + created.number() + " aangemaakt", null));
+        recordActivity(created, made + " aangemaakt");
+        recordPurchaseActivity(purchaseId, reference, documentName + " " + created.number() + ": € " + money(fullTotal.subtract(advance)));
+        return created;
+    }
+
+    /**
+     * The checks and the arithmetic of a settlement, nothing written. {@code lock} takes the
+     * container FOR UPDATE (a creation); the preview reads without it. Not from meldingen: what open
+     * meldingen of the container still claim is not available ("n stuks staan nog open in
+     * Veilingverkopen"), and a slotfactuur is refused while any is open (the Veilingverkopen
+     * invoice of those pieces then becomes the slotfactuur by itself).
+     */
+    private AuctionSettlementPlan planAuctionSettlement(AuctionSettlementRequest request, boolean fromReports, boolean lock) {
         if (request == null || request.lines() == null || request.lines().isEmpty())
             throw new BusinessRuleException("Vul de netto veilingopbrengst per product in");
         if (purchaseOrders == null || !purchaseOrders.isResolvable()) throw new BusinessRuleException("Inkoop is niet beschikbaar");
@@ -986,7 +1325,7 @@ public class SalesOrderService {
         Long purchaseId = request.purchaseOrderId() != null ? request.purchaseOrderId()
                 : source == null ? null : source.linkedPurchaseOrderId();
         if (purchaseId == null) throw new BusinessRuleException("Koppel de afrekening aan een container");
-        PurchaseOrder container = purchaseOrders.get().lockForPartnerSettlement(purchaseId);
+        PurchaseOrder container = lock ? purchaseOrders.get().lockForPartnerSettlement(purchaseId) : purchaseOrders.get().get(purchaseId);
         if (advanceSchedules != null && advanceSchedules.isResolvable()) advanceSchedules.get().requireReadyForSettlement(purchaseId);
         Long customerId = request.customerId() != null ? request.customerId()
                 : source != null ? source.customerId() : container.partnerCustomerId();
@@ -1015,6 +1354,17 @@ public class SalesOrderService {
                 && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && PartnerFinancingService.live(order)).toList();
         if (previous.stream().anyMatch(order -> order.partnerSharePct() != null && order.partnerSharePct().compareTo(profitShare) != 0))
             throw new BusinessRuleException("Gebruik dezelfde winstdeling als de eerdere deelafrekeningen van deze container");
+        /* What open meldingen still claim per product: theirs, never a manual settlement's. */
+        Map<Long, Integer> reported = new HashMap<>();
+        /* Any open melding part on the container, a buyback waiting for a resale included (net 0 or below). */
+        boolean anyReportedOpen = false;
+        if (!fromReports && reportBacking() != null) {
+            Map<Long, PartnerReportBacking.OpenReported> open = reportBacking().openReported(purchaseId);
+            anyReportedOpen = !open.isEmpty();
+            open.forEach((productId, part) -> {
+                if (part.quantity() > 0) reported.put(productId, part.quantity());
+            });
+        }
         List<SalesOrderLine> lines = new java.util.ArrayList<>();
         List<PartnerSettlements.Line> snapshotLines = new java.util.ArrayList<>();
         BigDecimal costTotal = BigDecimal.ZERO;
@@ -1028,6 +1378,10 @@ public class SalesOrderService {
             var basis = external.get(input.productId());
             if (basis == null || basis.remainingQuantity() <= 0 || input.quantity() > basis.remainingQuantity())
                 throw new BusinessRuleException("Het veilingaantal overschrijdt de nog af te rekenen containerstukken voor product " + input.productId());
+            int open = reported.getOrDefault(input.productId(), 0);
+            if (open > 0 && input.quantity() > basis.remainingQuantity() - open)
+                throw new BusinessRuleException(basis.productName() + ": " + open + (open == 1 ? " stuk staat" : " stuks staan")
+                        + " nog open in Veilingverkopen; factureer die via Veilingverkopen");
             if (input.proceedsEur() == null) throw new BusinessRuleException("Vul voor elk product een netto veilingopbrengst in, ook bij nul");
             BigDecimal proceeds = input.proceedsEur();
             if (proceeds.signum() < 0) throw new BusinessRuleException("Netto veilingopbrengst kan niet negatief zijn");
@@ -1050,6 +1404,14 @@ public class SalesOrderService {
         boolean finalSettlement = external.values().stream().filter(row -> row.remainingQuantity() > 0)
                 .allMatch(row -> request.lines().stream().anyMatch(line -> row.productId().equals(line.productId())
                         && line.quantity() == row.remainingQuantity()));
+        int openTotal = reported.values().stream().mapToInt(Integer::intValue).sum();
+        if (Boolean.TRUE.equals(request.finalSettlement()) && openTotal > 0)
+            throw new BusinessRuleException("Er " + (openTotal == 1 ? "staat nog 1 stuk" : "staan nog " + openTotal + " stuks")
+                    + " open in Veilingverkopen; maak een deelafrekening en factureer de rest via Veilingverkopen (dat wordt de slotfactuur)");
+        /* After a slotfactuur nothing on the container can be invoiced, so a buyback still open there would stay open. */
+        if (anyReportedOpen && (finalSettlement || Boolean.TRUE.equals(request.finalSettlement())))
+            throw new BusinessRuleException("Er staat nog een terugkoop van deze container open in Veilingverkopen; "
+                    + "maak een deelafrekening en factureer de rest via Veilingverkopen (dat wordt de slotfactuur)");
         if (Boolean.TRUE.equals(request.finalSettlement()) && !finalSettlement)
             throw new BusinessRuleException("Een slotfactuur rekent alle resterende bruikbare stukken af; kies een deelafrekening voor een kleiner aantal");
         BigDecimal remainingCost = availability.lines().stream().map(PartnerSettlementLedger.Line::remainingCostEur)
@@ -1088,42 +1450,48 @@ public class SalesOrderService {
                 .reduce(BigDecimal.ZERO, BigDecimal::add).setScale(2, java.math.RoundingMode.HALF_UP);
         if (fullTotal.compareTo(roundedLines) != 0) extras.add(new SalesExtraLine("Afronding slotafrekening", BigDecimal.ONE, fullTotal.subtract(roundedLines)));
         if (advance.signum() > 0) extras.add(new SalesExtraLine("Voorschot verrekend · uitgereikte voorschotfacturen", BigDecimal.ONE, advance.negate()));
-        Customer partner = customers.get(customerId);
-        String reference = container.number();
-        String audited = containerReference(container);
-        String documentName = finalSettlement ? "Slotfactuur" : "Deelfactuur";
-        String notes = documentName + " partnercontainer " + container.displayName() + " · " + pct(profitShare)
-                + " % van netto veilingresultaat (ook verlies).\n" + detail
-                + "Externe kost € " + money(costTotal) + "; netto opbrengst € " + money(proceedsTotal)
-                + "; volledige waarde € " + money(fullTotal) + "; uitgereikte voorschotten verrekend € " + money(advance)
-                + "; saldo € " + money(fullTotal.subtract(advance)) + "."
-                + (fullTotal.compareTo(advance) < 0 ? " Negatief saldo: tegoed voor de partner, geen inkomende betaling." : "")
-                + " Open voorschotfacturen blijven afzonderlijk te betalen; ontvangen bedragen staan in het betaalregister.";
+        return new AuctionSettlementPlan(container, customerId, profitShare, finalSettlement, List.copyOf(lines),
+                List.copyOf(snapshotLines), List.copyOf(extras), costTotal, proceedsTotal, fullTotal, advance,
+                detail.toString(), source);
+    }
+
+    /**
+     * Veilingverkopen from Enrosed's own stock: one concept invoice to the partner, built the way a
+     * settlement is (container cost pricing at the given unit prices, freight filled in at 0, pallets,
+     * no pallets, the customer's VAT treatment, purpose STANDARD, channel PARTNER, the normal invoice
+     * series). The caller computes every figure; lines and extras then stay frozen
+     * ({@link #isReportBacked}).
+     */
+    public record PartnerSalesInvoiceLine(long productId, int quantity, BigDecimal unitPriceEur, BigDecimal unitCostEur) {}
+
+    public record PartnerSalesInvoiceRequest(long customerId, List<PartnerSalesInvoiceLine> lines,
+                                             List<SalesExtraLine> extras, String notes, String internalNote) {}
+
+    @Transactional
+    public SalesOrder createPartnerSalesInvoice(PartnerSalesInvoiceRequest request) {
+        if (request == null || (request.lines().isEmpty() && request.extras().isEmpty()))
+            throw new BusinessRuleException("Er valt niets te factureren");
+        Customer partner = customers.get(request.customerId());
+        if (!partner.partner()) throw new BusinessRuleException("Deze klant is geen partner");
         LocalDate today = LocalDate.now();
-        SalesOrder invoice = new SalesOrder(null, nextPartnerInvoiceNumber(), partner.id(), partner.countryCode(),
+        List<SalesOrderLine> lines = request.lines().stream().map(line -> new SalesOrderLine(null, line.productId(),
+                line.quantity(), line.unitPriceEur(), null, null, line.unitCostEur())).toList();
+        SalesOrder invoice = new SalesOrder(null, nextInvoiceNumber(), partner.id(), partner.countryCode(),
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT,
-                isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), notes,
-                MarkupMode.PRODUCT, BigDecimal.ZERO, null, null,
-                null, null, null, 0, null, null, null, request.note(),
+                isBlank(partner.incoterm()) ? "DAP" : partner.incoterm(), partner.paymentTerms(), request.notes(),
+                MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
+                null, null, null, 0, null, null, null, request.internalNote(),
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO,
-                LoadMode.PALLETS, PalletProfile.EURO_120X80, null,
+                LoadMode.PALLETS, PalletProfile.EURO_120X80, settings.standardMaxHeightCm(),
                 FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, lines, List.of())
-                .withExtraLines(extras).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
-                .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
+                .withExtraLines(request.extras()).withSalesChannel("PARTNER")
+                .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.FULL);
         validateForSave(invoice);
-        SalesOrder created = orders.save(invoice);
-        if (partnerSettlements != null && partnerSettlements.isResolvable())
-            partnerSettlements.get().save(created.id(), purchaseId, new PartnerSettlements.Snapshot(fullTotal, costTotal, advance,
-                    finalSettlement, List.copyOf(snapshotLines)));
-        adoptPartnerContainer(purchaseId, partner.id(), request.costSharePct() == null ? container.partnerCostPctOrDefault()
-                : HUNDRED.subtract(percentage(request.costSharePct(), "Eigen aandeel in de kost")), profitShare);
+        SalesOrder created = orders.create(invoice, PalletCountRule.MIXED);
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
-                documentName + " partnercontainer " + audited, null));
-        if (source != null) events.add(new QuoteEvent(null, source.id(), QuoteEvent.Type.GEFACTUREERD, Instant.now(),
-                currentActor().displayName(), false, documentName + " " + created.number() + " aangemaakt", null));
-        recordActivity(created, documentName + " partnercontainer " + audited + " aangemaakt");
-        recordPurchaseActivity(purchaseId, reference, documentName + " " + created.number() + ": € " + money(fullTotal.subtract(advance)));
+                "Factuur uit veilingverkopen (eigen voorraad)", null));
+        recordActivity(created, "Factuur uit veilingverkopen (eigen voorraad) aangemaakt");
         return created;
     }
 
@@ -1180,6 +1548,7 @@ public class SalesOrderService {
         if (purpose == SalesPurpose.PARTNER_SETTLEMENT) throw new BusinessRuleException("Maak de slotfactuur via de veilingafrekening");
         if (hasSettlementSnapshot(order))
             throw new BusinessRuleException("De partner en container van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
+        if (isReportBacked(order)) throw new BusinessRuleException(REPORT_BACKED_FROZEN);
         if (purpose != SalesPurpose.STANDARD && purchaseOrderId == null)
             throw new BusinessRuleException("Koppel een partnervoorschot aan een inkooporder");
         if (hasAdvanceContents(order)
@@ -1240,6 +1609,10 @@ public class SalesOrderService {
         if (invoice.status() != QuoteStatus.VERZONDEN && invoice.status() != QuoteStatus.UITGEREIKT && invoice.status() != QuoteStatus.BETAALD) {
             throw new BusinessRuleException("Verstuur eerst de factuur; daarna kan de bestelling afgepunt worden");
         }
+        /* Made from partner meldingen: their own stock lines already took the pieces out. */
+        Map<Long, Integer> reportBooked = reportBookedQuantities(invoice);
+        if (reportBooked != null && fullyBooked(invoice, reportBooked))
+            throw new BusinessRuleException("De voorraad van deze factuur is al afgeboekt via veilingverkopen");
         if (invoice.goodsShippedAt() != null) {
             throw new BusinessRuleException("De voorraad van deze bestelling is al afgepunt");
         }
@@ -1251,6 +1624,9 @@ public class SalesOrderService {
         boolean entirelyHistorical = false;
         Map<Long, Integer> quantitiesToBook = invoice.lines().stream().filter(line -> !line.isUnavailable() && line.quantity() > 0)
                 .collect(Collectors.toMap(SalesOrderLine::productId, SalesOrderLine::quantity, Integer::sum));
+        /* A partly report-backed document (its lines are frozen, so only defensively) books only the rest. */
+        if (reportBooked != null) reportBooked.forEach((productId, booked) ->
+                quantitiesToBook.computeIfPresent(productId, (key, quantity) -> Math.max(0, quantity - booked)));
         if (invoice.purpose() == SalesPurpose.PARTNER_SETTLEMENT) {
             if (purchaseOrders != null && purchaseOrders.isResolvable())
                 purchaseOrders.get().lockForPartnerSettlement(invoice.linkedPurchaseOrderId());
@@ -1268,9 +1644,14 @@ public class SalesOrderService {
                         : Map.copyOf(quantitiesToBook);
                 if (previouslyShipped.entrySet().stream().anyMatch(entry -> entry.getValue() > containerQuantities.getOrDefault(entry.getKey(), 0)))
                     throw new BusinessRuleException("Op deze container is al voorraad afgepunt via historische voorschotfacturen, met andere aantallen; controleer eerst de voorraadboeking");
-                Map<Long, Integer> settledShipments = orders.findAll().stream().filter(order -> !Objects.equals(order.id(), invoice.id())
+                List<SalesOrder> shippedSettlements = orders.findAll().stream().filter(order -> !Objects.equals(order.id(), invoice.id())
                         && order.purpose() == SalesPurpose.PARTNER_SETTLEMENT && order.goodsShippedAt() != null
-                        && Objects.equals(order.linkedPurchaseOrderId(), invoice.linkedPurchaseOrderId()))
+                        && Objects.equals(order.linkedPurchaseOrderId(), invoice.linkedPurchaseOrderId())).toList();
+                /* A settlement made from meldingen never absorbed historical pieces: its own went out through the meldingen. */
+                Set<Long> reportBackedSettlements = reportBacking() == null ? Set.of()
+                        : reportBacking().reportBacked(shippedSettlements.stream().map(SalesOrder::id).toList());
+                Map<Long, Integer> settledShipments = shippedSettlements.stream()
+                        .filter(order -> !reportBackedSettlements.contains(order.id()))
                         .flatMap(order -> order.lines().stream()).filter(line -> line.quantity() > 0)
                         .collect(Collectors.toMap(SalesOrderLine::productId, SalesOrderLine::quantity, Integer::sum));
                 for (var entry : quantitiesToBook.entrySet()) {
@@ -1384,7 +1765,7 @@ public class SalesOrderService {
         if (saved.isCreditNote()) recordCreditedEvent(saved, "Creditnota " + saved.number() + " uitgereikt · € "
                 + money(price(saved).totals().totalInclVat()) + " incl. btw");
         else if (advanceBilling() != null) saved = advanceBilling().afterIssue(saved);
-        return saved;
+        return shipFromReports(saved);
     }
 
     /** Invoices skip the portal: sending is a bookkeeping fact, not a mail flow. */
@@ -1414,6 +1795,7 @@ public class SalesOrderService {
                 label, null));
         if (fromConcept && !saved.isCreditNote() && advanceBilling() != null) saved = advanceBilling().afterIssue(saved);
         recordActivity(SALES_ACTION_SENT, saved, label);
+        saved = shipFromReports(saved);
         fireActivityPush(SalesActivityPushNotifier.Ready.staffInvoiceSent(
                 saved.id(), saved.number(), actor));
         return saved;
@@ -1470,8 +1852,9 @@ public class SalesOrderService {
             requireWithinCreditCap(original, invoice);
         }
         if (!invoice.isCreditNote() && advanceBilling() != null) advanceBilling().requireIssuable(invoice);
-        /* An advance invoice claims part of a quote that met the minimum itself. */
-        if (!invoice.isPartnerDeal() && !invoice.isCreditNote() && (advanceBilling() == null || !advanceBilling().isAdvance(invoice))) {
+        /* An advance invoice claims part of a quote that met the minimum itself; Veilingverkopen bill what the partner sold. */
+        if (!invoice.isPartnerDeal() && !invoice.isCreditNote() && (advanceBilling() == null || !advanceBilling().isAdvance(invoice))
+                && !isReportBacked(invoice)) {
             PricedOrder priced = price(invoice);
             if (priced != null && !priced.validation().meetsMinimum())
                 throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
@@ -1598,9 +1981,23 @@ public class SalesOrderService {
                 order.lines(), order.pallets()).carrying(order);
     }
 
+    /**
+     * A staff save from the editor. {@code heightPicked}: the screen says the pallet height it sends
+     * was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder update(long id, SalesOrder changes) {
-        return update(id, changes, false);
+    public SalesOrder update(long id, SalesOrder changes, boolean heightPicked) {
+        return update(id, changes, false, true, heightPicked);
+    }
+
+    /**
+     * The website's own intake of a new request: saved as a staff save is, but its lines keep the
+     * prices and sources the website gave them (public prices, or the logged-in customer's own), so
+     * nothing is pinned here. Staff saves of that request pin as on any quote.
+     */
+    @Transactional
+    public SalesOrder updateWebsiteRequest(long id, SalesOrder changes) {
+        return update(id, changes, false, false, true);
     }
 
     /**
@@ -1611,14 +2008,23 @@ public class SalesOrderService {
      */
     @Transactional(Transactional.TxType.MANDATORY)
     public SalesOrder updateByCustomer(long id, SalesOrder changes) {
-        return update(id, changes, true);
+        return update(id, changes, true, false, true);
     }
 
-    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer) {
+    /** {@code heightPicked}: the height in the changes is a choice; the website's paths pass the stored one themselves. */
+    private SalesOrder update(long id, SalesOrder changes, boolean byCustomer, boolean settlesPrices, boolean heightPicked) {
         if (changes == null) throw new BusinessRuleException("Geen offertegegevens meegestuurd");
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
+        /* No height from the client (a website change, a screen that did not change it) keeps the document's
+           own: the height a document was made with only changes when someone picks another. */
+        if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
+            changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+        /* Per piece is settled before anything compares or rounds the lines: the request decides on a
+           document that rounds, the stored choice stays everywhere else and where the request is silent. */
+        changes = changes.withLinesAndPallets(withPerPieceChoices(changes.lines(), beforeEdit.lines(),
+                !keepsExactQuantities(beforeEdit, changes)), changes.pallets());
         if (lineAvailability != null && lineAvailability.isResolvable()) changes = lineAvailability.get().normalize(beforeEdit, changes);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(beforeEdit, changes);
         if (!byCustomer && customerMessages != null && customerMessages.isResolvable()) customerMessages.get().requireUpdate(beforeEdit, changes);
@@ -1643,15 +2049,21 @@ public class SalesOrderService {
                 && (!Objects.equals(changes.partnerPurchaseOrderId(), beforeEdit.partnerPurchaseOrderId())
                     || !samePercentage(changes.partnerSharePct(), beforeEdit.partnerSharePct())))
             throw new BusinessRuleException("Wijzig de partnerkoppeling via de partnergegevens van het document");
-        if (hasSettlementSnapshot(beforeEdit)) {
-            if (!beforeEdit.lines().equals(changes.lines()) || !beforeEdit.extraLines().equals(changes.extraLines())
+        boolean settlementFrozen = hasSettlementSnapshot(beforeEdit);
+        if (settlementFrozen || isReportBacked(beforeEdit)) {
+            /* By value: a browser sends 9.8100 back as 9.81, which is the same frozen line. */
+            if (!sameFrozenLines(beforeEdit.lines(), changes.lines())
+                    || !sameFrozenExtras(beforeEdit.extraLines(), changes.extraLines())
                     || !Objects.equals(beforeEdit.customerId(), changes.customerId())
                     || !Objects.equals(beforeEdit.countryCode(), changes.countryCode())
-                    || !Objects.equals(beforeEdit.extraDiscountPct(), changes.extraDiscountPct())
+                    || !samePercentage(beforeEdit.extraDiscountPct(), changes.extraDiscountPct())
+                    || (!settlementFrozen && changes.markupMode() != null && changes.markupMode() != beforeEdit.markupMode())
                     || (changes.manualFreightEur() != null && changes.manualFreightEur().signum() != 0)
                     || (changes.freightCarrierExtraEur() != null && changes.freightCarrierExtraEur().signum() != 0)
                     || (changes.freightPricingStrategyOrNull() != null && changes.freightPricingStrategy() != FreightPricingStrategy.FIXED))
-                throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; verwijder het concept en maak de afrekening opnieuw voor een correctie");
+                throw new BusinessRuleException(settlementFrozen
+                        ? "De bedragen van deze slotafrekening zijn vastgelegd; verwijder het concept en maak de afrekening opnieuw voor een correctie"
+                        : REPORT_BACKED_FROZEN);
         }
         SalesOrder current = get(id);
         SalesLifecycle.requireEditable(current);
@@ -1699,7 +2111,7 @@ public class SalesOrderService {
                 changes.loadModeOrNull() == null ? current.loadMode() : changes.loadMode(),
                 changes.palletProfileOrNull() == null
                         ? current.palletProfile() : changes.palletProfile(),
-                /* Null deliberately means: return to the configured default. */
+                /* The document's own height when the client sent none (see above); "Standaard" sends the standard. */
                 changes.maxPalletHeightCm(),
                 freightStrategy, cbmRate, carrierId,
                 changes.freightCarrierExtraEur() == null
@@ -1725,6 +2137,9 @@ public class SalesOrderService {
                 .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
                         changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
+        /* The customer's own path (a website order) and the website's intake price their lines
+           themselves; a staff save settles where each price comes from. */
+        if (!byCustomer && settlesPrices) updated = withPriceSources(current, updated);
         if (current.isCreditNote()) updated = withCreditCosts(asStoredCreditNote(updated, current));
         if (advanceBilling() != null) {
             updated = advanceBilling().withServerLines(current, updated);
@@ -1732,6 +2147,8 @@ public class SalesOrderService {
             if (advanceBilling().isAdvance(current)) updated = copyWithTerms(updated, current.freight(), current.manualFreightEur(),
                     current.freightPricingStrategy(), current.freightRatePerCbmEur(), updated.lines());
         }
+        updated = withPalletsFollowingLines(updated);
+        requireEuroHeightWithinLimit(current, updated);
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -1748,7 +2165,9 @@ public class SalesOrderService {
         if (after == null || before.size() != after.size()) return false;
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
+            /* Per piece is part of the quantity: clearing it would round the fixed pieces up on this save. */
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !Objects.equals(clean(a.deliveryWeek()), clean(b.deliveryWeek()))) return false;
         }
         return true;
@@ -1759,11 +2178,45 @@ public class SalesOrderService {
         for (int i = 0; i < before.size(); i++) {
             var a = before.get(i); var b = after.get(i);
             if (b == null || !Objects.equals(a.productId(), b.productId()) || a.quantity() != b.quantity()
+                    || a.countsPerPiece() != b.countsPerPiece()
                     || !samePercentage(a.unitPriceEur(), b.unitPriceEur())
                     || !samePercentage(a.manualDiscountPct(), b.manualDiscountPct())
                     || (b.unitCostEur() != null && !samePercentage(a.unitCostEur(), b.unitCostEur()))) return false;
         }
         return true;
+    }
+
+    /**
+     * The lines of a frozen document (settlement snapshot, made from meldingen) against a save: every field as the
+     * record compares it, the amounts by value, so 9.8100 and 9.81 are the same line.
+     */
+    private static boolean sameFrozenLines(List<SalesOrderLine> before, List<SalesOrderLine> after) {
+        if (after == null || before.size() != after.size()) return false;
+        for (int i = 0; i < before.size(); i++) {
+            if (after.get(i) == null || !byValue(before.get(i)).equals(byValue(after.get(i)))) return false;
+        }
+        return true;
+    }
+
+    private static boolean sameFrozenExtras(List<SalesExtraLine> before, List<SalesExtraLine> after) {
+        if (after == null || before.size() != after.size()) return false;
+        for (int i = 0; i < before.size(); i++) {
+            var a = before.get(i); var b = after.get(i);
+            if (b == null || !Objects.equals(a.description(), b.description())
+                    || !samePercentage(a.quantity(), b.quantity()) || !samePercentage(a.unitPriceEur(), b.unitPriceEur())) return false;
+        }
+        return true;
+    }
+
+    private static SalesOrderLine byValue(SalesOrderLine line) {
+        return new SalesOrderLine(line.id(), line.productId(), line.quantity(), plainAmount(line.unitPriceEur()),
+                plainAmount(line.manualDiscountPct()), line.deliveryWeek(), plainAmount(line.unitCostEur()),
+                line.unavailable(), line.requestedQuantity(), line.unitsPerOrderStep(), plainAmount(line.stockCostEur()),
+                line.priceSource(), Boolean.TRUE.equals(line.perPiece()) ? Boolean.TRUE : null);
+    }
+
+    private static BigDecimal plainAmount(BigDecimal value) {
+        return value == null ? null : value.stripTrailingZeros();
     }
 
     private static boolean sameQuotedExtras(List<SalesExtraLine> before, List<SalesExtraLine> after) {
@@ -1779,7 +2232,10 @@ public class SalesOrderService {
     /** One line whose promised delivery week may be filled in separately. */
     public record DeliveryWeekChange(Long productId, String deliveryWeek) {}
 
-    /** Complete transport snapshot; null optional values clear them, and an empty list clears the pallet plan. */
+    /**
+     * Complete transport snapshot; null optional values clear them, and an empty list clears the pallet
+     * plan. A null height keeps the document's own height: "Standaard" sends the standard's number.
+     */
     public record ShippingUpdate(LoadMode loadMode, PalletProfile palletProfile,
                                  BigDecimal maxPalletHeightCm,
                                  FreightPricingStrategy freightPricingStrategy,
@@ -1787,9 +2243,12 @@ public class SalesOrderService {
                                  Long freightCarrierId, BigDecimal freightCarrierExtraEur,
                                  FreightState freight, List<OrderPallet> pallets) {}
 
-    /** Changes transport only, including for an open sent quote, without reopening its commercial fields. */
+    /**
+     * Changes transport only, including for an open sent quote, without reopening its commercial fields.
+     * {@code heightPicked}: the screen says the pallet height it sends was changed there (heightAsked).
+     */
     @Transactional
-    public SalesOrder updateShipping(long id, ShippingUpdate request) {
+    public SalesOrder updateShipping(long id, ShippingUpdate request, boolean heightPicked) {
         lockDocumentForMutation(id);
         SalesOrder current = get(id);
         requireFreightEditable(current);
@@ -1804,6 +2263,7 @@ public class SalesOrderService {
         FreightState state = current.freight() == FreightState.TE_BEPALEN
                 && request.freight() != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD : request.freight();
+        BigDecimal askedHeight = heightAsked(request.maxPalletHeightCm(), current.maxPalletHeightCm(), heightPicked);
         SalesOrder updated = new SalesOrder(current.id(), current.number(), current.customerId(), current.countryCode(),
                 current.orderDate(), current.validUntil(), current.status(), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.markupMode(), current.orderMarkupPct(),
@@ -1811,7 +2271,9 @@ public class SalesOrderService {
                 current.sentAt(), current.viewedAt(), current.viewCount(), current.decidedAt(),
                 current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
                 state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
-                request.loadMode(), request.palletProfile(), request.maxPalletHeightCm(), request.freightPricingStrategy(),
+                request.loadMode(), request.palletProfile(),
+                askedHeight == null ? current.maxPalletHeightCm() : askedHeight,
+                request.freightPricingStrategy(),
                 request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(), current.lines(), request.pallets())
@@ -1820,6 +2282,7 @@ public class SalesOrderService {
         requireNonNegative(request.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(request.freightRatePerCbmEur(), "CBM-vrachttarief");
         requireNonNegative(request.freightCarrierExtraEur(), "Extra vervoerderskost");
+        requireEuroHeightWithinLimit(current, updated);
         PalletSpec palletSpec = validatePalletHeight(updated);
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
@@ -1864,6 +2327,7 @@ public class SalesOrderService {
             throw new BusinessRuleException("De betalingsafspraken van deze offerte staan vast; maak een nieuwe offerte vanuit de inkooporder om kosten toe te voegen");
         if (hasSettlementSnapshot(current))
             throw new BusinessRuleException("De bedragen van deze slotafrekening zijn vastgelegd; maak het concept opnieuw voor een correctie");
+        if (isReportBacked(current)) throw new BusinessRuleException(REPORT_BACKED_FROZEN);
     }
 
     /**
@@ -1903,7 +2367,7 @@ public class SalesOrderService {
                 .map(line -> weeks.containsKey(line.productId())
                         ? new SalesOrderLine(line.id(), line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), weeks.get(line.productId()), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep())
+                                line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource(), line.perPiece())
                         : line)
                 .toList();
         if (hasAdvanceContents(current) && !sameCargoLines(current.lines(), lines))
@@ -2202,6 +2666,8 @@ public class SalesOrderService {
             throw new BusinessRuleException("Maak een nieuwe offerte vanuit de inkooporder om de juiste voorschotafspraken over te nemen");
         if (source.purpose() == SalesPurpose.PARTNER_SETTLEMENT)
             throw new BusinessRuleException("Een slotafrekening kan niet worden gekopieerd; maak de afrekening vanuit de inkooporder zodat kosten en voorschotten opnieuw worden gecontroleerd");
+        if (isReportBacked(source))
+            throw new BusinessRuleException("Een factuur uit Veilingverkopen kopieer je niet; factureer via Veilingverkopen");
         ActorRef actor = currentActor();
         LocalDate today = LocalDate.now();
         SalesOrder duplicate = new SalesOrder(
@@ -2216,14 +2682,16 @@ public class SalesOrderService {
                 null, null, null, 0, null, null, null, source.internalNotes(),
                 /* A copy starts clean: that quote has not left yet. */
                 DeliveryTermsState.VOLLEDIG, FreightState.BEREKEND, source.manualFreightEur(),
-                source.loadMode(), source.palletProfile(), source.maxPalletHeightCm(),
+                /* A copy is a new document and gets today's standard height, unless the source has a height of
+                   its own (copyHeight). */
+                source.loadMode(), source.palletProfile(), copyHeight(source),
                 source.freightPricingStrategy(), source.freightRatePerCbmEur(),
                 source.freightCarrierId(), source.freightCarrierExtraEur(),
                 source.docType(), source.isInvoice() ? BusinessDays.add(today, 30) : null, null, null, null,
                 source.lines().stream()
                         .map(line -> new SalesOrderLine(null, line.productId(), line.quantity(),
                                 line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                                line.unitsPerOrderStep()))
+                                line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
@@ -2233,23 +2701,96 @@ public class SalesOrderService {
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
+        /* A copy is a new concept: never an agreed price that ended or changed unit since. */
+        duplicate = withTodaysCustomerPrices(duplicate);
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
-        SalesOrder created = orders.save(duplicate);
+        /* A copy is a new concept: mixed pallets, whatever its source counts. */
+        SalesOrder created = orders.create(duplicate, PalletCountRule.MIXED);
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
+        /* PalletHeightPicks reads the source's number back from this step: keep its wording. */
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), actor.displayName(), false,
                 (created.isInvoice() ? "Factuur" : "Offerte")
-                        + " gekopieerd vanuit " + source.number(), null));
+                        + PalletHeightPicks.COPIED_FROM + source.number(), null));
+        /* A copy that keeps a height other than today's standard says so in its own log: the pick then
+           travels with every further copy, and nothing later takes it for the standard of its day. */
         recordActivity(ActivityLogService.ACTION_DUPLICATED, created,
-                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd");
+                (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd",
+                ActivityChangeSet.create().add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
+                        settings.standardMaxHeightCm(), created.maxPalletHeightCm()).build());
         fireCreationPush(created.isInvoice()
                 ? SalesCreationPushNotifier.Ready.invoiceDuplicated(
                         created.id(), created.number(), source.number(), actor)
                 : SalesCreationPushNotifier.Ready.quoteDuplicated(
                         created.id(), created.number(), source.number(), actor));
         return created;
+    }
+
+    /**
+     * The height a Nieuwe kopie starts with. A copy is a new document and gets today's standard,
+     * unless its source has a height of its own.
+     */
+    private BigDecimal copyHeight(SalesOrder source) {
+        BigDecimal own = source.maxPalletHeightCm();
+        BigDecimal standard = settings.standardMaxHeightCm();
+        boolean handPallets = !source.pallets().isEmpty();
+        /* No stored height: made before 2026-11-07 on 260 cm. Hand-built pallets were stacked under that, so
+           the copy gets it written down and keeps it once its pallets go. */
+        if (own == null) return handPallets ? SalesSettings.LEGACY_MAX_HEIGHT_CM : standard;
+        /* The 220 cm of 7-10 November 2026 was the standard of those days, not a height of its own, unless
+           someone set it by hand (on the source or on what the source came from). Pallets measured under
+           220 also stand under a higher standard. */
+        if (own.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0 && standard.compareTo(own) > 0
+                && !palletHeightPickedByHand(source)) return standard;
+        /* A picked height stays, but a copy is a new pick: on a europallet at most the limit, unless its
+           measured pallets need the room. */
+        if (!handPallets && source.palletProfile() == PalletProfile.EURO_120X80
+                && own.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) > 0) return SalesSettings.EURO_HEIGHT_LIMIT_CM;
+        return own;
+    }
+
+    /** Someone set this document's pallet height by hand, on it or on what it was made or copied from. */
+    private boolean palletHeightPickedByHand(SalesOrder order) {
+        return order.id() != null && heightPicks != null && heightPicks.isResolvable()
+                && heightPicks.get().of(order.id()).byHand();
+    }
+
+    /**
+     * The pallet height a staff save asks for; null when it asks for none and the document keeps its own.
+     *
+     * Since 2026-11-10 the editor sends a height only when it was changed on that screen, and says so
+     * ({@code ?heightPicked=true}). A height without that mark comes from a window still on the bundle
+     * of before: it sends the height it holds with every save, and its "Standaard" (or an emptied
+     * field) means 220 cm, the standard of 7-10 November. Its 220 on a document that stores something
+     * else is therefore no choice: left alone it would put a concept quote the one-time return moved to
+     * 260 back on 220 and log that as a height set by hand, and it would set 220 on a new document where
+     * the seller asked for the standard. Any other height from such a window is a pick, as before; to
+     * set exactly 220 the window has to be loaded again.
+     */
+    static BigDecimal heightAsked(BigDecimal sent, BigDecimal stored, boolean picked) {
+        if (sent == null || picked) return sent;
+        boolean formerStandard = sent.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0;
+        boolean asStored = stored != null && stored.compareTo(sent) == 0;
+        return formerStandard && !asStored ? null : sent;
+    }
+
+    /**
+     * Emre, 2026-11-10: a europallet is loaded at most 260 cm high, the pallet included. Asked where a
+     * height can be picked (a save, a transport update): a higher value the document already stores on
+     * a europallet was picked before the limit and stays as it is; any other height above it is
+     * refused. Other pallet types keep the general 300 cm of validatePalletHeight. Not asked where a
+     * document is made from another (invoice, credit note, split, advance): those copy what is stored.
+     */
+    private static void requireEuroHeightWithinLimit(SalesOrder before, SalesOrder after) {
+        BigDecimal height = after.maxPalletHeightCm();
+        if (height == null || after.palletProfile() != PalletProfile.EURO_120X80
+                || height.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) <= 0) return;
+        if (before.palletProfile() == PalletProfile.EURO_120X80 && before.maxPalletHeightCm() != null
+                && before.maxPalletHeightCm().compareTo(height) == 0) return;
+        throw new BusinessRuleException("Maximale pallethoogte van een europallet kan niet hoger zijn dan "
+                + SalesSettings.EURO_HEIGHT_LIMIT_CM.stripTrailingZeros().toPlainString() + " cm");
     }
 
 
@@ -2405,8 +2946,10 @@ public class SalesOrderService {
             BigDecimal unitCost = reason == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source != null && source.stockCostEur() != null ? source.stockCostEur()
                     : source != null && source.unitCostEur() != null ? source.unitCostEur() : Money.unit(invoicedLine.landedUnitCost());
+            /* Credited from a line that counts per piece, the credit line says so too: its documents
+               then read it in pieces, never as a carton it does not fill. */
             lines.add(new SalesOrderLine(null, line.productId(), line.quantity(), unitPrice, BigDecimal.ZERO, null,
-                    unitCost, false, null));
+                    unitCost, false, null).withPerPiece(source == null ? null : source.perPiece()));
         }
         List<SalesExtraLine> extras = new java.util.ArrayList<>();
         for (CreditAmount amount : requestedAmounts) {
@@ -2441,7 +2984,8 @@ public class SalesOrderService {
                 original.id(), reason, null);
         validateForSave(creditNote);
         requireWithinCreditCap(original, creditNote);
-        SalesOrder created = orders.save(creditNote);
+        /* A credit note counts as the invoice it corrects. */
+        SalesOrder created = orders.create(creditNote, palletRule(original));
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().copy(original.id(), created.id());
         BigDecimal creditTotal = Money.money(price(created).totals().totalInclVat());
@@ -2474,6 +3018,9 @@ public class SalesOrderService {
         if (creditNote.purpose() != SalesPurpose.STANDARD || creditNote.isPartnerDeal())
             throw new BusinessRuleException("Een partnercreditnota boekt geen voorraad");
         SalesOrder original = creditedOriginal(creditNote);
+        if (isReportBacked(original))
+            throw new BusinessRuleException("De goederen van " + original.number() + " zijn via veilingverkopen afgeboekt;"
+                    + " wat terugkomt meldt de partner als terugkoop");
         if (original.goodsShippedAt() == null)
             throw new BusinessRuleException("De goederen van " + original.number()
                     + " zijn nog niet als verzonden geboekt; er valt niets terug te nemen");
@@ -2578,7 +3125,7 @@ public class SalesOrderService {
     private static SalesOrder asStoredCreditNote(SalesOrder updated, SalesOrder stored) {
         List<SalesOrderLine> lines = updated.lines().stream().map(line -> new SalesOrderLine(line.id(), line.productId(),
                 line.quantity(), line.unitPriceEur(), BigDecimal.ZERO, null, line.unitCostEur(), false, null,
-                line.unitsPerOrderStep())).toList();
+                line.unitsPerOrderStep()).withPerPiece(line.perPiece())).toList();
         return new SalesOrder(updated.id(), updated.number(), stored.customerId(), stored.countryCode(),
                 updated.orderDate(), updated.validUntil(), updated.status(), stored.incoterm(),
                 stored.paymentTerms(), updated.notes(), MarkupMode.CONTAINER_COST, BigDecimal.ZERO, null, null,
@@ -2612,7 +3159,10 @@ public class SalesOrderService {
         }).toList();
     }
 
-    /** A line added to a concept credit note takes the cost the invoice wrote, zero on a price correction. */
+    /**
+     * A line added to a concept credit note takes the cost the invoice wrote, zero on a price
+     * correction, and the invoice line's per-piece choice (as a line credited at creation does).
+     */
     private SalesOrder withCreditCosts(SalesOrder creditNote) {
         if (creditNote.lines().stream().allMatch(line -> line == null || line.unitCostEur() != null)) return creditNote;
         Map<Long, SalesOrderLine> original = creditedOriginal(creditNote).lines().stream().filter(line -> line.productId() != null)
@@ -2622,7 +3172,8 @@ public class SalesOrderService {
             SalesOrderLine source = original.get(line.productId());
             BigDecimal cost = creditNote.creditReason() == CreditReason.PRICE_CORRECTION ? BigDecimal.ZERO
                     : source == null ? null : source.stockCostEur() != null ? source.stockCostEur() : source.unitCostEur();
-            return cost == null ? line : line.withUnitCost(cost);
+            SalesOrderLine added = source == null || line.id() != null ? line : line.withPerPiece(source.perPiece());
+            return cost == null ? added : added.withUnitCost(cost);
         }).toList();
         return creditNote.withLinesAndPallets(lines, List.of());
     }
@@ -2931,6 +3482,18 @@ public class SalesOrderService {
         }
     }
 
+    /**
+     * The document with its hand layout following its lines as they are stored: rounded to their step,
+     * or exact on the documents that keep their pieces (SalesLineAvailability.reconcilePallets).
+     */
+    private SalesOrder withPalletsFollowingLines(SalesOrder order) {
+        if (order.pallets().isEmpty()) return order;
+        Map<Long, Product> byId = products.list().stream()
+                .collect(Collectors.toMap(Product::id, Function.identity(), (left, right) -> left));
+        List<OrderPallet> pallets = SalesLineAvailability.reconcilePallets(order.pallets(), order.lines(), byId::get);
+        return pallets.equals(order.pallets()) ? order : order.withLinesAndPallets(order.lines(), pallets);
+    }
+
     private void validatePallets(SalesOrder order, Map<Long, Product> byId, PalletSpec palletSpec) {
         /* A loose-carton draft keeps its previous warehouse layout so the
            seller can switch back without rebuilding it. While loose, that
@@ -2960,8 +3523,9 @@ public class SalesOrderService {
                     throw new BusinessRuleException("Elke palletregel moet een product en positief aantal dozen hebben");
                 }
                 if (!productsOnOrder.contains(item.productId()) || !byId.containsKey(item.productId())) {
-                    throw new BusinessRuleException(
-                            "Product " + item.productId() + " staat niet op deze offerte");
+                    Product stray = byId.get(item.productId());
+                    throw new BusinessRuleException((stray == null ? "Een verwijderd product" : stray.describe())
+                            + " staat nog op een pallet; haal het eraf of maak de indeling opnieuw");
                 }
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
@@ -3095,7 +3659,8 @@ public class SalesOrderService {
                 .add("freightCarrierId", "Vervoerder", before.freightCarrierId(), after.freightCarrierId())
                 .add("loadMode", "Laadwijze", before.loadMode(), after.loadMode())
                 .add("palletProfile", "Pallettype", before.palletProfile(), after.palletProfile())
-                .add("maxPalletHeightCm", "Maximale pallethoogte",
+                /* PalletHeightPicks reads this field's name back: a logged change of it is a height set by hand. */
+                .add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
                         before.maxPalletHeightCm(), after.maxPalletHeightCm())
                 .add("freightCarrierExtraEur", "Extra vervoerderskost",
                         before.freightCarrierExtraEur(), after.freightCarrierExtraEur())
@@ -3152,6 +3717,12 @@ public class SalesOrderService {
                 changes.add("line." + productId + ".discount", "Korting" + suffix,
                         oldLine == null ? null : oldLine.manualDiscountPct(),
                         newLine == null ? null : newLine.manualDiscountPct());
+                changes.add("line." + productId + ".priceSource", "Prijsbron" + suffix,
+                        oldLine == null ? null : SalesLinePrices.dutch(oldLine.priceSource()),
+                        newLine == null ? null : SalesLinePrices.dutch(newLine.priceSource()));
+                changes.add("line." + productId + ".perPiece", "Aantal per stuk" + suffix,
+                        oldLine != null && oldLine.countsPerPiece() ? "ja" : null,
+                        newLine != null && newLine.countsPerPiece() ? "ja" : null);
             }
             changes.add("line." + productId + ".deliveryWeek", "Levertermijn" + suffix,
                     oldLine == null ? null : oldLine.deliveryWeek(),
@@ -3211,8 +3782,9 @@ public class SalesOrderService {
      * A product sells per its order step (a full carton unless the product says
      * otherwise): every quantity rounds up to that step on save, and the line
      * remembers the step, so a later change on the product never re-prices this
-     * document. The screen announces the correction; this makes it true no
-     * matter which client wrote the order.
+     * document. A line staff set to per piece keeps its quantity and remembers 1.
+     * The screen announces the correction; this makes it true no matter which
+     * client wrote the order.
      */
     private List<SalesOrderLine> roundLinesToOrderSteps(List<SalesOrderLine> lines) {
         return withOrderSteps(lines, true);
@@ -3230,7 +3802,10 @@ public class SalesOrderService {
         return withOrderSteps(lines, byId::get, round);
     }
 
-    /** Each line at its product's step of today; a line whose product is gone keeps its quantity and no step. */
+    /**
+     * Each line at its product's step of today, or at 1 where staff chose per piece for the line;
+     * a line whose product is gone keeps its quantity and no step.
+     */
     static List<SalesOrderLine> withOrderSteps(List<SalesOrderLine> lines, Function<Long, Product> products,
                                                boolean round) {
         if (lines == null || lines.isEmpty()) return lines;
@@ -3238,7 +3813,7 @@ public class SalesOrderService {
             if (line == null) return null;
             Product product = line.productId() == null ? null : products.apply(line.productId());
             if (product == null) return line.withOrderStep(line.quantity(), null);
-            int step = OrderSteps.unitsPerStep(product);
+            int step = line.countsPerPiece() ? 1 : OrderSteps.unitsPerStep(product);
             return line.withOrderStep(round ? OrderSteps.roundUp(line.quantity(), step) : line.quantity(), step);
         }).toList();
     }
@@ -3257,6 +3832,31 @@ public class SalesOrderService {
             SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
             Integer step = known == null ? null : known.unitsPerOrderStep();
             return Objects.equals(step, line.unitsPerOrderStep()) ? line : line.withOrderStep(line.quantity(), step);
+        }).toList();
+    }
+
+    /**
+     * The per-piece choice each line carries into a save or a preview. Where the document rounds
+     * ({@code takesRequest}) the request decides: true or false sets it, a line that says nothing
+     * keeps what is stored on the same line (an older screen, the website), and a new line that
+     * says nothing is not per piece. A document that keeps exact pieces offers no choice: the
+     * stored one stays whatever the request says, a new line has none. Never false on the result.
+     */
+    static List<SalesOrderLine> withPerPieceChoices(List<SalesOrderLine> lines, List<SalesOrderLine> stored,
+                                                    boolean takesRequest) {
+        if (lines == null || lines.isEmpty()) return lines;
+        Map<Long, SalesOrderLine> storedById = stored == null ? Map.of() : stored.stream()
+                .filter(line -> line != null && line.id() != null)
+                .collect(Collectors.toMap(SalesOrderLine::id, Function.identity(), (left, right) -> left));
+        return lines.stream().map(line -> {
+            if (line == null) return null;
+            SalesOrderLine known = line.id() == null ? null : storedById.get(line.id());
+            /* A line id that now names another product is another line: it starts without a choice. */
+            if (known != null && !Objects.equals(known.productId(), line.productId())) known = null;
+            Boolean wanted = takesRequest && line.perPiece() != null ? line.perPiece()
+                    : known == null ? null : known.perPiece();
+            Boolean choice = Boolean.TRUE.equals(wanted) ? Boolean.TRUE : null;
+            return Objects.equals(choice, line.perPiece()) ? line : line.withPerPiece(choice);
         }).toList();
     }
 

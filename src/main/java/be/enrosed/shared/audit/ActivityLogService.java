@@ -44,6 +44,8 @@ public class ActivityLogService {
     public static final String ACTION_CREDITED = "CREDITED";
     /** On a credit note: the credited goods came back into stock. */
     public static final String ACTION_STOCK_RETURNED = "STOCK_RETURNED";
+    /** On a customer: a catalogue PDF with prices was made for them (made, not sent: the ERP cannot know). */
+    public static final String ACTION_CATALOG_EXPORTED = "CATALOG_EXPORTED";
 
     public static final String ENTITY_PURCHASE_ORDER = "PURCHASE_ORDER";
     public static final String ENTITY_PRODUCT_FAMILY = "PRODUCT_FAMILY";

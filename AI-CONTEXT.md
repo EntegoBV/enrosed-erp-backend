@@ -47,6 +47,13 @@ be.enrosed.catalog | sales | sourcing | shared
    adapter/out    Panache entities+mappers, PDF renderers, mail, market
 ```
 
+**Security rule (since the partner portal, 2026-11-10):** a second kind of login exists, the
+partner (role `partner`, never `admin`). Every staff resource stays `@RolesAllowed("admin")`
+(`AdminIdentityProvider.ADMIN_ROLE`); never put `@Authenticated`, `@RolesAllowed("**")` or the
+`partner` role on a staff resource, and never list a partner username in `ENROSED_ADMIN_ACCOUNTS`.
+Only `/api/auth/me`, `POST /api/auth/session` and `/api/partner-portal/*` admit a partner. See
+"Partnerportaal (Verhoeven), 2026-11-10" at the end.
+
 Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 (Railway). Domain types are records; construction goes through services;
 `withStatus`-style copy helpers keep transitions in one place.
@@ -179,7 +186,8 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - **Hand-built pallets** (optional, never required): a list of pallets on
   the order - label, type (default "Europallet"), height in cm
   (informational), items as cartons per product. When any pallets exist,
-  freight counts THEM instead of the calculated stacking; unassigned
+  freight counts THEM instead of the calculated stacking (strict or mixed
+  per document, see "Automatische pallettelling" below); unassigned
   cartons are reported, not blocked. Send works fine without pallets.
 - **Packing slip** (`/api/sales-orders/{id}/packing-slip`): no prices;
   groups per pallet when pallets exist, otherwise plain lines; signature
@@ -411,6 +419,31 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   departure); no push. `requireForwardTransition` stays forward-only and
   `receive()` keeps using it, so the receipt never steps back and a
   CONCEPT container cannot be received directly.
+- What is coming per product (2026-11-10): `GET /purchase-orders/
+  expected-stock` (`PurchaseOrderService.expectedStock(boolean)`). The
+  five old fields (`productId`, `quantity`, `expectedArrival`,
+  `orderNumbers`, `orderIds`) keep their meaning: BESTELD + ONDERWEG
+  only. Additive: `orders` (one row per purchase order: `orderId`,
+  `orderNumber`, `name` = Herkenbare naam else number, `status`,
+  `quantity`, `expectedArrival`, `shippedOn`, `receivedOn`, `partner`)
+  and `arrivedQuantity`. Only with `?arrived=true` (the ERP's product
+  screens and sales picker) a received container whose stock is not
+  booked (ONTVANGEN, `stockBooked` false, **not archived**, received at
+  most `ARRIVED_DAYS` = 30 days ago: an older one had its pieces counted
+  into stock some other way and only keeps its "nog bij te boeken" on
+  the purchase order) counts: its
+  usable pieces go into `arrivedQuantity` and an ONTVANGEN row, never
+  into `quantity`; a product with nothing else coming then gets an entry
+  with quantity 0. Without the parameter the entries are exactly the old
+  ones (Analyses and an older frontend). A line without a product or
+  with nothing to come is skipped and an order without a number reads
+  "Inkoop #id": old data never fails the whole answer (it used to 500).
+  Concept and trashed orders never count; archived Besteld/Vertrokken
+  orders still do. Partner containers count: `bookStock` books every
+  line into the same stock levels (the batch is only marked
+  `Owner.PARTNER`). Nothing is stored; the state words (Besteld,
+  Onderweg, Binnenkort, Aangekomen) are the frontend's
+  (`shared/product-incoming.ts`), because "Binnenkort" depends on today.
 - Purchasing **warns and never rounds** quantities (a sample of 3 pieces
   is legitimate; silently inflating an order costs real money).
 - "Kostprijzen toepassen" writes landed cost per piece onto the products
@@ -518,8 +551,48 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   fit. `PdfCatalogRenderer.render` lays the brochure out first;
   `FamilySheetFit` compares each sheet's content bottom with its footer
   (2 mm clearance, the same line as the tests' 795 pt check), and sheets
-  that run into it are laid out again in the compact design. `renderHtml`
-  shows the first layout only.
+  that run into it are laid out again in the compact design; a compact sheet
+  that still runs into it gets the tight design (`family-page--tight`: a
+  smaller hero and colour strip, every row kept), and a tight sheet that
+  still does not fit the bare one (`family-page--bare`: no colour photos,
+  gallery or long description), so the variant table with its prices always
+  stays whole (2026-11-06: before it a long family could lose its whole
+  table off the page). The same passes measure the
+  overview pages: they start at 10 rows per page (it was 12; pallet, 20ft and
+  40ft take a line more per family) and a layout whose range table runs into
+  its footnote is laid out again below its fullest page, down to 6 rows.
+  At most five layouts (only the last writes the PDF); whatever still does not
+  fit is logged as WARN ("Catalogusfiche … is ook compact … mm te lang",
+  "Overzichtspagina N loopt … mm in de voetnoot"), the room left at DEBUG.
+  `renderHtml` shows the first layout only. Before any layout,
+  `ensureFamilyPageCapacity` refuses a family whose text budget passes 3 400
+  units (409 "Cataloguspagina voor … bevat te veel tekst"; the budget per
+  sheet is logged at DEBUG). Pallet, 20ft and 40ft count per variant only
+  when the variant table prints them per variant (`capacitiesDiffer`);
+  shared, they are specification rows and count as such, never twice. In
+  the overview's narrow price cell a display total puts its amount under
+  its words ("Display (12 st.):" / "€ 49,00 - € 54,00", split at the last
+  ": "), and every price there wraps at its spaces (a range after its
+  dash; an amount never breaks inside), so a long one stays inside the cell
+  instead of running over the logistics column.
+- **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
+  in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
+  20ft, 40ft HC), the brochure range table (one line of three figures that
+  wraps between figures), the family specification list (the pallet with its
+  omdozen in brackets) when every variant shares all three, else one line
+  under each variant row of the variant table with all three (never split
+  between the two). An unknown figure prints "-", 40ft included, which used
+  to disappear. Per pallet = whole omdozen from
+  `PalletCalculator.fit` (the Palletberekening stacking) on
+  `SalesSettings.pallet()` × pieces per carton, worded like the container
+  figures (displays, named units). Catalog reaches it through the out-port
+  `CataloguePallet`, implemented in sales by `CataloguePalletFit` (catalog
+  never imports sales). One basis line per document ("Per pallet: europallet
+  120 × 80 cm, max. 260 cm hoog incl. pallet, max. 700 kg.", 220 from
+  2026-11-07 to 2026-11-10, key
+  `catalog.common.palletbasis`) closes the overview footnote and the compact
+  footer. A carton without a weight is counted by height only, and there is
+  no hand count per product for the pallet.
 - **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
   `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
   15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
@@ -787,6 +860,37 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (PACKAGE; "Per geschenkverpakking" for a gift box) or "Per diamant". The
   Excel/CSV column stays `verkocht_per` (omdoos, verpakking, stuk), and so
   do the validator's words for it.
+- **Per piece on one line (2026-11-10, "Verkoopofferte: aantallen per
+  stuk").** `SalesOrderLine.perPiece` (`sales_order_line.perpiece`, nullable
+  Boolean; TRUE or null, never FALSE; left out of the JSON while null) says
+  staff chose that this line is not rounded to its product's step. Such a
+  line behaves as a line of a UNIT product: the quantity stays as typed, the
+  stamped `unitsPerOrderStep` is 1, the piece price is the same, and a part
+  carton still counts as one full carton for cartons, m³, kg, pallets and
+  freight. `SalesPricingCalculator.unitsPerOrderStep` returns 1 for it
+  whatever is stamped, and `withOrderSteps` rounds with 1.
+  Request rule (`SalesOrderService.withPerPieceChoices`, PUT and preview):
+  on a document that rounds, an existing line id (same product) keeps the
+  stored choice when the field is absent or null, true or false sets it; a
+  new line without the field is not per piece. On a document that keeps
+  exact pieces the request's value is not used (stored stays, new line
+  none). A document whose lines are fixed by an advance refuses a change of
+  the choice (`sameCargoLines`, `sameQuotedLines`). No other endpoint takes
+  it; the website never sets it and keeps rounding by the product's step.
+  `PricedOrder.Line` adds `perPiece` (the line's choice) and
+  `perPieceChoice` (TRUE where a staff screen may offer the switch: the
+  document rounds and the product's step of today is above 1), both left
+  out unless true; `orderStep` stays the product's setting. Customer-facing
+  readers ask `PricedOrder.Line.customerOrderStep()` (UNIT for such a line):
+  the quote link line, account documents and the web order snapshot; the
+  quote link's product list answers UNIT / 1 for a product whose line on
+  that quote is per piece, so a proposal is not snapped
+  (`QuoteService.roundToOrderSteps` does not round it either), and the
+  team mail words it in pieces. Carried by: invoice from quote, Nieuwe
+  kopie, delivery weeks, both parts of a split, proposal approval, and a
+  credit note line (from the credited invoice line, also for a line added
+  to a concept credit note). Logboek: "Aantal per stuk · Product N" = ja.
+  Migration note: `docs/migrations/2026-11-10/sales-line-per-piece-postgresql.sql`.
 
 ### Translation system and public website (Codex, 2026-08-21)
 - **Content translations**: `ContentTranslationEntity` + texts per language,
@@ -876,8 +980,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - **What it is**: a website visitor asks for a login, staff approve it in
   the ERP (Login-aanvragen), the customer gets a one-time link by mail,
   chooses a password and is logged in. A logged-in customer sees the
-  public price list in the quote request even while the website price
-  switch is off, and the request lands on the existing customer. Package
+  prices in the quote request even while the website price switch is off
+  (their own agreed prices where they have them, else the public list), and
+  the request lands on the existing customer. Package
   `be.enrosed.account`; tables `customer_login_request`,
   `customer_account`, `customer_account_token`, `customer_session`
   (`docs/migrations/2026-10-05/customer-account-postgresql.sql`; no
@@ -890,9 +995,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   cost 12 behind a semaphore of four; staff never see or set one.
 - **Public endpoints** (`/api/v1/public/account`): `requests` (ask for a
   login), `link-requests` (new password link), `session` (POST log in, GET
-  restore), `session/logout`, `activation/inspect`, `activation`, and the
+  restore), `session/logout`, `activation/inspect`, `activation`, the
   priced quote endpoints `quotes/configuration`, `quotes/preview`,
-  `quotes/requests` (`CustomerQuoteResource`). Form token purpose
+  `quotes/requests` (`CustomerQuoteResource`), and `prices` (the customer's
+  own agreed prices, `CustomerPriceListResource`). Form token purpose
   `ACCOUNT`; one solved challenge is good for one call on the three
   account forms together (`ACCOUNT_CHALLENGE` bucket). Request and
   new-link forms always answer 202 with the same shape; login has one 401
@@ -908,8 +1014,32 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   unredacted with `pricesVisible: true`. It never touches
   `PublicQuotePriceVisibility`, `WebsiteQuoteSettingsService` or
   `WebsitePriceVisibility`; the anonymous `PublicQuoteResource` never
-  reads a credential. Price basis is the public list for everyone, a
-  partner customer included (no landed cost, no customer prices).
+  reads a credential. Price basis (Emre, 2026-11-06, replacing "the public
+  list for everyone, no customer prices"): the customer's own ACTIVE agreed
+  price (klantprijs, `CustomerPriceService.activeFor`) wherever they have
+  one, else the public list; a partner customer gets no landed cost. It
+  applies on the server, on the logged-in paths only:
+  `configurationForCustomer` (`products[].priceSource: "CUSTOMER"`), every
+  logged-in estimate (`prepare(..., pricesOf)`: a kept price first, then the
+  agreed price as the line's manual price, else the list;
+  `lines[].priceSource: "CUSTOMER"`), and the stored lines of a logged-in
+  request or order (pinned with `priceSource` CUSTOMER: the website path is
+  the one place that pins website lines, the staff pinning skips them). Both
+  `priceSource` fields are `NON_NULL` and only the account route sets them,
+  so every anonymous configuration, estimate and stored idempotency answer
+  reads byte for byte as before. The anonymous routes never look a customer
+  price up; anonymous submits always create a new customer. Customer prices
+  never travel on anything public (families, layout, photos, revision
+  digest, rebuild outbox): a saved customer price is live on the website for
+  that customer at once, with no publish step and no rebuild.
+- **`GET /api/v1/public/account/prices`** (`CustomerPriceListResource`,
+  for the product pages): `{currency: EUR, priceBasis: NET_EXCL_VAT,
+  prices: [{productId, unitPriceNet, salesUnit, piecesPerDisplay}]}`, only
+  `websiteOrderableProducts()` with an active agreed price, never the list
+  price; `piecesPerDisplay` as in the configuration. Guard first (401
+  `SESSION_INVALID`), `Cache-Control: no-store, private`, its own budget
+  `ACCOUNT_PRICE_READ` 600 an hour per account through `checkKey` (no IP
+  bucket, no e-mail bucket), not tied to the ordering switch.
 - **Logged-in quote** (`PublicQuoteService.submitForCustomer`): company
   name, company country, e-mail and VAT number of the body are ignored;
   no customer is created or changed; the estimate uses the customer
@@ -995,11 +1125,15 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   request never does.
 - **Pricing of an order** (`PublicQuoteService.prepareOrder`): the
   customer RECORD delivered at the typed address
-  (`Customer.withDeliveryAddress`), VAT from the record. The sales core
-  prices the stored document the same way through
-  `WebOrderDeliveries.pricingCustomer`, so the estimate equals the stored
-  order, its invoice, a split part and a "Nieuwe kopie". The customer
-  record is never written by a customer path.
+  (`Customer.withDeliveryAddress`), VAT from the record, each line at its
+  kept price, else the customer's active agreed price, else the list. The
+  stored lines pin the estimate's unit price (`orderDocument`), with
+  `priceSource` CUSTOMER where it is the agreed price and the kept line's
+  own source for a kept price. The sales core prices the stored document the
+  same way through `WebOrderDeliveries.pricingCustomer`, so the estimate
+  equals the stored order, the snapshot and `ordered_terms`, its invoice, a
+  split part and a "Nieuwe kopie". The customer record is never written by a
+  customer path.
 - **Snapshot**: `sales_web_order.order_snapshot` freezes the ERP's own
   pricing of the saved document at placement and at every customer change
   (`WebOrderSnapshot`); `ordered_terms` is its fingerprint
@@ -1008,12 +1142,14 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   sent, so unsent staff edits never show under "my orders".
 - **Customer change**: until staff take the order the customer replaces
   it whole (`SalesOrderService.updateByCustomer`). A product that stays
-  keeps its line id, its unit price and its cost; a new product gets
-  today's price; order date and validity stay. `revision` counts the
+  keeps its line id, its unit price (and its source) and its cost; a new
+  product gets today's price for this customer (agreed price, else the
+  list; Emre's Q3); order date and validity stay. `revision` counts the
   customer's versions (cap 20). The Dutch change summary
   (`customer_change_summary`) goes to the team mail, the push, the history
-  and the ERP banner and names a kept price that is no longer the list
-  price.
+  and the ERP banner and names a kept price that is no longer what a new
+  line would cost ("prijs X behouden: € a, klantprijs nu € b", or
+  "prijslijst nu € b"; `OrderFacts.listPrices` / `customerPriced`).
 - **Locks**: form stripes, then the `sales_order` row, then the
   `sales_web_order` row. Every writer locks first and reads afterwards.
   Customer paths call `lockDocumentForCustomer`, `updateByCustomer` and
@@ -1141,6 +1277,13 @@ Public domain: enrosed-erp-backend-production.up.railway.app.
   edit can silently hit the wrong entity - target the exact class.
 - Tests are green at 19; the DocumentText parity test is the guard rail
   when touching i18n CSVs.
+- `java -jar target/quarkus-app/quarkus-run.jar` is built for PostgreSQL:
+  `quarkus.datasource.db-kind` is fixed at build time by the prod profile, so
+  the packaged app refuses an H2 URL. To try a packaged build on the H2 file,
+  build with `mvn package -Dquarkus.profile=dev` and run it with
+  `-Dquarkus.profile=dev`; to try the real jar, give it a scratch PostgreSQL
+  (PG* variables, plus `SMTP_HOST` and `PUBLIC_FORM_HMAC_SECRET`, which the
+  prod profile requires).
 
 ## Jaarinventaris (2026-10-09)
 
@@ -1832,6 +1975,163 @@ the ERP (`cash-forecast.ts`); the backend stores the choices and the facts it ne
   insert, check or foreign key. **Rollout: backend first**; the ERP hides every phase-2 control until
   `/api/cash-forecast/settings` answers.
 
+## Transactie losmaken zonder halve koppeling (2026-11-04)
+
+Emre: "als ik 1 vd 2 transactie verwijder popup doen of ik zeker ben en alles dekoppelen". DELETE
+`/api/bank-statements/{id}/links` only cuts the line: a transfer of a payment in parts then stayed on its payment and counted
+as paid without a bank line (reproduced: the term read paid and finalized), the Transactiekosten booked on the line stayed as
+Bijkomende kosten, and the Bankkosten/Koersverschil cost of `keepDifferenceAs` stayed paid (a new link books it twice).
+
+- `BankLineUnlinkService` (`GET /api/bank-statements/{id}/unlink-plan?keepParts=`, `POST …/unlink {keepParts, expected}`): one
+  plan, then the same rules done in one transaction. Per purchase payment on the line: Transactiekosten (OTHER, label
+  `FEE_LABEL`, EUR, no group) DELETED; a transfer of a payment in parts MERGED into the payment's open transfer when it has one
+  (`PurchaseOrderService.mergeTransfer`: the lower id stays with both amounts on the open one's day, the other row goes, its
+  files to the lowest remaining transfer, both bank adjustments forgotten), else REMOVED from its payment
+  (`deletePayment` after the unlink), or with `keepParts` STAYS open on it; every other payment STAYS without the line. Per
+  cost payment: the difference cost (its only payment noted `DIFFERENCE_NOTE`, description Bankkosten[ · …] or Koersverschil
+  · …) DELETED through `CompanyCostService.delete`, others STAY (the cost stays paid). A sales receipt and a classified line
+  are refused as before. `expected` is a fingerprint of what the line carries (and the groups of its transfers): a changed
+  line answers "Wat aan deze transactie hangt, is intussen gewijzigd; bekijk het opnieuw". The line gets one audit line.
+- DELETE `…/links` is unchanged (the ERP's 'Splitsing aanpassen' still uses it: it links the same payments again).
+- No schema change.
+
+## Automatische pallettelling: strikt of gemengd (2026-11-04)
+
+Emre: "Ja, gemengd tellen". Without hand-built pallets the freight (COUNTRY_PALLET, CARRIER), the PDF, the portal and
+the website quote count pallets automatically; that count follows a rule stored per document, so a document that left
+concept keeps the count and freight it was sent with.
+
+- `PalletCountRule`: STRICT = every product on pallets of its own (every document's count until now); MIXED = products
+  share pallets in whole layers of their own (`PalletCalculator.mixedPallets`; `planPallets` in the frontend's
+  `pallet-calculator-model.ts` must take the same steps): (1) the placeable lines (cartons, cartonsPerPallet and a
+  carton height above 0) tallest carton first, ties in line order; (2) per line a running rest: a layer of
+  min(perLayer, rest) goes on the first pallet where one more carton height stays under max − base and the 700 kg
+  still take a carton, n = min(layer, what the weight takes), else on a new pallet; that layer is n cartons as high as
+  a full one, and the cartons a weight split leaves join the next layer instead of making a short one, so one product
+  alone gets exactly its cartonsPerPallet per pallet; (3) a plan longer than the separate count gives way to the
+  separate layout (`separatePallets`), so `palletsAutomatic` never exceeds `palletsStrict`. Cases (worked out at the
+  260 cm standard; at the 220 cm of 7-10 November 2026 the 60×40 mix below takes 2 pallets, the others are unchanged): 238 × 40×40×50 cm
+  at 30.7 kg on Euro 260 cm 11 (= strict), 33 × 58.5×20×50 at 100 kg on a half pallet 5, 23 × 20×40×200 at 100 kg on
+  a block pallet at 300 cm 4, 60×40×50 8 kg ×16 + 60×40×40 6 kg ×4 one pallet, the four products 1 at 204.4 cm and
+  159 kg (strict 4), four 100 cm singles 2. Checked against those steps written apart on 60,604 orders (no difference,
+  none above strict). `palletsOptimised` keeps its old fraction estimate.
+- `sales_order.palletcountrule` varchar(16), no CHECK; the entity column is not updatable and the `SalesOrder` record
+  does not carry it, so no save, rebuild or with-copy can change it; null or an unknown value reads STRICT.
+- Older rows get their rule in two steps. The migration `docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql`
+  writes, only in the run that creates the column, STRICT on every row except an untouched concept quote (docType
+  null/OFFERTE, status CONCEPT, `deleted_at` null, `sentat` null, no `sales_web_order` row, no `sales_advance_billing`
+  row with `quote_id` = it, no `sales_order` with `sourcequoteid` = it, no `sales_split_group` with it as
+  `root_order_id` or `later_order_id`, no `partner_advance_quote_snapshot` row); those stay null. Then
+  `PalletCountRuleBackfill` (a scheduled job, `pallet-count-rule`, first run 10 minutes after the start and then every
+  10 minutes: `enrosed.pallet-rule.decide-after` / `decide-every`; the same test word for word in
+  `UNTOUCHED_CONCEPT_QUOTE`, plain SQL for PostgreSQL and the dev H2) gives every null row MIXED when it is such a
+  quote and STRICT otherwise. Not at start-up: Railway keeps the old deployment serving until the new one passes its
+  health check (healthcheckTimeout 300 s), and a deployment that fails that check never runs the job, so a quote the
+  old release sends, advances or invoices in that window is decided by what it is once only the new release serves:
+  a quote sent with the strict count keeps it (proved with a base-vs-head run on PostgreSQL, overlap and failed deploy
+  included). Until decided a null row reads STRICT, as the old release bills it, so concept quotes from before the
+  release start counting mixed about 10 minutes after the deploy. New documents always carry their rule, so only
+  pre-release rows are ever null, and every run after the first changes nothing. A forgotten listing is harmless too:
+  Hibernate adds the column and the job decides every row the same way. On PostgreSQL a run waits at most 15 s for a
+  row lock (`lock_timeout`); a failure is logged, rolls the run back and the next run retries.
+- Creation: `Orders.save` refuses a new document; `Orders.create(order, rule)` writes the rule with the row. MIXED:
+  `create` (quote, invoice, website request and order), `createFromPurchaseOrder`, `createAuctionSettlement`,
+  `duplicate`, a schedule term without source quote. The source's rule: `createInvoiceFrom` (slotfactuur included),
+  `SalesAdvanceBillingService.createAdvanceInvoice`, `createCreditNote`, the later part of `SalesSplits.split`, a
+  schedule term made from a quote.
+- Pricing: `SalesOrderService.palletRule(order)` reads the rule by id, never from the record: a draft or copy of a
+  stored document counts like it (`preview` puts the path id on the draft). A draft without id counts like the invoice
+  it credits or the quote it comes from, else MIXED; `priceAll` reads every rule once. `PublicQuoteService` estimates a
+  request and a new website order MIXED; a change of a stored website order (`WebOrderService.previewByCustomer` with an
+  `orderId`, `validateChange`, and `changeByCustomer` through `orderFacts` and `replaceOrder`) passes that order as
+  `changing` and is priced by its rule (`salesOrders.palletRule`) and its kept prices, so the estimate, the stored change
+  and its ordered terms agree (a website order from before the release stays strict). `PricedOrder.Totals`:
+  `palletRule`, `palletsAutomatic`, `autoPallets` (`items` {productId, cartons, layers}, `heightCm` with the 14.4 cm
+  base, `weightKg`, one decimal). Freight bills `palletsManual > 0 ? palletsManual : palletsAutomatic`; the PDF and
+  portal line column counts the automatic pallets carrying the product.
+- `SalesLineAvailability.reconcilePallets` (save, Overnemen) and `prunePallets` renumber pallets still called
+  "Pallet n" after they drop one; own names stay, and a layout nothing was dropped from is never rewritten. Factuur
+  maken (`createInvoiceFrom`) does not reconcile: it copies the quote's layout and a layout the lines outgrew (an
+  omdoos content changed after acceptance) is refused by name as before ("Er staan meer dozen van X op pallets dan op
+  de offerte", "X staat nog op een pallet; …"), so an invoice never bills fewer hand pallets than its quote unannounced.
+- The open per-pallet freight names its cause: "Pallets niet te berekenen voor X: vul de omdoosmaten in" while a size
+  is missing, else "X past niet binnen het gekozen palletprofiel, de hoogte of het gewicht: kies een ander palletprofiel
+  of een hogere maximale pallethoogte". It is raised only on a concept that was never sent (status CONCEPT, `sentAt`
+  null); a document that left concept keeps the validation it had, its freight shown and its transport saves accepted.
+
+## Pallethoogte per document: standaard 260 cm (2026-11-10; 220 van 7 tot 10 november)
+
+Emre, 2026-11-10: "260 cm standaard": a europallet is loaded at most 2,60 m high, the pallet itself included. (On
+2026-11-07 he had asked for 220 after comparing the catalogue with Palletberekening; three days later he chose 260
+again.) The standard pallet is a europallet 120 × 80 cm, max. 260 cm high with the 14.4 cm wood, 700 kg
+(`enrosed.pallet.max-height-cm`, default 260; 220 from 2026-11-07 to 2026-11-10, 260 from 2026-08-20, 180 before; no
+Railway variable sets it). The wood is inside the total on every path: `PalletCalculator.fit` and `mixedPallets`
+subtract `baseHeightCm` before counting layers, the reported heights add it back, a hand pallet's measured height is
+validated against the same total. Every sales figure is priced live on every read (PDFs, portal, website account,
+payments and the paid state, Facturen, bank matching, credit caps, advances, Odoo, website order fingerprints), so a
+document keeps the height it was made with instead of following the setting:
+
+- `SalesSettings.pallet()` (catalogue per-pallet figure and basis line, every website estimate of a request or a new
+  order) is the standard. `pallet(profile, height)` gives a document its own stored height; a null height reads
+  `LEGACY_MAX_HEIGHT_CM` = 260: only rows made before 2026-11-07 have none. `FORMER_STANDARD_HEIGHT_CM` = 220 is what
+  documents made from 2026-11-07 to 2026-11-10 store without anyone having picked it. `EURO_HEIGHT_LIMIT_CM` = 260.
+- New documents store the standard: `create` (staff quote and invoice, website request and order),
+  `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`. Documents made from another
+  copy its raw height, null and above 260 included: `createInvoiceFrom` (slotfactuur too), `createCreditNote`, the
+  split parts, `createAdvanceInvoice` (no lines; carries its quote's).
+- `duplicate` ("Nieuwe kopie") is a new concept (`copyHeight`): the standard, unless the source has a height of its
+  own. No height with hand-built pallets: 260 written down. A stored 220 is the standard of its day and gives a copy
+  on today's standard, unless it was set by hand (`PalletHeightPicks`). Any other height stays; on a europallet
+  without hand pallets at most 260. A copy that keeps a height other than the standard writes it in its own
+  DUPLICATED activity row (field `maxPalletHeightCm`, standard → kept), so the pick travels with every further copy.
+- `PalletHeightPicks.of(orderId)` (SET_HERE / INHERITED / NOT_PICKED / UNKNOWN; `byHand()` = the first two) tells a
+  height set by hand from one a document merely carries. It reads the document's newest `activity_log` row that names
+  the field `maxPalletHeightCm` (every save that changes the height writes one, `salesChanges`, with display values
+  such as "220"): SET_HERE when that change ends at the stored height, NOT_PICKED when it ends elsewhere (before
+  2026-11-07 "Standaard" stored null, and the 220 job then wrote 220 without a row). With no such row the question
+  goes up the chain: an invoice asks its quote (`sourcequoteid`), a Nieuwe kopie its source, found by number from its
+  history step "Offerte|Factuur gekopieerd vanuit <nummer>" (`COPIED_FROM`: keep that wording); of the source only the
+  rows up to the moment the copy was made (that step's `at`, an invoice's first OPGEMAAKT step) count, with the same
+  test (INHERITED / NOT_PICKED). An original without a row is NOT_PICKED; a source that is gone or renumbered, or a row
+  that cannot be parsed, is UNKNOWN (a copy then takes the standard, the one-time move leaves the quote alone). A
+  "Standaard" tap of 7-10 November after another pick is logged as "x → 220" and so counts as picked.
+- Saves: a null height keeps the document's own (`update`, so also the website intake and a customer's change,
+  `updateShipping`, `preview`). The planner's "Standaard" sends the standard's number; the editor sends a height only
+  when it was changed on that screen, with `?heightPicked=true` on `PUT /api/sales-orders/{id}` and `/shipping`.
+  `heightAsked`: a staff save without the mark that carries 220 on a document storing another height is the echo of a
+  bundle from before 2026-11-10 (it sends the height it holds with every save, and its "Standaard" meant 220), so the
+  stored height stays; any other unmarked height is taken as before (such a window cannot set exactly 220 until
+  reloaded). The website paths (`updateWebsiteRequest`, `updateByCustomer`) are unaffected. Validation: above the base, at most 300 cm (`validatePalletHeight`, every
+  path), and `requireEuroHeightWithinLimit` in `update` and `updateShipping`: a new height above 260 cm on a
+  europallet is refused with "Maximale pallethoogte van een europallet kan niet hoger zijn dan 260 cm" (409); the
+  value the document already stores on a europallet passes unchanged, blok and half pallets keep 300. Not asked in
+  `preview` (saves nothing) nor where a document is made from another.
+- `PublicQuoteService`: a change of a stored website order is estimated on that order's height (`OrderPricing.pallet`),
+  as it is stored and its ordered terms are recorded; `orderDocument` and `store` write the stored height back.
+- `PalletHeightBackfill` (the 220 round's one-time move of null-height concepts) is deleted: with the standard at 260
+  it had nothing left to do. An old release that still runs its copy only ever touches rows without a height.
+- `PalletHeightReturn` (scheduled `pallet-height-260`: 10 minutes after the start, retried every 10 minutes only
+  after a failure; `enrosed.pallet-height.return-after` / `return-every`) puts concept quotes back from 220 on the
+  standard, once per database: the row `2026-11-10-pallet-height-260` in `country_policy_version` says it ran, and no
+  later start moves anything (a new name for `ROLLOUT` would run it again). A quote moves only when it stores 220, is
+  an untouched concept quote (`PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE`: type null or OFFERTE, CONCEPT, not
+  deleted, never sent, no web order, advance, invoice, split or partner snapshot) and `PalletHeightPicks.of`, asked
+  per locked quote after the re-read, says NOT_PICKED. Quotes with
+  hand-built pallets move too (going up cannot make a measured pallet too tall; freight follows the hand pallets).
+  Everything else keeps its 220: whatever was sent, invoiced, advanced, split or ordered, every invoice (a concept
+  invoice made directly on those days too), picked heights and copies of them, deleted documents. It locks the
+  candidates (`select … for update`), re-reads the test in a new statement, then updates; on PostgreSQL with
+  `lock_timeout` 15 s (a held row: nothing moves, no marker, next run). Each moved quote gets one history step
+  ("Max. pallethoogte 220 → 260 cm", actor Systeem, type VRACHT_INGEVULD because no rule reads that type; never
+  OPGEMAAKT, whose date is a website request's age). The log lines start with "Pallet height:" and name, as
+  "id number": the moved quotes, the concepts that keep a 220 set by hand, the ones that inherited it, and every
+  other document still on 220 with its type and status. Checked on H2 (local state of 51 documents: 18 moved, 33
+  identical to the cent) and its statements on PostgreSQL 17 with a concurrent save and a held lock.
+  Read-only pre-check for production: `select id, number, doctype, status, sentat from sales_order where
+  maxpalletheightcm = 220 and deleted_at is null order by id`.
+- History: the 220 round's `PalletHeightBackfill` ran on production 2026-11-07 ~15:55 (ENR-2026-0016, a website
+  request, went from 1 to 2 pallets) and wrote 260 down for untouched concepts with hand-built pallets.
+
 ## Batches (2026-10-25)
 
 Which container's pieces are still on the shelf and at what cost; the margin of a shipped sale uses the cost of the
@@ -1885,3 +2185,725 @@ commit;
   `/purchase-orders/{id}` (rows in line order, live-only `costs`, `stale` = batch cost and today's calculation differ in
   cents), `/sales-orders/{id}` (the takes of the shipment per batch), `/check`; `POST /pause`, `/resume`,
   `/check/repair`, `/backfill`, `/reset`. Business refusals answer 409.
+
+## Enrosed kost in the recognised cost (2026-11-06)
+
+Emre: the Enrosed kost is Enrosed's own revenue, paid to nobody, so Analyses › Resultaat counts the Enrosed kost of
+what was sold as revenue (Verkoop's margin, the quote and the sales line keep it as cost). `SalesAccounting
+.recognizedEnrosedEur` = the Enrosed kost inside `recognizedCostEur`, signed like it (`PartnerFinancingService
+.accounting` → `SalesEnrosedCost`): a line with a stamped stock cost takes the shipment's takes (value with minus without
+the Enrosed kost; none on a container sale; pieces without a batch at the expected cost's part, the stamp's own rule); any
+other line the part of the newest `product_cost_history` row with parts carrying exactly its cost
+(`ProductCostHistoryService.enrosedParts` → `EnrosedParts.enrosedIn`, 4 decimals, the Gelande kost sheet's rule; no row
+= 0, e.g. a hand-typed cost or a container sale's own lines frozen without it); a credit note that copied its invoice's
+stock cost takes that shipment's part when the cost matches. Partner advances and settlements hold 0 (external cost).
+The sales list preloads both reads once per request (`SalesEnrosedCost.preloadForRequest`, request-scoped
+`SalesEnrosedCostCache`; `StockBatchService.saleCosts()` = every shipment's takes in one read). TICA:
+`GET /api/tica/analytics` days carry `enrosedCostEur`, the same rule on the product's current cost.
+
+## Voorraadradar / stock radar (2026-10-28, on production since 2026-10-31)
+
+A personal bot for Emre: watches the white iPhone Duo in 256 GB (Apple part
+`MK2D4ZD/A`, EAN 0195951406084) and 512 GB (`MK2F4ZD/A`, `StockRadar.Model`; a
+shop's keys get `-512`; Amazon.com.be lists no 512 GB) at BE/NL shop pages and pushes +
+mails him when a shop can deliver or hand it over within
+`enrosed.stockradar.max-delivery-days` (3). Package `be.enrosed.stockradar`.
+
+- **Shops and parsers** (`StockRadarStores`): Apple Store Brussel (R486) via
+  `/be-nl/shop/retail/pickup-message` (the `fulfillment-messages` endpoint
+  answers 541 in the BE store), Apple online via `/be-nl/shop/delivery-message`,
+  MediaMarkt BE 2253422 (403 to plain HTTP from Railway → headless shell, the SSR Apollo object
+  `"CofrDeliveryFeature:Media:nl:<article>":{` → `deliveryStatus`; loose page
+  texts also carry recommended products and a translation table, never read
+  them), MediaMarkt NL 1914026 (Akamai 403 over HTTP → headless shell, flaky),
+  Coolblue BE/NL 986123 (JSON-LD offer `availability` + the `"promise"` field;
+  the page's translation table always holds "Morgen bezorgd". Store stock, "Nog
+  sneller op te halen in N winkels", is `storeAvailabilities` per stock location:
+  `OnStock` counts as available today, whatever the online promise says, and a
+  store joining an available shop alerts again; names in `CB_STORE_NAMES`, from
+  the store pages), Krëfel 51008017
+  (answers 500 to curl and to the headless shell → full Chromium after a
+  home-page visit; only the block from the title to "Variaties"), Vanden Borre
+  `iphone-duo-256gb-sw` (client-rendered → shell; only up to the availability
+  block, the accessories below use the same words), Amazon.com.be B0HJB16BGD
+  (`#availability` + delivery block), bol.com products 9300000386857691 and
+  …686 (its robots.txt closes search and leaves product pages open; only the
+  order block counts, the structured data holds every variant). Amazon.nl does
+  not sell it. A page
+  without a readable status is an error on the screen, never "not available".
+- **Verdict**: `Observation(inStock, deliveryBy, statusText, priceEur,
+  foundUrl)`; available = inStock and (no date or date ≤ today + N). Pre-orders
+  with a later date are "Later leverbaar", not available (Emre, 2026-10-28).
+- **Timing** (`StockRadarService`): one `@Scheduled` tick every
+  `enrosed.stockradar.every` (10 s) looks what is due; every shop runs once a
+  minute, up to 15 % later and never earlier (Emre, 2026-10-31: faster gets
+  refused, Apple answered 541 to a 20-second rhythm). A failing shop is asked
+  again at 2x, 4x, 8x its rhythm, at most ten minutes. `STOCK_RADAR_SPEED`
+  multiplies all of them. HTTP shops run in parallel on virtual threads;
+  browser shops due within 30 s share one round on one background thread
+  (shell batch, then full-Chromium batch), not one launch per shop. Models that
+  read one page (Apple's two endpoints, bol's search) are asked together in one
+  request, so Apple gets no more traffic for the second model. "Nu
+  controleren" keeps the same rule: a shop asked under a minute ago is skipped.
+- **Browser** (`StockRadarBrowserFetcher`): runs beside the live ERP, so it gets
+  an empty environment and reaches the shops' own domains only. A watchdog
+  closes the driver after 60 s + 60 s per page: `page.content()` has no timeout.
+- **State**: table `stock_radar_store` (one row per shop key; migration
+  `docs/migrations/2026-10-28/stock-radar-postgresql.sql`). Only a flip of
+  `available` notifies (push to the devices of `enrosed.stockradar.notify-user`
+  = emre through `StockRadarPushSender`, never to anyone else's; mail to
+  `enrosed.stockradar.mail-to` = emre@entego.be through `StockRadarMailSender`,
+  a direct Brevo POST). An "available" flip stays unsent until one door takes
+  it (`notified_at` older than `changed_at`) and is sent again each round. On
+  the very first start, with an empty table, one
+  "staat aan" push and mail go out (`greetOnce`). Push needs a device: the
+  native app has no web push, so the installed web app on the phone must have
+  Meer > Meldingen on.
+- **REST** `/api/stock-radar` (`GET`, `POST /check`, `POST /{key}/check`,
+  `POST /test-push`, `POST /test-mail`): only the notified user gets an answer,
+  anyone else a 404; the frontend lists the page for that user only.
+- **Switches**: `STOCK_RADAR_ENABLED` (default true on deployed environments,
+  false in dev), `STOCK_RADAR_PUSH_ENABLED`, `STOCK_RADAR_MAIL_ENABLED`,
+  `STOCK_RADAR_BROWSER_ENABLED`, `STOCK_RADAR_SPEED`. The Dockerfile installs
+  the full Chromium next to the headless shell for this.
+- **CLI check without the app**: `java -cp 'target/quarkus-app/lib/main/*:target/quarkus-app/lib/boot/*:target/quarkus-app/app/*' be.enrosed.stockradar.StockRadarProbe [keys] [--no-browser]`.
+
+## Klantprijzen and the priced catalogue (2026-11-06)
+
+Emre: "prijzen maken per klant ... en dan als je exporteert VOOR een klant, dat dan die prijzen
+genomen worden", plus one-off adjustments per PDF and a record of which customer saw which price.
+
+- **Klantprijzen** (`sales/application/CustomerPriceService`): one price per customer and product
+  (`customer_product_price`, unique on the pair), EUR excl. VAT on the product's own sales unit
+  (per display when sold per display), exactly the basis of the catalogue price. At most 2
+  decimals (refused, never rounded), 0 < price < 1 000 000, optional `valid_until` (null: until
+  changed; a new end date in the past is refused) and note (300). Each row remembers the basis it
+  was set on (`sales_unit`, `pieces_per_unit` only for a display, `unit_key`) and the catalogue
+  price of that moment. `catalog/domain/PriceBasis` is the one rule for "still the same basis":
+  the sales unit and, per display, its pieces; the unit's name does not count.
+- **Status** per row: PRODUCT_GONE (product deleted), BASIS_CHANGED (the amount would mean
+  something else now; typing the price again confirms it on the new basis), EXPIRED, ACTIVE.
+  Only ACTIVE rows apply; the others are kept.
+- **History** (`customer_product_price_history`) is append-only: one row per set, change of
+  price, basis or end date, and removal (null price), with the previous price and the source
+  CUSTOMER_SCREEN, CATALOG_EXPORT ("Ook bewaren als prijzen van {klant}" in the export popup) or
+  CUSTOMER_DELETED. A note-only edit writes no history row. Each save with a change writes one
+  Logboek entry on the customer ("Klantprijzen bijgewerkt (n)" / "Klantprijzen bewaard vanuit de
+  catalogus (n)", fields "Klantprijs · SKU", "Geldig tot · SKU"; at most 40 shown).
+- **REST** (admin): `GET /api/customers/{id}/prices` (the rows with sku, name, catalogue price at
+  set and now, status, updatedBy as display name), `PUT /api/customers/{id}/prices`
+  `{source, changes:[{productId, priceExclVat|null, validUntil?, note?, basis?, piecesPerUnit?}]}`
+  (patch: only the listed products change, null removes, a gone product can still be removed;
+  answers the full list),
+  `GET /api/customers/{id}/prices/history?productId=` (newest first, 200). The save locks the
+  customer row. Within a change, `validUntil` and `note` are tri-state: left out of the JSON they
+  keep what is stored (a new price starts without them), sent as null they clear, sent with a
+  value they replace. Presence is read in `CustomerPriceResource.ChangeLine` (Jackson calls a
+  setter only for a property the body names) and reaches the service as `Change.validUntilSent`
+  / `noteSent`; the price itself is never optional (null removes). So a client that does not
+  know a field (the export popup's "Ook bewaren" knows no note) must leave it out, not send null.
+- **Stale unit** (`CustomerPriceBasisChangedException`): a change may name the unit its price was
+  typed against, `basis` PIECE|DISPLAY and `piecesPerUnit` (per display; null per piece), as the
+  catalogue's one-off prices do. When that no longer matches the product (`PriceBasis`), the whole
+  save is refused before anything is written: 409 `{code: CUSTOMER_PRICE_BASIS_CHANGED, message,
+  productIds}`, the message naming the SKU and the unit it is sold per now. Without a basis (older
+  screens) the price is stored on the product's unit at save time, as before; a removal needs none.
+- **Deletion**: `CustomerPriceDeletionListener` removes a deleted customer's rows inside the
+  deletion and writes CUSTOMER_DELETED history.
+- **Priced catalogue for a recipient** (`CatalogExportService`): the request may name
+  `customerId` (a stored customer; unknown: 404 "De gekozen klant bestaat niet meer") or, without
+  one, `recipientName` (a fair lead; trimmed, max 120, no stored prices), `pricesValidUntil` and
+  `priceOverrides` [{productId, priceEur, onRequest, basis PIECE|DISPLAY, piecesPerUnit}]. All
+  optional, so an older studio prints catalogue prices as before. Precedence per product:
+  one-off (this PDF only) > the customer's ACTIVE price > the catalogue price
+  (`computedSalesPriceEur`) > "Prijs op aanvraag". One validation in `model()` serves preflight
+  and export: overrides or a validity without prices, a product not in the selection, a
+  duplicate, a price outside 0..1 000 000 or with more than 2 decimals, a price with "op
+  aanvraag", or a basis that no longer matches the product refuse with 409
+  `{code: CATALOG_PRICES_INVALID, message, priceIssues:[{productId, code, message}]}`. An
+  override equal to what the product would print anyway is dropped. Warnings do not refuse
+  (`priceWarnings` in the preflight): BELOW_COST (one-off or customer price under
+  `landedCostEur`), DISPLAY_WITHOUT_PIECES (a display sold per display without its piece count
+  still prints "Prijs op aanvraag" and its row says so; only older data, the product form now
+  requires the count), CUSTOMER_PRICE_EXPIRED,
+  CUSTOMER_PRICE_BASIS_CHANGED, VALIDITY_PAST, CUSTOMER_PRICE_ENDS_BEFORE_VALIDITY (a printed
+  customer price whose end date lies before the PDF's "Geldig tot": the PDF would promise it
+  longer than agreed).
+- **Preflight** adds `prices` (one row per selected product while prices are on: basis,
+  piecesPerUnit, unitKey, catalogueEur, customerEur, printedEur null for "op aanvraag", source
+  CATALOGUE|CUSTOMER|ONE_OFF|ON_REQUEST; an empty list with prices off), `priceWarnings` and
+  `recipient`. `ready` still means translations only. The studio refuses a recipient or
+  one-off prices when `prices` is missing (an older backend would silently drop them), so
+  deploy the backend first.
+- **Renderer**: every printed amount comes from the model's `PriceBook` (`catalogPrices(product,
+  amount)`); the display/piece wording is unchanged. With a recipient and prices: "Prijslijst
+  voor {klant}" on the brochure cover (between the rule and the title) and under the compact
+  masthead title, the recipient in the compact running header, "Uw prijs" instead of
+  "Referentieprijs", the basis "Prijzen voor {klant} in EUR per stuk/per vermelde eenheid,
+  exclusief btw en levering." in the overview footnote and on every compact footer, and
+  "Geldig tot {datum}" with a validity. Without prices: "Samengesteld voor {klant}". Names are
+  printed as typed, cut at a word past 80 characters (48 in the running header). New CATALOG
+  keys, 9 languages: `catalog.pricelist.for|yourprice|basis|basisunits|validuntil`,
+  `catalog.recipient.for`.
+- **File name**: `enrosed-prijslijst-<slug>-<lang>.pdf` with a recipient, else
+  `enrosed-brochure-<lang>.pdf` / `enrosed-catalogus-<lang>.pdf` (the studio's names). Slug
+  (`Recipient.fileSlug`, the studio builds the same): NFD, marks dropped, lower case, every run
+  outside a-z0-9 one dash, at most 60 characters, no dash at the ends, "klant" when empty.
+- `/api/catalog/export` also produces JSON, so a refusal (404 unknown customer, a family page
+  with too much text) reaches the studio's blob request as a readable body; the PDF itself is
+  always sent as application/pdf.
+- **Compression** (2026-11-07, Emre: "pdf compresser toggle om pdf rond 10 mb te krijgen zet dit
+  standaard aan"): `?compress=` on `/api/catalog/export`, default true; the studio's "PDF verkleinen"
+  sends false when it is off. `CatalogExportService.export(request, compress)` runs the out-port
+  `CatalogPdfCompression` (`PdfCompressor`, PDFBox) after the render and before the journal, so the
+  journal's size and SHA-256 are the PDF that leaves. Every image XObject (pages and the forms they
+  draw, each once) becomes at most 1400 px on its longest side, a JPEG of quality 0.80 with its
+  alpha kept as a soft mask; one that would not get smaller, a stencil or < 8 bit stays. The PDF
+  renderer embeds the transparent catalogue photos losslessly at print size (PdfImageEncoder, up to
+  2400 px), which made the whole range 65-70 MB: measured on his brochures of 2026-10-26/30 69.7 to
+  10.4 MB (8 s) and 65.7 to 9.9 MB (6 s), no visible difference at 200 dpi. Any failure hands back the
+  original PDF (logged).
+- **Export journal** (`catalog/application/CatalogExportJournal`, tables `catalog_export` and
+  `catalog_export_line`): every export with prices on or a recipient, written after a
+  successful render in its own short transaction (a separate bean, because the render can take
+  minutes and runs outside one); a failed write fails the export. It keeps who (username and
+  display name) and when, the customer id with the name as printed (or only the typed name),
+  layout, language, includePrices, the validity, counts (products, customer prices, one-off
+  adjustments incl. "op aanvraag", op aanvraag), the file name, size and SHA-256 of the PDF, and
+  one line per product in selection order (sku, name in the PDF's language, sales unit,
+  printed/catalogue/customer price, source). A stored customer with prices also gets one Logboek
+  entry (action `CATALOG_EXPORTED` on CUSTOMER, "Catalogus met prijzen gemaakt · 24 producten,
+  3 klantprijzen, 2 eenmalig · Handelscatalogus NL", file name and validity as fields). The ERP
+  says "gemaakt": it cannot know whether the PDF was sent. REST (admin):
+  `GET /api/customers/{id}/catalog-exports?limit=20` (newest first, max 100) and
+  `GET /api/catalog/exports/{id}` (the header fields plus `lines`). A deleted customer's
+  exports stay, under the name they were made for.
+- **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
+  rerunnable, new tables only, copied in the Dockerfile and listed in the migration script before
+  `sales-line-price-source-postgresql.sql` (round 3b below).
+
+### Klantprijzen on quotes, invoices, the portal and the website (round 3b, 2026-11-06)
+
+Emre: "Klantprijzen moeten ook op offertes en facturen kunnen alsook DEFAULt kunnen nemen. Je moet
+ook wel altijd subtiel default prijs tonen langs onze kant" and "Ingelogde klanten met andere prijs
+moeten dan andere prijs zien natuurlijk."
+
+- **One lookup, one day**: `CustomerPriceService.activeFor(customerId, products)` gives the ACTIVE
+  prices (not expired, still on the product's basis) by product id, on `LocalDate.now(Europe/
+  Brussels)` for every caller (Railway runs in UTC). Quotes, invoices, the portal list and the
+  website all go through it; the catalogue export reads the stored rows itself (same zone).
+- **Pinned, never looked up live**: a customer price becomes a line's `unitPriceEur` when the line
+  is added, with `sales_order_line.pricesource` (`SalesOrderLine.priceSource`, plain varchar,
+  `docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql`, rerunnable `add column if not
+  exists`, Dockerfile COPY and script line after the round-3 file): CUSTOMER (pinned agreed price),
+  STANDARD (staff chose the catalogue price; no unit price, follows the catalogue, never pinned) or
+  MANUAL (typed); null = every older line and a line on the catalogue by default. Existing lines
+  never change by themselves: a sent quote, its invoice and every document past concept keep their
+  prices whatever the customer price does later. `SalesPricingCalculator.unitPriceFor` knows
+  nothing of customer prices; a pinned price is a manual price, so the LINE/ORDER tiers and the
+  extra discount apply on top exactly as on a typed price (Emre told).
+- **Where it pins** (`SalesOrderService.pinsCustomerPrices`): a regular quote or invoice with a
+  customer, PRODUCT or ORDER markup, a website request or order included once staff save it (a
+  product staff add gets the agreed price; the quote link offers it too). Never a credit note, a
+  partner deal, CONTAINER_COST, a split part or an advance invoice. The website's own intake of a
+  request (`updateWebsiteRequest`) and the customer's `updateByCustomer` never settle: their lines
+  keep the prices and sources the website path gave them (below).
+- **Rules** (`SalesLinePrices.settle`, on every staff save and preview, never on the customer's
+  `updateByCustomer`): a new line (no stored line with its id) without a price and without a source
+  gets today's agreed price as CUSTOMER; a client without the field (an older screen) keeps the
+  stored source while it keeps the price, and a price it changes becomes MANUAL (or null when
+  cleared); STANDARD with a price is MANUAL; MANUAL without one is null; CUSTOMER without a price
+  takes today's agreed price ("Klantprijs gebruiken"), else falls back to the catalogue; CUSTOMER
+  with a price stays CUSTOMER only when it is today's agreed price or the price already pinned on
+  that line, otherwise it was typed over (MANUAL); that check runs on every document, so a website
+  line keeps the CUSTOMER the website path gave it. An existing CUSTOMER line that arrives as
+  CUSTOMER without a price (an older screen clearing the price field) goes back to the catalogue.
+  A concept that changes customer re-pins every CUSTOMER line, on every document, and on a document
+  that pins also every line on the catalogue by default (null source, no price), to the new
+  customer's agreed price, or back to the catalogue (null, null) when they have none; STANDARD and
+  typed lines stay. (The contract named only the CUSTOMER lines; the default lines go along so A ->
+  B -> A gives A's prices back.) A credit note never carries a source. An unknown source is refused.
+  The Logboek names a change as "Prijsbron · Product n" (klantprijs / standaardprijs / eigen prijs).
+- **Also pinned**: lines a container sale at sales prices starts with (`createFromPurchaseOrder`,
+  not at cost), and products a customer added through the quote link when staff adopt the proposal
+  (Overnemen; kept lines keep price and source).
+- **Copies keep it**: invoice from quote and slotfactuur, Overnemen, delivery weeks. A split part
+  keeps CUSTOMER only. "Nieuwe kopie" is a new concept: its CUSTOMER lines take today's agreed price,
+  or the catalogue once that price ended or its unit changed, and on a copy that pins its catalogue
+  lines take the agreed price as a new line would (`withTodaysCustomerPrices`).
+- **Staff view** (only `GET /api/sales-orders/{id}` and the single-document answers built by the
+  same view, preview included; never the list, a PDF, the portal or the website): each priced line
+  carries `priceSource` and two read-only figures, `standardUnitPriceEur` (what the line would cost
+  on the catalogue today, `unitPriceFor` without a manual price) and `customerUnitPriceEur` (today's
+  agreed price, null without one). They are filled for every line with a source, and on a live
+  concept that pins (not archived: a quote is archived once invoiced) also for a line without one
+  whose product has an agreed price; all three are `NON_NULL`, so a document without either answers
+  byte for byte as before (`priceForStaff`, `SalesPricingCalculator.PriceHints`).
+  `order.lines[].priceSource` is `NON_NULL` too.
+- **Product side** (admin): `GET /api/products/{id}/customer-prices` ->
+  `[{customerId, customerName, priceExclVat, validUntil, status}]` by customer name (404 for a
+  gone product), for the "n klantprijzen" chip beside the sales price.
+- **Quote link** (Emre's Q4): the portal's add-products list (`PortalResource.catalog`) offers the
+  customer's agreed price where the quote pins (`customerPricesFor`), so an adopted line costs what
+  the customer saw. The portal page itself shows the quote's own (pinned) prices as always.
+- **Website**, see "Customer logins" and "Website orders" above: a logged-in customer sees and
+  orders at their agreed price; anonymous visitors and customers without one keep the public list.
+- **Checked live** (2026-11-06, dev build on H2 and the packaged jar on PostgreSQL 17): documents
+  made before (a sent quote, an issued invoice and credit note, of a customer with agreed prices)
+  answer byte for byte in the staff GET and the portal, their PDFs have the same text and pages;
+  the anonymous configuration and estimate are byte for byte origin/main's, price switch on and
+  off; the migration ran twice and Hibernate changed nothing on start. Not walked live: split
+  parts, partner deals and advance invoices (skipped by rule only).
+
+## Klantstatus en contactmomenten (CRM, 2026-11-07)
+
+Emre wants the customer list to work as a small CRM: where a customer stands and what we already
+did for them (mailed, called, spoken to, catalogue or sample sent).
+
+- **Status**: `Customer.crmStatus` (`customer.crm_status`, varchar(24), plain code, no enum or
+  CHECK constraint) is one of `CustomerCrmStatus` NIEUW / IN_GESPREK / ACTIEF / SLAPEND / VERLOREN.
+  `POST /api/customers` takes a known status or none (= NIEUW); `PUT` takes a known status or null
+  (= keep the current one); anything else is refused ("Onbekende klantstatus: X"). Existing
+  customers stay null on purpose (the frontend shows "Geen status"); nothing is derived from orders.
+- **Contact moments**: `Customer.touchpoints` = `[{kind, at, by}]`, one per kind, as rows of
+  `customer_touchpoint` (`CustomerTouchpointEntity`, unique on customer and kind, no foreign key).
+  Known kinds: GEMAILD, GEBELD, GESPROKEN, CATALOGUS_GESTUURD, STAAL_GESTUURD; any code matching
+  `^[A-Z][A-Z_]{1,31}$` is stored, anything else refused ("Onbekend contactmoment: X"). The client
+  sends only kinds: a new kind gets `at = now` and `by = CurrentActor.name()` (the canonical staff
+  username, "systeem" outside a request), a kind the customer already has keeps its first moment,
+  a kind left out loses its row; `touchpoints: null` on PUT keeps everything, `[]` clears them.
+  The column keeps the username like every audit column; what a client receives as `by` is the
+  display name (`CustomerService.named` via `AdminIdentityProvider.displayNameFor`, "Emre",
+  "Systeem"), the same way the klantprijzen history names people.
+  `CustomerAdapter.findAll` loads all customers in one query and all touchpoints in a second one
+  (grouped by customer), never per customer; `findById` and `save` load the customer's own rows,
+  and `save` locks the customer row (`PESSIMISTIC_WRITE`) first so two saves ticking the same
+  kind at once cannot both insert it; `deleteById` removes the rows before the customer.
+- **Gehanteerde prijzen** (`GET /api/customers/{id}/applied-prices[?productId=]` and `/{productId}`,
+  `CustomerAppliedPriceService`): one JPQL projection over the lines (never the eager order graph),
+  deleted, cancelled and credit documents left out, a quote that became an invoice counted once as
+  the invoice. A line that followed the catalogue stored no price: `lastPriceExclVat` /
+  `unitPriceEur` are null then (`followsCatalogue: true` on an entry), the row's "last" line is the
+  newest priced line on a document past concept, and min/max skip catalogue lines. Entries carry
+  `lineId` so two lines of one product on one document stay apart.
+- **Compatibility**: the 20-argument `Customer` constructor stays (null status, null touchpoints =
+  unknown) for `SalesMapper`, `PublicQuoteService`, `DemoDataLoader` and `LoginRequestService`;
+  `withDeliveryAddress` / `withDelivery` and `fillMissingAddress` carry both fields through.
+- **Logboek**: a status change logs as "Status" (Nieuw / In gesprek / Actieve klant / Slapend /
+  Verloren), a change in contact moments as "Contactmomenten" with the joined Dutch labels (Gemaild,
+  Gebeld, Gesproken, Catalogus gestuurd, Staal gestuurd; an unknown kind by its code), in the fixed
+  order of the kinds so a reordered row never logs. The summary stays "Klant bijgewerkt".
+- **Migration**: `docs/migrations/2026-11-07/customer-crm-status-touchpoints-postgresql.sql`
+  (rerunnable `add column if not exists` + `create table if not exists`, no rows written), with its
+  Dockerfile COPY and script line after the 2026-11-06 files. Not yet run against a live database.
+
+## Partnerportaal (Verhoeven), 2026-11-10
+
+Emre's partner Verhoeven (the person is Frans) gets a portal of its own: a login `verhoeven`
+with a simple tile screen to report what sold at the auction ("de klok") or directly from his
+site and what he bought back on the clock. Staff invoice those meldingen ("Veilingverkopen")
+whenever they want. Package `be.enrosed.partnerportal` (domain / application / adapter in+out).
+This section grows per build stage; it holds what is built so far.
+
+### Authentication (stage 1)
+- **One header for both kinds**: the partner signs in with the same HTTP Basic header as staff,
+  first `verhoeven:<password>` on `POST /api/auth/session`, then `verhoeven:epp1_...` on every
+  call. The frontend's `Auth.login` therefore works unchanged.
+- **`PartnerIdentityProvider`** (`adapter/in/security`) implements
+  `IdentityProvider<UsernamePasswordAuthenticationRequest>` with `priority()` 1100. The verified
+  default (and the staff provider's) is 1001 = SYSTEM_FIRST+1; Quarkus runs providers by
+  descending priority, a null item passes to the next provider and any failure ends the whole
+  authentication. Its steps, in this order:
+  1. Canonicalise the username (`ActorRef.canonicalUsername`: trimmed, lower case, so iOS's
+     "Verhoeven" works). A configured staff name (`AdminIdentityProvider.isStaffUsername`, parsed
+     once) returns `Uni.createFrom().nullItem()` synchronously: no worker thread, no database.
+     Staff sign-in is byte for byte what it was.
+  2. Anything else runs on a worker thread (`context.runBlocking`) in
+     `PartnerAuthenticator`, each step in `QuarkusTransaction.requiringNew()`: no `partner_login`
+     row returns null, so the staff provider fails as it always did for an unknown name.
+  3. An existing login: inactive, customer gone or no longer `partner`, wrong password or key,
+     a database error: every problem becomes `AuthenticationFailedException` (401), never a 500.
+     A credential starting with `epp1_` is looked up by SHA-256 in
+     `partner_session` of that login (not expired; `last_seen_at` written at most every 15
+     minutes) and gives `partnerAuth=SESSION`. Otherwise it is a password: first
+     `PublicFormRateLimiter.checkKey(PARTNER_LOGIN, "USERNAME_IP", username|network, 20)` (20 per
+     15 minutes per network, `ClientIdentityResolver` on the request's RoutingContext, the
+     website forms' rule) and `checkKey(PARTNER_LOGIN, "USERNAME", username, 100)` over all
+     networks, only on this path and only for an existing partner name, then bcrypt outside any
+     transaction; `last_login_at` is written; `partnerAuth=PASSWORD`. Every password attempt
+     counts, right or wrong, so a stranger who knows the name only exhausts the bucket of their
+     own network (or needs many networks for the shared 100). A password that was not checked
+     (limit reached, no bcrypt slot within 2 s) is `PartnerSignInUnavailableException`: 429 or
+     503 with Retry-After and a Dutch message through `PartnerSignInUnavailableMapper` (Quarkus
+     hands a non-AuthenticationException failure of an identity provider to the REST exception
+     mappers), never a 401 that would tell Frans his password is wrong.
+- **Identity**: principal = the stored username, role `partner` only, attributes
+  `displayName` (the login's name, "Frans"), `partnerCustomerId`, `partnerLoginId`,
+  `partnerAuth`, `partnerSessionId` (session path only). Names in `shared.security.PartnerIdentity`.
+  `CurrentActor` therefore names Frans in the activity log for free.
+- **`AuthResource`**: `/me` and `/session` allow `admin` and `partner`. A staff answer is the old
+  code path untouched. A partner answer has the same shape with `roles:["partner"]` and
+  `phone:null` and never calls `StaffContactService` (which 404s for non-staff). Partner
+  `/session` only on the password path (a session key gets 403 "Meld opnieuw aan met je
+  wachtwoord", so a leaked key cannot extend itself); it goes through the `PartnerSessionIssuer`
+  port, so `shared.security` does not depend on the portal.
+- **Sessions** (`PartnerSessionService`): `epp1_` + 32 random bytes base64url (48 characters),
+  only the SHA-256 hex stored, TTL `enrosed.partner.session-ttl-days` (default 90, 1..365, env
+  `ENROSED_PARTNER_SESSION_TTL_DAYS`, nothing to set on Railway), at most 5 per login (the oldest
+  go). Unlike staff `enr1.` keys each session is revocable. `POST /api/partner-portal/logout`
+  deletes the session the key belongs to (204). All sessions of a login go on a new password, a
+  changed username, deactivation, and when `CustomerService.update` turns the customer's partner
+  flag off (`CustomerPartnerListener`, implemented by `PartnerPortalCustomerPartnerListener`).
+  A sign-in that checked a password a reset replaced while it ran gets no session: the password
+  identity carries `partnerPasswordStamp` (SHA-256 of the hash it was checked against) and
+  `issue` compares it with the login's hash under the partner lock that the login write also
+  takes (401 otherwise); a session issued before the reset commits is deleted by it.
+  `last_login_at` is written by a one-column UPDATE, so it can never write an old hash back.
+- **Passwords** (staff type them in Instellingen › Partnerportaal; the owner's choice, unlike the
+  website logins where staff never see one): 10..72 characters, printable ASCII 0x20-0x7E only
+  ("Gebruik letters zonder accenten, cijfers en leestekens": the browser builds the Basic header
+  with `btoa`), bcrypt cost 12 behind a semaphore of two (`PartnerPasswords`), never returned or
+  logged.
+- **Deletion**: `PartnerPortalCustomerDeletionListener` refuses "Deze klant heeft veilingverkopen"
+  when any melding exists, else deletes the login, its sessions and the settings row.
+- **Public resources**: a partner Basic header is now valid, so a `@PermitAll` resource called with
+  it runs as that partner; none of them reads `SecurityIdentity`, so it sees what an anonymous
+  visitor sees.
+
+### Data model
+Migration `docs/migrations/2026-11-10/partner-portal-postgresql.sql` (registered last in the
+Dockerfile COPY list and `scripts/run-postgresql-schema-migrations.sh`), six tables, every
+column named in its entity, non-id columns nullable, no foreign keys, kinds as plain varchar,
+named constraints identical in `@Table` and the migration:
+- `partner_login` (unique customer_id, unique lower-case username), `partner_session` (unique
+  token_hash, index login_id), `partner_portal_settings` (PK customer_id; null percents read as
+  4.50 / 5.50, null location as MAIN; the row is also the partner lock, taken with
+  `PartnerPortalRepositories.Settings.lockOrCreate`, which creates it in its own transaction when
+  missing and then locks it FOR UPDATE in the caller's).
+- `partner_sale_report` (the melding VV-<id>; unique (customer_id, client_ref)),
+  `partner_sale_report_line` (one row per part: entry_no, SALE|BUYBACK, purchase_order_id null =
+  own stock, money 19,2, unit prices 19,4, mirrors_line_id, stock_movement_id, invoice_id),
+  `partner_sale_invoice_part` (append-only: which part went on which document; a document with
+  rows here is report-backed).
+- **Open-part rule**, written once in `PartnerOpenParts`: a part is open when its melding is not
+  voided and it was never invoiced, or its document is gone, trashed, or GEANNULEERD / AFGEWEZEN /
+  VERLOPEN (a concept still holds its parts). Everything that asks "open?" uses this class.
+
+### Endpoints so far
+- Partner, `@RolesAllowed("partner")` (`PartnerPortalResource`, the customer id only from the
+  identity): `GET /api/partner-portal/overview` (partner, costs that apply, the first staff
+  contact with a phone, `stock` = active products with quantity > 0 at the settings location in
+  sales units, sorted by family then name, `recentSales` = products of this partner's non-voided
+  sale parts sold in the last 60 days, `reports` = 10 newest, `serverDate`); `GET /reports?before=&
+  limit=` (newest first, limit 1..100, `more`); `GET /products/{id}/photo?size=small|medium&v=`
+  (404 unless the product is in this partner's current stock or meldingen); `POST /logout`. Never
+  a price, cost, supplier or container field of Enrosed's.
+- PartnerReport (`PartnerReportReader`): parts merged back per entry (sale and buyback), totals
+  (sale gross, commission, transport, extra, sale net, buyback = terugkoopkost, net = sale net -
+  buyback), status OPEN / PARTLY_INVOICED / INVOICED / VOIDED from the open-part rule, `canUndo` =
+  OPEN and no buyback of another live melding mirrors one of its sale parts. Rows of another
+  line_type are ignored.
+- Photos: `catalog.application.SalesPhotoService` ports the frontend's `salesPhoto` rule (website
+  lead, else the inherited family photo, else the first). An inherited photo is streamed from the
+  family's stored small rendition for `small` (no decode) and rendered from its large file for
+  `medium`; an own photo goes through `PhotoDeliveryService.render`. `photoVersion` = 16 hex of a
+  SHA-256 over photo id, storage key and size, so another lead or file changes the URL; ETag =
+  version + size, `If-None-Match` answers 304 without decoding, `Cache-Control: private,
+  max-age=86400`.
+- Staff, `@RolesAllowed("admin")` (`PartnerPortalAdminResource`): `GET /api/partner-portal-admin`
+  (partner customers plus any customer that still has a login, `partner:false` then; per row the
+  login without any secret, the stored settings with the defaults beside them and the applying
+  location name, and `unshippedSettlements` = issued partner settlements of this partner (status
+  UITGEREIKT / VERZONDEN / BEKEKEN / BETAALD, `goodsShippedAt` null) that are not report-backed);
+  `PUT /{customerId}/login` `{username, displayName, password|null, active}` (username
+  `[a-z0-9._-]{3,64}` after lower-casing, unique, never a staff name; a first login needs a
+  password; a customer that is no partner can only have its login switched off);
+  `PUT /{customerId}/settings` `{auctionCommissionPct|null, auctionTransportPct|null,
+  locationId|null}` (0..50, null = default; an active existing location). Activity
+  `PARTNER_LOGIN` CREATED/UPDATED ("Login aangemaakt · Wachtwoord ingesteld", "Gedeactiveerd",
+  never the secret) and `PARTNER_PORTAL_SETTINGS` UPDATED; both, and `PARTNER_SALE_REPORT`, count
+  under SALES in `ActivityCategory`.
+
+
+### Meldingen: money, stock, withdrawal (stage 2)
+- **Money** (`PartnerSaleMoney`, the only place it is computed; the frontend's `partner-money.ts`
+  does the same in cents): sale gross = the typed total (2 dp), else round2(quantity x average at
+  4 dp); stored unit price = total / quantity at 4 dp. Commission and transport = round2(gross x
+  pct / 100) per entry with the melding's snapshotted percents (the partner's settings on
+  AUCTION, 0 on DIRECT). Extra kost PCT (0..100, 4 dp) per entry the same way; AMOUNT (2 dp, the
+  whole melding) spread over the sale entries by gross with `PartnerSettlementLedger.allocate`
+  (320 + 61 with 12.50 gives 10.50 / 2.00). net = gross - costs; an entry with net < 0 is
+  refused ("De kosten zijn hoger dan de opbrengst"). A buyback has only its gross (terugkoopkost),
+  net = -gross. An entry split over sources: quantity split, then gross and each cost allocated by
+  quantity (residual on the last part), each part's net = its gross - its costs.
+- **Locks**, every create and withdrawal, one transaction, this order: the partner row
+  (`Settings.lockOrCreate`), every container of the partner ascending
+  (`PurchaseOrderService.lockForPartnerSettlement`), the products ascending
+  (`StockService.lockProduct`). Open parts, the ledger and the batches are read after them.
+  `client_ref` (unique per customer): the partner lock makes a retry wait and find the melding
+  (200, nothing booked twice); a unique violation is answered the same way from a new transaction.
+- **Allocation of a sale** (`PartnerSaleReportService.planSale`, `PartnerContainerCapacity`):
+  refused beyond the level at the partner's location ("Er liggen nog maar n stuks van X. Bel
+  Enrosed (tel) om de voorraad bij te werken."; staff get "... op Magazijn. Werk eerst de voorraad
+  bij."). Candidates: this partner's containers with `isStockBooked()`, received at the location
+  (receivingLocationId = it, or null when it is MAIN), oldest `receivedOn` first. Capacity(C,P) =
+  max(0, min(ledger remaining - historicShipped - openNet, PARTNER batch pieces of C / unit
+  pieces)); historicShipped = max(0, shipped historical advance pieces - the quantity of every
+  live or shipped non report-backed settlement, concepts and unshipped ones included): the ledger
+  remaining already holds those settlements back and they reuse the historical pieces when they
+  ship (the shipGoods rule), so counting only shipped ones took the pieces off twice until the
+  settlement shipped; openNet = open sale - open buyback quantity of parts on
+  (C,P); the batch term only while batches run. The rest is an own part; with batches its size is
+  capped at the own batch pieces (plus pieces no batch covers), beyond that "n stuks van X zijn al
+  afgerekend maar nog niet afgeboekt; Enrosed boekt die eerst af.".
+- **Own cost** of an own part (`unit_cost_eur`, per sales unit, 4 dp) = external cost without the
+  Enrosed kost: with batches the value of its takes (`unitCostExclEnrosedEur`; a take from a batch
+  that only knows its full cost loses the Enrosed kost `ProductCostHistoryService.enrosedParts`
+  explains in it; pieces without a batch cost at the card), without batches the card's
+  landedCostEur minus that Enrosed part. Unknown -> 0. Pieces with no known cost beside known ones
+  (no batch cost and no card) count at the average of the known ones and the part gets
+  `unit_cost_estimated` = true, so the Factureren preview warns "Kostprijs deels geschat voor X";
+  an own buyback copies the flag of the part it mirrors. Container parts have no unit cost.
+- **Allocation of a buyback**: mirrors sale parts of the product: this melding's (the last-filled
+  part first, so 100 sold with 1 back reads as 99 sold), then the partner's other open sale parts
+  newest first (sold_on, melding, part), then invoiced ones; each at most its quantity minus what
+  live buybacks already mirror. Each piece becomes a BUYBACK part on the mirrored part's source
+  with `mirrors_line_id`; an own buyback keeps the mirrored unit cost. Except on a container
+  settled through for that product (`PartnerContainerCapacity.settled`: ledger remaining -
+  historicShipped <= 0, e.g. after its slotfactuur): no settlement line can come there any more,
+  so the buyback goes on own stock (purchaseOrderId null, still mirroring the container part) at
+  what the container's settlements charged per sales unit (settled cost / settled quantity), and
+  its pieces come in as own stock at the container's cost (`StockBatchContext.partnerTakeOver`:
+  an own COUNT batch "Teruggekocht na afrekening PO-..." with the container batch's cost fields,
+  never into the container's batch). The own invoice credits it like any own buyback (v = -c +
+  (c - k) x share, c the taken-over cost, k the terugkoopkost); a resale of that piece from own
+  stock costs the same c, so together they come to (resale net - k) x share, the same money as
+  netting both on the container.
+  Nothing to mirror: "Meld
+  eerst de verkoop op de veiling; een terugkoop hoort bij een gemelde verkoop.". Only on AUCTION.
+- **Stock lines**: `StockMovement.Kind.PARTNER_SALE` ("Verkocht via partner", negative) and
+  `PARTNER_BUYBACK` ("Teruggekocht door partner", positive), one per part, written by
+  `StockService.partnerMove` only: product lock, never below zero at the location, reference
+  "Veilingverkoop VV-n" / "Terugkoop VV-n" / "Ingetrokken: VV-n", purchaseOrderId = the part's
+  container (null = own), sourceSoldAt = sold_on (StockRoll dates them by it, review when booked
+  across the closing like TICA), actor = whoever is signed in. They cannot be deleted
+  (`PanacheStockLedger.delete`, movement DTO `deletable` false); a product with them can neither
+  be deleted nor change its stock basis. **Fix-forward**: an older build cannot read these kinds
+  (`Kind.valueOf`), so once a melding exists the backend is never rolled back.
+- **Batches**: a sale take is pinned to its container (own parts plain FIFO). Pieces coming back
+  (a buyback, or the withdrawal of a sale) go through `StockBatchService.onPartnerReturn`: into
+  the open takes of the mirrored sale part's movement and of the withdrawals of earlier buybacks
+  of it (their REVERSAL rows), most recently consumed first, then those movements' unassigned
+  takes. A part booked before the batch start has no takes: the start wrote what meldingen took
+  out of a container into that container's BACKFILL take, so a container part (the movement's
+  purchaseOrderId) re-opens its container's BACKFILL take next and its pieces stay the
+  container's. Then the credit-return restore, for an own part only into own batches; never
+  `onAdd` (that would make an own Telling batch). The
+  batch view counts PARTNER_SALE as sold. `/api/stock-batches/check` stays empty after every
+  operation. With batches off every hook is a no-op. The batch start (backfill) counts what
+  meldingen took out of a partner container (`StockService.partnerReportedOut`, net of buybacks
+  and withdrawals, by movement time) as having left it.
+- **Withdrawal** (`withdraw`; partner `DELETE /api/partner-portal/reports/{id}` "Ongedaan maken",
+  staff `DELETE /api/partner-sales/reports/{id}?reason=` "Intrekken"): only while every part is
+  open; refused while a buyback of another live melding mirrors one of its sales ("Trek eerst de
+  terugkoop in (VV-n)"). Checked on the net effect: per product the shelf must hold what the
+  buybacks take back beyond the melding's own sales, per container the capacity must hold what its
+  buybacks claim beyond its sales ("... zijn al opnieuw als verkocht gemeld; trek eerst die melding
+  in"). Buyback parts are reversed first (a take pinned to their container), then sale parts (back
+  into their takes); each reversal writes a REVERSAL row (mirrors_line_id = the part, its
+  stock_movement_id, no money; never read as a part). A withdrawn melding stays as it is.
+
+### Staff endpoints and the bell (stage 2)
+- `PartnerSalesResource` `/api/partner-sales` (admin): `GET ?customerId=&status=OPEN|INVOICED|ALL&
+  before=&limit=` (newest first, 1..200, default 100 and ALL; OPEN = OPEN + PARTLY_INVOICED,
+  INVOICED = INVOICED + PARTLY_INVOICED) with `totals` {openReports, openSaleQuantity, openNetEur};
+  `GET /summary` (no ledger work: the open parts in one query, `PartnerOpenParts.releasing` for the
+  invoices they point at); `GET /analytics?from=&to=` (by sold_on, no cap, one row per live
+  melding and one per melding x product, `open` = not fully invoiced; additive `openSaleQuantity` /
+  `openNetEur` per row = only the parts still open by the open-part rule, the same figure the
+  summary, home card and bell count, so a partly invoiced melding is "nog te factureren" for its
+  open parts only); `GET /reports/{id}`;
+  `POST /reports {customerId, ...}` (a melding staff enter for the partner: login_id null, the
+  actor is the staff member); `DELETE /reports/{id}?reason=`. StaffReport = PartnerReport +
+  customer, createdBy, voidedAt/By/Reason and `parts` per source (containerName null = Eigen
+  voorraad, invoice id/number from the open-part rule's holder).
+- `NotificationService.Kind.PARTNER_VERKOOP` from `PartnerSaleNotifications` (behind the
+  `sales.application.PartnerSaleNotificationFeed` port, injected as `Instance`, failures never
+  break the feed): one item per live melding of the last 14 days, actionNeeded false, **orderId
+  null** (older screens would open /sales/<id>), orderNumber VV-n, title "Veiling verkocht" /
+  "Direct verkocht" / "Teruggekocht op de klok", detail "100 stuks · gem. € 3,20 · netto € 277,50"
+  (several products "n stuks · n producten · netto € y"), url "/veilingverkopen?melding=n",
+  notificationId "partner-sale:n", additive `open` (JSON only on this kind).
+- Push `PartnerSalePushNotifier` (after commit, REQUIRES_NEW, errors swallowed): kind
+  "partner-sale", "Veilingverkoop gemeld", "n stuks · Veiling|Direct|Terugkoop", the url above;
+  a staff entry skips that staff member's own phones. Activity `PARTNER_SALE_REPORT` CREATED /
+  VOIDED.
+
+### Factureren (stage 3)
+- **Endpoints** (`PartnerSalesResource`, admin): `POST /api/partner-sales/invoice-preview
+  {customerId, reportIds|null, until|null}` (null reportIds = every melding of the partner with an
+  open part, sold on or before `until`) and `POST /api/partner-sales/invoice {customerId,
+  reportIds}` (the preview's reportIds; parts of other meldingen are never taken). Preview:
+  `groups` [{source CONTAINER|OWN, purchaseOrderId, containerName, lines [{productId, name,
+  variant, soldQuantity, buybackQuantity, quantity, saleNetEur, buybackEur, proceedsEur, costEur,
+  valueEur}], valueEur, advanceEur, balanceEur, finalSettlement, blocked, warnings}], `skipped`
+  [{productId, name, source, purchaseOrderId, reason}], `reportIds`, `profitSharePct` (the
+  customer's). Invoice: `{invoices [{id, number, source, purchaseOrderId}], blocked
+  [{purchaseOrderId, message}], skipped}`. Code: `PartnerSaleInvoicing`.
+- **Per source and product** over the open parts: S sold, N sale net, B bought back, K buyback
+  gross; quantity q = S - B, proceeds p = N - K. q > 0: a line at max(p, 0). q = 0 (a buyback and a
+  resale cancel out in pieces): its p moves onto the source's largest line (largest proceeds, then
+  quantity, then lowest product id; the value is linear in the proceeds); a line with p < 0 lacks
+  -p, taken from the largest lines down to 0 each. When the source's total stays below 0 the
+  products that pull it down are skipped ("Terugkoopkost groter dan de netto opbrengst"); q < 0 is
+  skipped ("Terugkoop groter dan verkoop: wacht op een volgende verkoop"); q = 0 without any line
+  in the source is skipped ("Wacht op een volgende verkoop van dit product"). Skipped parts stay
+  open. Every part of an included product (lines and absorbed ones) is linked.
+- **Container source** = `SalesOrderService.createAuctionSettlementFromReports` (customer = the
+  partner, the container, share / cost share / final null so the server derives them, one
+  `AuctionLine(productId, q, proceeds)` per line, internal note "Veilingverkopen dd/mm/jjjj -
+  dd/mm/jjjj · n meldingen"). The arithmetic of createAuctionSettlement (cost share of what
+  remains, our value, advance credit, final, true-up, snapshot, extra lines) is one method,
+  `planAuctionSettlement`, which returns an `AuctionSettlementPlan`; the preview reads the same
+  plan through `previewAuctionSettlementFromReports` (no lock, nothing written, in a transaction
+  of its own so its refusal becomes `blocked` and touches nothing else). The Factureren entry
+  point uses the plain ledger remaining (its own parts are the open ones).
+- **Own source** = `SalesOrderService.createPartnerSalesInvoice`: one CONCEPT FACTUUR to the
+  partner, purpose STANDARD, channel PARTNER, the normal invoice series, CONTAINER_COST at markup 0
+  (exact quantities, no tiers, no customer prices, no stock cost stamp), freight AANGEVULD + FIXED
+  0, PALLETS without pallets, the customer's VAT. Per product c = round2(sum of sale unit_cost x
+  qty - buyback unit_cost x qty), v = c + round2((p - c) x share / 100) with share =
+  `Customer.partnerSharePctOrDefault()`. q > 0 and v / q > 0 at 4 dp: a line at v / q (unit cost
+  c / q); otherwise (v <= 0, q = 0) an extra line "<product>: n stuks, ons deel € v" (container-cost
+  pricing would replace a price of 0 by the card cost). "Afronding veilingverkopen" closes the cent
+  gap: the invoice excl. VAT is exactly the sum of v. A sale part with unit cost 0 warns "Geen
+  kostprijs bekend voor <product>". Notes in the settlement style (per product n stuks, netto,
+  kost, resultaat, ons deel).
+- **Transactions**: the invoice run is not transactional. Every source runs in
+  `QuarkusTransaction.requiringNew()` with the section 3 locks (partner row, the partner's
+  containers ascending, the products ascending), reads its parts again after them (still open,
+  not withdrawn, of the chosen meldingen), makes the document and links the parts: `invoice_id`,
+  `invoiced_at` and one append-only `partner_sale_invoice_part` row each. A refusal (e.g.
+  `requireReadyForSettlement`) blocks that source only; an unexpected error too ("Dit deel kon
+  niet gefactureerd worden; probeer opnieuw", logged). The created document's own activity line
+  ("Deelfactuur partnercontainer X uit veilingverkopen aangemaakt" / "Factuur uit veilingverkopen
+  (eigen voorraad) aangemaakt") is the activity per invoice.
+- **Open again**: trashing a concept from Factureren (or a GEANNULEERD / AFGEWEZEN / VERLOPEN
+  document) reopens its parts by the open-part rule; the next run links them to a new document.
+- **The container's partner is fixed while meldingen are open**: `PurchaseOrderService.setPartner`
+  (and so `adoptPartner`) refuses another partner or none while any open part sits on the
+  container (`PartnerReportBacking.openReported`): "Er staan nog veilingverkopen op deze
+  container; factureer of trek die eerst in". Factureren and its preview refuse a container source
+  that is no longer the partner's before anything else (lock, adoption, default share): "Deze
+  container hoort niet (meer) bij deze partner; koppel hem opnieuw of trek de meldingen in".
+
+### Report-backed documents (stage 3)
+- A document with rows in `partner_sale_invoice_part` is **report-backed**: its pieces left stock
+  through the meldingen' own stock lines. Sales reads this through the port
+  `sales.application.PartnerReportBacking` (implemented by `PartnerReportBackingService`, injected
+  as `Instance`; absent = nothing is report-backed): `reportBacked(ids)`, `bookedQuantities(docs)`
+  (per product on the lines: sale minus buyback parts, between 0 and the line quantity; one query
+  for a whole list, by id up to 200 documents, else the whole aggregated table), `lastMovementAt`,
+  `openReported(container)`.
+- **No double stock-out, no nagging**: `issueInvoice` and `markInvoiceSent` stamp `goodsShippedAt`
+  in the same transaction when every product line is covered by what its meldingen booked (time =
+  the newest stock line of its parts; event and activity "Voorraad al afgeboekt via
+  veilingverkopen"); no stock is booked, no stock cost stamped. `shipGoods` refuses such a document
+  ("De voorraad van deze factuur is al afgeboekt via veilingverkopen"); a partly covered one (not
+  possible while frozen) books only the rest. `shipGoods`' `settledShipments` (the historical
+  advance rule) leaves report-backed settlements out.
+- **Frozen**: a report-backed concept cannot change its lines, extras, customer, country, extra
+  discount, markup mode or freight (`update`, `requireFreightEditable`), cannot become a partner
+  document (`setPartnerDeal`), be copied (`duplicate`), split (`SalesSplits`), have goods returned
+  on a credit note of it (`returnGoods`), or come back from the trash (`DeletedItemsService`:
+  "Dit concept kwam uit Veilingverkopen. Factureer opnieuw via Veilingverkopen."; the rows survive
+  the trash, so this holds even after its parts went on a new document). Settlements keep their
+  own snapshot freeze and messages.
+- **Minimum order value**: never for a report-backed document, in `validateInvoiceForSend` and in
+  the calculator (`SalesPricingCalculator.Context.minimumExempt`, filled for an own-stock
+  Veilingverkopen invoice only: an invoice, CONTAINER_COST, channel PARTNER, no partner deal, then
+  the lookup), so `priced.validation.meetsMinimum` is true and `minOrderValue` 0.
+- **OrderView** (single and list `GET /api/sales-orders`): additive `reportBookedQuantities`
+  ({productId: qty}, null when not report-backed) and `reportBacked`.
+- **Manual settlements cannot double-sell**: `createAuctionSettlement` (the sheet, not Factureren)
+  limits each line to remaining - what open meldingen of the container claim ("<product>: n stuks
+  staan nog open in Veilingverkopen; factureer die via Veilingverkopen") and refuses a slotfactuur
+  while any is open ("Er staan nog n stuks open in Veilingverkopen; maak een deelafrekening en
+  factureer de rest via Veilingverkopen (dat wordt de slotfactuur)"): the final test stays "takes
+  everything the ledger has left", so the Veilingverkopen invoice of the last pieces becomes the
+  slotfactuur by itself and a container never gets two. A manual slotfactuur (asked or derived) is
+  also refused while any open part sits on the container, a buyback waiting for a resale included
+  ("Er staat nog een terugkoop van deze container open ..."). Factureren likewise never makes a
+  slotfactuur that leaves an open part of its container behind (a skipped buyback, or a melding
+  outside the chosen ones): that group is blocked "Dit wordt de slotfactuur van deze container,
+  maar VV-n heeft er nog een open deel; factureer dat mee of wacht op een volgende verkoop". `GET
+  /api/purchase-orders/{id}/partner-settlement-availability` carries per line
+  `openReportedQuantity` (sale - buyback, at least 0) and `openReportedNetEur`
+  (`partnerSettlementAvailabilityWithReports`); `PartnerFinancingService.Summary` carries
+  `openReportedQuantity` (the sum).
+- **Year-end and the batch start**: report-backed documents are left out of
+  `ClosingSeparations.invoices` (candidates and older) and of `StockCountService.documents`.
+  `ClosingSeparations.partnerShipped(container, sales, cutoff, reportBacked, reportedOut)` =
+  max(shipped advances, shipped non-report-backed settlements) + the net sales units the
+  meldingen' stock lines of the container took out, never below 0. The closing
+  (`StockClosingService.partnerLot`) counts such a line by the roll's answer for it
+  (`ClosingSeparations.happenedBefore`, the same reading as `alreadyOut`) and a line the roll does
+  not list by booking time before the cut-off (`ClosingSeparations.partnerReportedOut`); the batch
+  start counts them by booking time before the run (`StockService.partnerReportedOut`).
+
+## Track & trace: what the field reads, moved arrivals, failures (2026-11-10)
+
+Emre: "Bekijk ook of de track trace beter kan." Production has no ShipsGo token: automatic data comes
+from the Evergreen date lookup (Bexy) and from Voydar after a ship is linked by hand. Everything here
+works without ShipsGo and keeps working with it. Details: `docs/integrations/container-tracking.md`
+(section 2026-11-10).
+
+- **One rule reads the reference**: `ContainerTracking.recognise(raw)` → `Recognised(kind, number,
+  checkDigitOk, container, evergreenBl)`, kind EMPTY / CONTAINER / BL / BOOKING / MULTIPLE / LINK /
+  UNKNOWN. The frontend runs the same rule (`features/purchasing/tracking-reference.ts`): change both
+  or neither. `reference(raw)` asks `strictReference` (the parser of 2026-10-26, untouched) first, so
+  every key that existed stays; reminder identities use `strictReference` only. `recognise` reports what
+  `strictReference` follows when it takes the text, so the line names the followed number (the
+  frontend mirrors the strict parser for this). A bare Evergreen bill
+  (`EGLV` + 12 digits) now counts and its dates are accepted (`TrackingDateSync.sameShipment`, a
+  superset of the old acceptance). No other bare number is guessed.
+- **Rows** (`ContainerTracking.Row`) end with `recognised, failure, failureAt, failureDataAt, arrivalMovedFrom,
+  arrivalMovedAt, arrivalMovedDays, manualCheckAt, refreshOutcome`. Everything the native iOS app
+  and older screens read (`status`, `statusLabel`, `error`, `source`, `automatic`, `checkedAt`,
+  `updatedAt`, `nextCheckAt`, `orderExpectedArrival`, …) is computed as before.
+  `GET /api/container-tracking?orderId=` answers one order's row.
+- **Failure** = last attempt failed (`TrackingStore.Snapshot.checkFailed`: error and `checkedAt` ≠
+  `updatedAt`), also without a source; `failureDataAt` is the failing snapshot's own last success.
+  Not a failure: a date that could not be applied (`checkDates` writes it with the same instant as
+  its success: keep that), and `BexyClient.NO_DATA_YET` while the bill never gave data (once it did,
+  it is the failure "De datumbron gaf bij de laatste controle geen gegevens."). A received order
+  sends no failure.
+- **Manual check**: `refreshOutcome` CHECKED / COOLDOWN / BUSY / OFF / NO_SOURCE; `manualCheckAt` is
+  when a check does something again (`MANUAL_SECONDS_PAID` 60, `MANUAL_SECONDS_FREE` 900).
+  The service re-reads the order through `TrackingDateSync.reread` (its own transaction) after a
+  check: a plain `orders.findById` in the same request answers the order as first read, so the
+  answer named the old date right after a new one was written. Keep that re-read.
+- **Moved arrival**: `purchase_order.arrival_moved_from / arrival_moved_at / arrival_notice_date /
+  arrival_notice_at`
+  (entity-only columns, the `PurchaseOrder` record and the order JSON do not carry them; migration
+  `docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql` with its Dockerfile COPY
+  and runner line). Written only by `TrackingDateSync.noteArrivalMove`; `PanacheSourcingRepositories
+  .save` clears them when the saved date differs (a date typed by hand is the planning from then
+  on). `ArrivalMoveStore` reads them and builds the bell row ("Aankomst 15/11/2026 · 3 dagen later",
+  detail "was 12/11/2026": always the order's date now, shown while two days or more from the
+  planning; kind `CONTAINER_AANKOMST`, no push; a new identity only when the date lies two days or
+  more from the last named one; its time is `arrival_notice_at`, so a one-day correction neither
+  re-shows a dismissed row nor moves it to the top).
+- **Ship link**: `VesselLinkStore.rebind` (called in `PurchaseOrderService.update`) keeps the link
+  when the reference text is rewritten, unless both texts are recognised with no number in common.
+  The order's port-call snapshot moves with it (`ContainerTrackingService.vesselKey` holds the
+  reference hash).
+- **Time**: "today" in `shipmentPlan` is the Brussels day; the Voydar window starts the day before
+  `shippedOn`.
+- **How it was checked** (no test files; scripts live outside the repo): recognition, the row
+  fields, `?orderId=`, the rebind and the hand-edit clearing went through the API with tracking
+  off. The outcomes BUSY / COOLDOWN / CHECKED / NO_SOURCE, a failed check and the bell row went
+  through the API with tracking on and every outward call refused locally (a JVM proxy on a closed
+  port). The write side (a check that moves the arrival: 5 → 8 → 9 → 10 → 5 december, the bell row
+  following by the two-day rule) ran against a local stand-in for the date source that only the
+  test JVM trusted. Never run against the real Bexy, Voydar or ShipsGo, nor on PostgreSQL.

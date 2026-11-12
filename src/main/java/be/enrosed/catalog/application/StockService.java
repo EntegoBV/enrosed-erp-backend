@@ -209,6 +209,15 @@ public class StockService {
                 .toList();
     }
 
+    /** Sales units per product at one location, only where more than 0 lie (the partner portal's tiles). */
+    public Map<Long, Integer> quantitiesAt(long locationId) {
+        Map<Long, Integer> result = new java.util.HashMap<>();
+        for (StockLevelEntity level : levels.list("locationId = ?1 and quantity > 0", locationId)) {
+            result.merge(level.productId, level.quantity, Integer::sum);
+        }
+        return result;
+    }
+
     /** Sets the count at one location, as after a recount. */
     @Transactional
     public void setLevel(long productId, long locationId, int quantity, StockMovement.Kind kind, String reference) {
@@ -316,6 +325,21 @@ public class StockService {
         recompute(productId);
     }
 
+    /**
+     * Per product: the sales units partner meldingen took out of this container before {@code before}, sold minus
+     * bought back, withdrawals included (every partner line names its part's container). The batch start counts
+     * these as having left the container.
+     */
+    public Map<Long, Integer> partnerReportedOut(long purchaseOrderId, Instant before) {
+        Map<Long, Integer> out = new java.util.HashMap<>();
+        for (StockMovement movement : ledger.forPurchaseOrder(purchaseOrderId)) {
+            if (!movement.kind().isPartnerReport() || movement.at() == null || !movement.at().isBefore(before)) continue;
+            out.merge(movement.productId(), -movement.delta(), Integer::sum);
+        }
+        out.values().removeIf(quantity -> quantity == 0);
+        return out;
+    }
+
     /** The stock book of one product, newest first. */
     public List<StockMovement> movementsFor(long productId) {
         return ledger.forProduct(productId);
@@ -361,6 +385,59 @@ public class StockService {
         batches.onTake(productId, movementId, StockMovement.Kind.SALE, Math.multiplyExact(quantity, unitPieces(productId)),
                 batch, reference, now);
         recompute(productId);
+    }
+
+    /**
+     * A partner portal melding at the partner's location: pieces the partner sold ({@code PARTNER_SALE}, negative)
+     * or bought back on the clock ({@code PARTNER_BUYBACK}, positive), and the reversal of either when a melding is
+     * withdrawn (the opposite kind). Never below zero at the location: a partner is not trusted to oversell. The
+     * line carries the part's container and the melding's sold_on (StockRoll dates it by that). Batches: a take is
+     * pinned to {@code batch.pinPurchaseOrderId()} (own stock: plain FIFO); pieces coming back restore the open takes
+     * of {@code batch.returnOfMovementIds()} first, never through {@code onAdd} (that would make an own Telling
+     * batch). Returns the movement id, which the melding part keeps.
+     */
+    @Transactional
+    public Long partnerMove(long productId, long locationId, int signedQty, StockMovement.Kind kind, String reference,
+                            Long purchaseOrderId, java.time.LocalDate soldOn, StockBatchContext batch) {
+        return partnerMove(productId, locationId, signedQty, kind, reference, purchaseOrderId, soldOn, batch, false);
+    }
+
+    /**
+     * The same; {@code dipAllowed} lets this one line pass below zero, only for the withdrawal of a melding that
+     * books more pieces back in the same transaction right after (its own sale), its net checked beforehand.
+     */
+    @Transactional
+    public Long partnerMove(long productId, long locationId, int signedQty, StockMovement.Kind kind, String reference,
+                            Long purchaseOrderId, java.time.LocalDate soldOn, StockBatchContext batch,
+                            boolean dipAllowed) {
+        if (kind == null || !kind.isPartnerReport()) throw new IllegalArgumentException("Not a partner movement kind");
+        if (signedQty == 0 || (kind == StockMovement.Kind.PARTNER_SALE) != (signedQty < 0)) {
+            throw new IllegalArgumentException("A partner sale lowers stock, a partner buyback raises it");
+        }
+        requireProduct(productId);
+        StockLocation location = location(locationId);
+        int at = quantityAt(productId, locationId);
+        int after = Math.addExact(at, signedQty);
+        if (after < 0 && !dipAllowed) {
+            throw new BusinessRuleException("Op " + location.name() + " liggen maar " + at + " stuks");
+        }
+        write(productId, locationId, after);
+        Instant now = Instant.now();
+        int factor = unitPieces(productId);
+        Long movementId = ledger.record(new StockMovement(null, productId, location.id(), now, signedQty, after, kind,
+                reference, actor.name(), purchaseOrderId, null, null, soldOn == null ? null : soldOn.atStartOfDay(),
+                0, loosePiecesAt(productId, locationId), factor, null, null));
+        StockBatchContext context = batch == null ? StockBatchContext.NONE : batch;
+        int pieces = Math.multiplyExact(Math.abs(signedQty), factor);
+        if (signedQty < 0) {
+            batches.onTake(productId, movementId, kind, pieces,
+                    StockBatchContext.pinned(context.pinPurchaseOrderId()), reference, now);
+        } else {
+            batches.onPartnerReturn(productId, movementId, pieces, context.returnOfMovementIds(), purchaseOrderId,
+                    context.takeOverFromPurchaseOrderId(), reference, now);
+        }
+        recompute(productId);
+        return movementId;
     }
 
     /** A source-owned delta; its original sales date is separate from the immutable booking time. */

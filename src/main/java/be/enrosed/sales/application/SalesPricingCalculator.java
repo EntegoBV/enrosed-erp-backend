@@ -49,8 +49,36 @@ public class SalesPricingCalculator {
             VatCalculator.Result vat,
             /** The shipping organisation, loaded when the order prices freight by staffel. */
             be.enrosed.shipping.domain.Carrier carrier,
-            SalesSplitPricing splitPricing
+            SalesSplitPricing splitPricing,
+            /** How the automatic pallets are counted: the rule the document was stored with. */
+            PalletCountRule palletRule,
+            /** The staff figures on where each line's price comes from; null prices without them. */
+            PriceHints priceHints,
+            /** No country minimum order value: a document made from partner meldingen bills what was sold. */
+            boolean minimumExempt
     ) {
+        /** A context without a rule prices a document that is not stored yet: a new one counts mixed. */
+        public Context {
+            palletRule = palletRule == null ? PalletCountRule.MIXED : palletRule;
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing, PalletCountRule palletRule, PriceHints priceHints) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, palletRule, priceHints, false);
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing, PalletCountRule palletRule) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, palletRule, null);
+        }
+        public Context(Country country, Customer customer, PalletSpec pallet,
+                       List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
+                       VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier,
+                       SalesSplitPricing splitPricing) {
+            this(country, customer, pallet, lineTiers, orderTiers, vat, carrier, splitPricing, null);
+        }
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
                        VatCalculator.Result vat, be.enrosed.shipping.domain.Carrier carrier) {
@@ -67,10 +95,23 @@ public class SalesPricingCalculator {
     private final DeliveryCalculator delivery;
 
     /**
-     * The step a line rounds to when its document does not keep exact pieces: the one the
-     * line remembers from its last save, else the product's current step.
+     * For the staff view of one document: the customer's active agreed prices of today, and whether a
+     * line without a price source shows them too (a concept that pins them). A line with a source
+     * always gets its standard and customer price.
+     */
+    public record PriceHints(Map<Long, BigDecimal> customerPrices, boolean unsourcedLines) {
+        public PriceHints {
+            customerPrices = customerPrices == null ? Map.of() : Map.copyOf(customerPrices);
+        }
+    }
+
+    /**
+     * The step a line rounds to when its document does not keep exact pieces: 1 on a line staff
+     * set to per piece (the choice wins over whatever step is stamped), else the one the line
+     * remembers from its last save, else the product's current step.
      */
     public static int unitsPerOrderStep(SalesOrderLine line, Product product) {
+        if (line != null && line.countsPerPiece()) return 1;
         Integer remembered = line == null ? null : line.unitsPerOrderStep();
         return remembered != null && remembered >= 1 ? remembered : OrderSteps.unitsPerStep(product);
     }
@@ -93,10 +134,12 @@ public class SalesPricingCalculator {
             throw new be.enrosed.shared.BusinessRuleException("De vastgelegde orderverdeling past niet bij de huidige producten of btw-gegevens; controleer de oorspronkelijke bestelling");
 
         List<PricedOrder.Line> lines = new ArrayList<>();
-        List<int[]> palletInput = new ArrayList<>();
+        List<PalletCalculator.Load> palletInput = new ArrayList<>();
         List<String> withoutCost = new ArrayList<>();
         List<String> withoutCartonDimensions = new ArrayList<>();
         List<String> withoutPalletFit = new ArrayList<>();
+        /* The part of withoutPalletFit that fails on a missing omdoos size rather than on the pallet. */
+        List<String> withoutPalletFitSize = new ArrayList<>();
 
         BigDecimal gross = BigDecimal.ZERO;
         BigDecimal lineDiscountTotal = BigDecimal.ZERO;
@@ -135,10 +178,12 @@ public class SalesPricingCalculator {
                     : PalletCalculator.Fit.none("losse dozen");
             if (palletised && quantity > 0 && fit.cartonsPerPallet() <= 0) {
                 withoutPalletFit.add(product.sku());
+                if (!hasCartonSize(carton)) withoutPalletFitSize.add(product.sku());
             }
             int linePallets = palletised
                     ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
-            if (palletised) palletInput.add(new int[] { cartons, fit.cartonsPerPallet() });
+            if (palletised) palletInput.add(new PalletCalculator.Load(product.id(), cartons, fit,
+                    carton.dimensions() == null ? null : carton.dimensions().heightCm(), carton.weightKg()));
             int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
             BigDecimal calculatedPalletHeight = palletised
                     ? calculatedPalletHeight(carton, context.pallet(), usedPalletLayers)
@@ -191,6 +236,12 @@ public class SalesPricingCalculator {
                             product.inventoryKnown());
             String manualWeek = line.deliveryWeek();
 
+            /* Where the price comes from, and on one staff view the catalogue and customer price of today. */
+            PriceHints hints = context.priceHints();
+            boolean hinted = hints != null && (line.priceSource() != null
+                    || hints.unsourcedLines() && hints.customerPrices().containsKey(product.id()));
+            BigDecimal standardPrice = hinted ? unitPriceFor(product, order, null) : null;
+
             lines.add(new PricedOrder.Line(
                     /* Internal screens read the plain name with colour; the
                        dimensions live in their own columns. */
@@ -225,7 +276,15 @@ public class SalesPricingCalculator {
                     line.isUnavailable() ? null : manualWeek != null && !manualWeek.isBlank() ? manualWeek : estimate.week(),
                     line.isUnavailable() ? null : estimate.explanation(), line.isUnavailable(), line.requestedQuantity(),
                     product.packaging().orderStep(), step,
-                    Money.unit(expectedUnit), fromStock ? Money.unit(line.stockCostEur()) : null));
+                    Money.unit(expectedUnit), fromStock ? Money.unit(line.stockCostEur()) : null,
+                    line.priceSource(),
+                    standardPrice != null && standardPrice.signum() > 0 ? Money.unit(standardPrice) : null,
+                    hinted && hints.customerPrices().containsKey(product.id())
+                            ? Money.unit(hints.customerPrices().get(product.id())) : null,
+                    /* The line's own choice, and whether a staff screen may offer it here: the document
+                       rounds and the product's step of today is more than one unit. */
+                    line.countsPerPiece() ? Boolean.TRUE : null,
+                    !exact && OrderSteps.unitsPerStep(product) > 1 ? Boolean.TRUE : null));
 
             gross = gross.add(lineGross);
             lineDiscountTotal = lineDiscountTotal.add(discountAmount);
@@ -251,13 +310,17 @@ public class SalesPricingCalculator {
 
         /* ---- vracht per pallet ----------------------------------------- */
         PalletCalculator.OrderPallets palletCounts = palletised
-                ? pallets.forOrder(palletInput) : new PalletCalculator.OrderPallets(0, 0);
+                ? pallets.forOrder(palletInput, context.pallet(), context.palletRule())
+                : PalletCalculator.OrderPallets.NONE;
         Country country = context.country();
 
         /* Hand-built pallets take over the freight count the moment they
            exist: the seller laid out the load and knows better than the
            formula. Cartons left off any pallet are reported, not silently
-           re-added - the warning on screen is the guard rail. */
+           re-added - the warning on screen is the guard rail. Without them
+           the automatic count follows the document's rule: mixed pallets,
+           or every product on pallets of its own on a document that left
+           concept before 2026-11-04. */
         int manualPallets = palletised ? order.pallets().size() : 0;
         int assignedCartons = order.pallets().stream()
                 .flatMap(pallet -> pallet.items().stream())
@@ -265,7 +328,7 @@ public class SalesPricingCalculator {
                 .sum();
         int unassignedCartons = manualPallets == 0 ? 0
                 : Math.max(0, cartonsTotal - assignedCartons);
-        int palletsForFreight = manualPallets > 0 ? manualPallets : palletCounts.strict();
+        int palletsForFreight = manualPallets > 0 ? manualPallets : palletCounts.automatic();
 
         BigDecimal freight = BigDecimal.ZERO;
         BigDecimal handling = BigDecimal.ZERO;
@@ -340,6 +403,18 @@ public class SalesPricingCalculator {
             handling = BigDecimal.ZERO;
             freightIsMinimum = false;
         }
+        /* A product that cannot be stacked drops out of the calculated count, and with it out of
+           a per-pallet freight: that freight reads as open, never as a silently low or zero amount.
+           Hand-built pallets are billed as they stand; an agreed split keeps its own freight. Only
+           on a concept that was never sent: a document that left concept keeps the validation it
+           was sent or issued with, its freight shown and its transport saves accepted as before. */
+        String palletFitIssue = palletised && manualPallets == 0 && split == null
+                && order.status() == QuoteStatus.CONCEPT && order.sentAt() == null
+                && order.freight() != FreightState.TE_BEPALEN && !withoutPalletFit.isEmpty()
+                && (order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET
+                    || order.freightPricingStrategy() == FreightPricingStrategy.CARRIER)
+                ? palletFitIssue(withoutPalletFit, withoutPalletFitSize)
+                : null;
         if (split != null) {
             freight = split.freight(); handling = split.handling();
             freightIsMinimum = false; carrierFreightIssue = null;
@@ -370,9 +445,10 @@ public class SalesPricingCalculator {
         // Internal margin reconciles the same rounded goods and cost amounts shown to the operator.
         BigDecimal margin = Money.money(goodsTotal).subtract(Money.money(costTotal));
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
-        if (order.isPartnerDeal() || order.isCreditNote()) minOrderValue = BigDecimal.ZERO;
+        if (order.isPartnerDeal() || order.isCreditNote() || context.minimumExempt()) minOrderValue = BigDecimal.ZERO;
         if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
-        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote();
+        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote()
+                || context.minimumExempt();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
@@ -393,14 +469,16 @@ public class SalesPricingCalculator {
                         ? Money.divide(margin.multiply(Money.HUNDRED), Money.money(goodsTotal)).setScale(2, RoundingMode.HALF_UP)
                         : BigDecimal.ZERO,
                 Money.money(margin.subtract(shipping)),
-                Money.money(extraLinesTotal));
+                Money.money(extraLinesTotal),
+                context.palletRule(), palletCounts.automatic(), palletCounts.layout());
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,
                 meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(goodsTotal)),
                 !lines.isEmpty(), country != null, withoutCost,
                 withoutCartonDimensions, withoutPalletFit,
-                carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
+                palletFitIssue != null ? palletFitIssue
+                        : carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
 
         // Customer-visible line nets remain before the separately printed order discounts.
         // Internal margins include those discounts and allocate residual cents consistently.
@@ -438,11 +516,26 @@ public class SalesPricingCalculator {
     }
 
     private static boolean hasValidOuterCarton(Carton carton) {
-        if (carton == null || carton.piecesPerCarton() <= 0 || carton.dimensions() == null) {
-            return false;
-        }
+        return carton != null && carton.piecesPerCarton() > 0 && hasCartonSize(carton);
+    }
+
+    /** All three omdoos sizes, the first thing PalletCalculator.fit asks for. */
+    private static boolean hasCartonSize(Carton carton) {
+        if (carton == null || carton.dimensions() == null) return false;
         Dimensions size = carton.dimensions();
         return positive(size.lengthCm()) && positive(size.widthCm()) && positive(size.heightCm());
+    }
+
+    /**
+     * Why a per-pallet freight stays open, by cause: the omdoos sizes to fill in first; once those
+     * are there, the products the chosen pallet cannot take within its height and weight.
+     */
+    private static String palletFitIssue(List<String> withoutFit, List<String> withoutSize) {
+        if (!withoutSize.isEmpty())
+            return "Pallets niet te berekenen voor " + String.join(", ", withoutSize) + ": vul de omdoosmaten in";
+        return String.join(", ", withoutFit) + (withoutFit.size() == 1 ? " past" : " passen")
+                + " niet binnen het gekozen palletprofiel, de hoogte of het gewicht:"
+                + " kies een ander palletprofiel of een hogere maximale pallethoogte";
     }
 
     private static String freightPricingIssue(SalesOrder order) {

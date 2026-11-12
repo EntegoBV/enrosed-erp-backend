@@ -62,6 +62,32 @@ public final class SalesEntities {
         /** A sentence of our own on every document for this customer. */
         @Column(name = "invoice_note", length = 500)
         public String invoiceNote;
+        /** A CustomerCrmStatus code; plain varchar so a status can be added without a migration. */
+        @Column(name = "crm_status", length = 24)
+        public String crmStatus;
+    }
+
+    /**
+     * One kind of contact with a customer (CustomerTouchpoint): at most one row per customer
+     * and kind, kept as rows rather than a column so the moment and who ticked it survive. No
+     * foreign key, like the customer prices: CustomerAdapter removes them with the customer.
+     */
+    @Entity
+    @Table(name = "customer_touchpoint",
+            uniqueConstraints = @UniqueConstraint(name = "uk_customer_touchpoint_kind",
+                    columnNames = {"customer_id", "kind"}),
+            indexes = @Index(name = "idx_customer_touchpoint_customer", columnList = "customer_id"))
+    public static class CustomerTouchpointEntity {
+        @Id @GeneratedValue(strategy = GenerationType.IDENTITY)
+        public Long id;
+        @Column(name = "customer_id", nullable = false)
+        public Long customerId;
+        @Column(name = "kind", nullable = false, length = 32)
+        public String kind;
+        @Column(name = "done_at", nullable = false)
+        public Instant doneAt;
+        @Column(name = "done_by", length = 80)
+        public String doneBy;
     }
 
     @Entity
@@ -80,7 +106,11 @@ public final class SalesEntities {
         public boolean euMember = true;
     }
 
-    /** One-time country-policy rollouts; later dashboard edits must survive restarts. */
+    /**
+     * One-time rollouts of the sales side: a row says a rollout ran on this database. The country
+     * policy (later dashboard edits must survive restarts) and the return of the pallet standard to
+     * 260 cm (PalletHeightReturn) each keep their own version.
+     */
     @Entity
     @Table(name = "country_policy_version")
     public static class CountryPolicyVersionEntity {
@@ -189,7 +219,11 @@ public final class SalesEntities {
         @Column(length = 24)
         public PalletProfile palletProfile;
 
-        /** Total stack height, including the pallet base; null uses the configured default. */
+        /**
+         * Total stack height, including the pallet base: the standard when the document was made,
+         * unless someone picked another. Null only on rows made before 2026-11-07, which keep
+         * counting the 260 cm of that time (SalesSettings.LEGACY_MAX_HEIGHT_CM).
+         */
         @Column(precision = 8, scale = 2)
         public BigDecimal maxPalletHeightCm;
 
@@ -197,6 +231,16 @@ public final class SalesEntities {
         @Enumerated(EnumType.STRING)
         @Column(columnDefinition = "varchar(24)", length = 24)
         public FreightPricingStrategy freightPricingStrategy;
+
+        /**
+         * How the automatic pallets are counted (PalletCountRule: STRICT or MIXED), written once
+         * when the document is made and never by a save, hence not updatable. A plain varchar, so
+         * no enum CHECK constraint; null (a row from before the rule, until PalletCountRuleBackfill decides it) and
+         * an unknown value read as STRICT. Filled for older rows by
+         * docs/migrations/2026-11-04/sales-order-pallet-count-rule-postgresql.sql and PalletCountRuleBackfill.
+         */
+        @Column(name = "palletcountrule", length = 16, updatable = false)
+        public String palletCountRule;
 
         @Column(precision = 19, scale = 4)
         public BigDecimal freightRatePerCbmEur;
@@ -356,6 +400,12 @@ public final class SalesEntities {
         /** The batch stock cost of one piece when the goods left; null before shipment or without batches
             (docs/migrations/2026-10-25/stock-batches-postgresql.sql). */
         @Column(name = "stock_cost_eur", precision = 19, scale = 4) public BigDecimal stockCostEur;
+        /** CUSTOMER, STANDARD or MANUAL; null on older rows and on a line that follows the catalogue
+            (docs/migrations/2026-11-06/sales-line-price-source-postgresql.sql). A plain varchar. */
+        @Column(name = "pricesource", length = 16) public String priceSource;
+        /** TRUE when staff chose per piece for this line (never rounded to the product's order step); null on
+            every other row (docs/migrations/2026-11-10/sales-line-per-piece-postgresql.sql). */
+        @Column(name = "perpiece") public Boolean perPiece;
     }
 
     @Entity(name = "QuoteRevisionEntity")

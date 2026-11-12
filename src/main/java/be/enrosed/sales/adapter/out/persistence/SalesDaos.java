@@ -13,6 +13,9 @@ public final class SalesDaos {
     public static class Customers implements PanacheRepository<SalesEntities.CustomerEntity> {}
 
     @ApplicationScoped
+    public static class CustomerTouchpoints implements PanacheRepository<SalesEntities.CustomerTouchpointEntity> {}
+
+    @ApplicationScoped
     public static class Countries implements PanacheRepositoryBase<SalesEntities.CountryEntity, String> {}
 
     @ApplicationScoped

@@ -32,14 +32,18 @@ public class CatalogExportResource {
         return export.preflight(request);
     }
 
+    /* JSON is listed too so a refusal (an unknown customer, a page with too much text) reaches the
+       studio as a readable body; the PDF itself always goes out as application/pdf. */
     @POST
     @Path("/export")
     @Consumes(MediaType.APPLICATION_JSON)
-    @Produces("application/pdf")
+    @Produces({"application/pdf", MediaType.APPLICATION_JSON})
     public Response exportPdf(CatalogExportService.Request request,
-                              @QueryParam("inline") @DefaultValue("false") boolean inline) {
-        CatalogDocumentRenderer.Document document = export.export(request);
-        return Response.ok(document.content())
+                              @QueryParam("inline") @DefaultValue("false") boolean inline,
+                              /* "PDF verkleinen" in the studio, on unless the studio sends false. */
+                              @QueryParam("compress") @DefaultValue("true") boolean compress) {
+        CatalogDocumentRenderer.Document document = export.export(request, compress);
+        return Response.ok(document.content(), "application/pdf")
                 .header("Content-Disposition", (inline ? "inline" : "attachment")
                         + "; filename=\"" + document.filename() + "\"")
                 .header("Cache-Control", "no-store")

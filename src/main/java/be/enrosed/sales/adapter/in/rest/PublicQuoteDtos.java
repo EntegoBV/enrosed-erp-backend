@@ -170,8 +170,24 @@ public final class PublicQuoteDtos {
             /* "Verkocht per": CARTON, PACKAGE or UNIT, never null; not a price, so never hidden. */
             String orderStep,
             /* Sales units one order step moves; null for a carton step whose carton content is unknown. */
-            Integer unitsPerOrderStep
+            Integer unitsPerOrderStep,
+            /*
+             * "CUSTOMER" when unitPriceNet is the logged-in customer's own agreed price; absent otherwise,
+             * so the anonymous answer reads exactly as before. Only the account route sets it.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String priceSource
     ) {
+        public static final String CUSTOMER = "CUSTOMER";
+
+        /** A public list price: every anonymous product and a logged-in one without an agreed price. */
+        public ProductPrice(Long productId, BigDecimal unitPriceNet, boolean priceAvailable, int piecesPerCarton,
+                            String salesUnit, Integer piecesPerDisplay, be.enrosed.catalog.adapter.in.rest.UnitDto unit,
+                            String orderStep, Integer unitsPerOrderStep) {
+            this(productId, unitPriceNet, priceAvailable, piecesPerCarton, salesUnit, piecesPerDisplay, unit,
+                    orderStep, unitsPerOrderStep, null);
+        }
+
         public ProductPrice(Long productId, BigDecimal unitPriceNet, boolean priceAvailable, int piecesPerCarton,
                             String salesUnit, Integer piecesPerDisplay) {
             this(productId, unitPriceNet, priceAvailable, piecesPerCarton, salesUnit, piecesPerDisplay, null,
@@ -223,8 +239,35 @@ public final class PublicQuoteDtos {
             BigDecimal lineTotalNet,
             boolean priceAvailable,
             String orderStep,
-            Integer unitsPerOrderStep
-    ) {}
+            Integer unitsPerOrderStep,
+            /*
+             * "CUSTOMER" when the line is priced at the logged-in customer's own agreed price (for a
+             * product kept on a changed order: when it was ordered at one); absent otherwise, so an
+             * anonymous estimate reads exactly as before.
+             */
+            @JsonInclude(JsonInclude.Include.NON_NULL)
+            String priceSource
+    ) {
+        /** A line at the public list price. */
+        public LineEstimate(Long productId, String sku, int cartons, int quantityPieces, int piecesPerCarton,
+                            BigDecimal unitPriceNet, BigDecimal discountPct, BigDecimal lineTotalNet,
+                            boolean priceAvailable, String orderStep, Integer unitsPerOrderStep) {
+            this(productId, sku, cartons, quantityPieces, piecesPerCarton, unitPriceNet, discountPct, lineTotalNet,
+                    priceAvailable, orderStep, unitsPerOrderStep, null);
+        }
+    }
+
+    /**
+     * The logged-in customer's own agreed prices of the products the website sells (never the list
+     * price), for the product pages: {@code GET /api/v1/public/account/prices}.
+     */
+    public record AccountPriceList(String currency, String priceBasis, List<AccountPrice> prices) {}
+
+    /**
+     * One agreed price, EUR excl. VAT per sales unit like {@code unitPriceNet} of the configuration;
+     * {@code piecesPerDisplay} follows the configuration's rule (set for a display packaging).
+     */
+    public record AccountPrice(Long productId, BigDecimal unitPriceNet, String salesUnit, Integer piecesPerDisplay) {}
 
     public record ShippingEstimate(
             String status,

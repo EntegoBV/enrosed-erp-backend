@@ -172,6 +172,8 @@ public class DeletedItemsService {
     private String restoreReason(DeletedItemEntity row) {
         if ("PURCHASE".equals(row.sourceKind)) return purchaseSnapshots.validateRestore(read(row.orderJson, PurchaseOrder.class));
         SalesOrder order = read(row.orderJson, SalesOrder.class);
+        /* Its meldingen may sit on another document by now: a run of Veilingverkopen makes a new one instead. */
+        if (sales.isReportBacked(order)) return "Dit concept kwam uit Veilingverkopen. Factureer opnieuw via Veilingverkopen.";
         if (order.customerId() != null && !exists("customer", order.customerId())) return "De klant bestaat niet meer. Het document blijft hier raadpleegbaar.";
         if (order.lines() != null && order.lines().stream().anyMatch(line -> line.productId() != null && !exists("product", line.productId())))
             return "Een product bestaat niet meer. Het document blijft hier raadpleegbaar.";

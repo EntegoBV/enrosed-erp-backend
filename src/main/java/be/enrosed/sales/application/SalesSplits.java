@@ -114,7 +114,8 @@ public class SalesSplits {
         if (request.previewToken() == null || !request.previewToken().equals(plan.preview().previewToken()))
             throw new BusinessRuleException("De bestelling, voorraad of prijzen zijn intussen gewijzigd; bekijk eerst een nieuwe verdeling");
         SalesOrder first = orders.save(plan.current());
-        SalesOrder later = orders.save(sales.numberSplitDraft(plan.later()));
+        /* The later delivery is a part of the same order: it counts like the original. */
+        SalesOrder later = orders.create(sales.numberSplitDraft(plan.later()), sales.palletRule(plan.source()));
         var group = new SalesSplitGroupEntity();
         group.id = UUID.randomUUID().toString(); group.rootOrderId = first.id(); group.laterOrderId = later.id();
         group.requestId = requestId; group.requestHash = requestHash; group.createdAt = Instant.now();
@@ -407,6 +408,7 @@ public class SalesSplits {
         if (source.isCreditNote()) throw new BusinessRuleException("Een creditnota splits je niet");
         if (source.purpose() != SalesPurpose.STANDARD || source.isPartnerDeal()) throw new BusinessRuleException("Partnerfacturen worden beheerd via de container en kunnen niet als verkoopbestelling worden gesplitst");
         if (part(source.id()) != null) throw new BusinessRuleException("Deze bestelling is al opgesplitst; open de gekoppelde leveringen");
+        if (sales.isReportBacked(source)) throw new BusinessRuleException("Een factuur uit Veilingverkopen splits je niet");
         if (advanceBilling != null && advanceBilling.isResolvable()
                 && (advanceBilling.get().hasBilling(source) || advanceBilling.get().hasLiveAdvances(source)))
             throw new BusinessRuleException("Een offerte met voorschotfacturen, een voorschotfactuur of een slotfactuur splits je niet");
@@ -477,9 +479,15 @@ public class SalesSplits {
         return all.signum() == 0 ? Money.money(null) : amount.multiply(first).divide(all, 2, RoundingMode.HALF_UP);
     }
     private static BigDecimal subtotal(SalesSplitPricing terms) { return terms.lines().stream().map(SalesSplitPricing.Line::net).reduce(BigDecimal.ZERO, BigDecimal::add); }
+    /**
+     * A part's line freezes the priced unit price; a customer's agreed price stays named as such, and a
+     * line that counts per piece says so on both parts (their documents read it in pieces), nothing else.
+     */
     private static SalesOrderLine line(SalesOrderLine source, int quantity, String week, boolean fresh, PricedOrder.Line priced) {
         return new SalesOrderLine(fresh ? null : source.id(), source.productId(), quantity, priced.unitPrice(), source.manualDiscountPct(), week, priced.landedUnitCost(), source.unavailable(), source.requestedQuantity(),
-                source.unitsPerOrderStep());
+                source.unitsPerOrderStep(), null,
+                SalesOrderLine.PRICE_CUSTOMER.equals(source.priceSource()) ? SalesOrderLine.PRICE_CUSTOMER : null,
+                source.perPiece());
     }
     static SalesOrder copy(SalesOrder s, Long id, String number, List<SalesOrderLine> lines, List<SalesExtraLine> extras,
                            BigDecimal freight, BigDecimal extraPct, Long sourceQuoteId) {

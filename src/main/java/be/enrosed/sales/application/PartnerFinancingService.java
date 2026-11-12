@@ -21,6 +21,7 @@ public class PartnerFinancingService {
     @Inject PartnerSettlements settlements;
     @Inject PartnerAdvanceScheduleService schedules;
     @Inject PartnerAdvanceSchedules advanceRows;
+    @Inject jakarta.enterprise.inject.Instance<SalesEnrosedCost> enrosedCost;
     private static final BigDecimal ZERO = new BigDecimal("0.00");
 
     public record Document(Long id, String number, SalesPurpose purpose, DocumentType docType, QuoteStatus status,
@@ -42,7 +43,9 @@ public class PartnerFinancingService {
                           BigDecimal overdueUnbilledAdvanceEur, LocalDate nextAdvanceDueDate,
                           BigDecimal financingBasisEur, PartnerAdvanceBasis.Kind financingBasis,
                           /** Issued live credit notes on this container's documents, incl. VAT, as a positive figure. */
-                          BigDecimal creditNotesEur) {}
+                          BigDecimal creditNotesEur,
+                          /** Of remainingQuantity, what open partner meldingen (Veilingverkopen) still claim. */
+                          int openReportedQuantity) {}
 
     /**
      * What a partner is owed back when the container arrived short of what the advance financed.
@@ -89,15 +92,15 @@ public class PartnerFinancingService {
     }
 
     public SalesAccounting accounting(SalesOrder order, PricedOrder priced) {
-        if (!issued(order) || order.isPartnerAdvance()) return new SalesAccounting(ZERO, ZERO, ZERO, 0);
+        if (!issued(order) || order.isPartnerAdvance()) return new SalesAccounting(ZERO, ZERO, ZERO, 0, ZERO);
         if (order.isCreditNote()) {
             /* A credit note reverses what its invoice recognised: a standard one revenue, cost and
                pieces; one on a settlement only the money, the auctioned pieces stay settled. */
             BigDecimal reversedRevenue = DocumentSign.signedTotal(order, priced);
-            if (order.purpose() == SalesPurpose.PARTNER_SETTLEMENT) return new SalesAccounting(reversedRevenue, ZERO, reversedRevenue, 0);
+            if (order.purpose() == SalesPurpose.PARTNER_SETTLEMENT) return new SalesAccounting(reversedRevenue, ZERO, reversedRevenue, 0, ZERO);
             BigDecimal reversedCost = DocumentSign.signedCost(order, priced);
             return new SalesAccounting(reversedRevenue, reversedCost, Money.money(reversedRevenue.subtract(reversedCost)),
-                    DocumentSign.signedPieces(order, priced));
+                    DocumentSign.signedPieces(order, priced), enrosed(order, priced).negate());
         }
         BigDecimal revenue = Money.money(priced.totals().total());
         BigDecimal cost = Money.money(priced.totals().costTotal());
@@ -113,7 +116,22 @@ public class PartnerFinancingService {
                 cost = cost.add(credited);
             }
         }
-        return new SalesAccounting(revenue, cost, Money.money(revenue.subtract(cost)), priced.totals().pieces());
+        return new SalesAccounting(revenue, cost, Money.money(revenue.subtract(cost)), priced.totals().pieces(),
+                order.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? ZERO : enrosed(order, priced));
+    }
+
+    /**
+     * The Enrosed kost inside the document's goods cost, positive ({@link SalesEnrosedCost}); zero when it cannot be
+     * read, so an analysis figure never takes the sales list down.
+     */
+    private BigDecimal enrosed(SalesOrder order, PricedOrder priced) {
+        try {
+            return enrosedCost != null && enrosedCost.isResolvable() ? enrosedCost.get().of(order, priced) : ZERO;
+        } catch (RuntimeException unreadable) {
+            org.jboss.logging.Logger.getLogger(PartnerFinancingService.class)
+                    .warnf(unreadable, "Enrosed kost van %s niet gelezen", order.number());
+            return ZERO;
+        }
     }
 
     public List<Summary> list() {
@@ -185,7 +203,7 @@ public class PartnerFinancingService {
                 unbilled, pending.size(), overdue, nextDue,
                 agreement == null ? PartnerAdvanceBasis.total(purchases.calculate(purchase)) : agreement.financingBasisEur(),
                 agreement == null ? PartnerAdvanceBasis.Kind.PURCHASE_TOTAL_WITH_SEPARATE_COSTS : agreement.financingBasis(),
-                creditNotesEur);
+                creditNotesEur, sales.openReported(id).values().stream().mapToInt(open -> Math.max(0, open.quantity())).sum());
     }
 
     /**

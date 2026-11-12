@@ -21,18 +21,30 @@ public class ContainerTrackingService {
     @Inject VesselLinkStore links;
     @Inject BexyClient bexy;
     @Inject TrackingDateSync dateSync;
+    @Inject ArrivalMoveStore moves;
     @ConfigProperty(name = "enrosed.tracking.enabled", defaultValue = "true") boolean enabled = true;
+    /** The date lookup answered without data for a bill it had data for: its dates are no longer followed. */
+    static final String DATES_GONE = "De datumbron gaf bij de laatste controle geen gegevens.";
 
     public Feed feed() {
         Map<String, TrackingStore.Snapshot> snapshots = store.all();
         Map<Long, VesselLinkStore.Link> linked = links.all();
+        Map<Long, ArrivalMoveStore.Move> moved = moves.all();
         return new Feed("Voydar / ShipsGo", enabled, INTERVAL_HOURS, trackedOrders().stream()
                 .map(order -> {
                     VesselLinkStore.Link link = VesselLinkStore.matching(order, linked.get(order.id()));
                     Reference reference = trackingReference(order, link);
                     Reference dates = dateReference(order);
-                    return row(order, link, reference == null ? null : snapshots.get(reference.key()), dates == null ? null : snapshots.get(dates.key()));
+                    return row(order, link, reference == null ? null : snapshots.get(reference.key()), dates == null ? null : snapshots.get(dates.key()),
+                            moved.get(order.id()), null);
                 }).toList(), provider.configured());
+    }
+
+    /** The same feed for one purchase order: an order page asks for its own row, not for every container. */
+    public Feed feed(long orderId) {
+        PurchaseOrder order = orders.findById(orderId).filter(ContainerTrackingService::tracked).orElse(null);
+        return new Feed("Voydar / ShipsGo", enabled, INTERVAL_HOURS, order == null ? List.of() : List.of(stored(order, null)),
+                provider.configured());
     }
 
     public Row setVessel(long orderId, String imo, String expectedReference) {
@@ -40,40 +52,59 @@ public class ContainerTrackingService {
         return refresh(orderId);
     }
 
+    /**
+     * A manual check. The answer always says what happened (refreshOutcome): CHECKED a source was asked, COOLDOWN
+     * the last check is too recent (manualCheckAt says from when it can run), BUSY the scheduled run holds the
+     * lease, OFF tracking is switched off, NO_SOURCE nothing is linked that could be asked.
+     */
     public Row refresh(long orderId) {
         PurchaseOrder order = trackedOrders().stream().filter(value -> value.id() == orderId).findFirst()
                 .orElseThrow(() -> new NotFoundException("Container met tracking niet gevonden."));
         VesselLinkStore.Link link = links.find(order);
         Reference reference = trackingReference(order, link), dates = dateReference(order);
-        if (enabled && (dates != null || reference != null && (link != null || provider.configured()))) {
+        String outcome;
+        if (!enabled) outcome = "OFF";
+        else if (dates == null && !(reference != null && (link != null || provider.configured()))) outcome = "NO_SOURCE";
+        else {
             String lease = store.acquire(Instant.now());
-            if (lease != null) {
+            if (lease == null) outcome = "BUSY";
+            else {
+                boolean ran = false;
                 try {
                     if (reference != null && (link != null || provider.configured())) {
                         TrackingStore.Snapshot prior = store.find(reference.key());
-                        long minimumSeconds = link == null ? 60 : 900;
+                        long minimumSeconds = link == null ? MANUAL_SECONDS_PAID : MANUAL_SECONDS_FREE;
                         if (prior == null || prior.checkedAt() == null || prior.checkedAt().isBefore(Instant.now().minusSeconds(minimumSeconds))) {
                             if (link == null) check(order, reference, prior);
                             else checkVessel(order, link, reference);
+                            ran = true;
                         }
                     }
-                    PurchaseOrder forDates = orders.findById(orderId).orElse(null);
+                    PurchaseOrder forDates = dateSync.reread(orderId).orElse(null);
                     dates = forDates == null ? null : dateReference(forDates);
                     if (dates != null) {
                         TrackingStore.Snapshot priorDates = store.find(dates.key());
-                        if (priorDates == null || priorDates.checkedAt() == null || priorDates.checkedAt().isBefore(Instant.now().minusSeconds(900)))
+                        if (priorDates == null || priorDates.checkedAt() == null || priorDates.checkedAt().isBefore(Instant.now().minusSeconds(MANUAL_SECONDS_FREE))) {
                             checkDates(forDates, dates);
+                            ran = true;
+                        }
                     }
                 } finally { store.release(lease); }
+                outcome = ran ? "CHECKED" : "COOLDOWN";
             }
         }
-        PurchaseOrder current = orders.findById(orderId).orElseThrow(() -> new NotFoundException("Container met tracking niet gevonden."));
-        if (current.archivedAt() != null || current.trackingReference() == null || current.trackingReference().isBlank())
-            throw new NotFoundException("Container met tracking niet gevonden.");
-        VesselLinkStore.Link currentLink = links.find(current);
-        Reference currentReference = trackingReference(current, currentLink), currentDates = dateReference(current);
-        return row(current, currentLink, currentReference == null ? null : store.find(currentReference.key()),
-                currentDates == null ? null : store.find(currentDates.key()));
+        // Read again in its own transaction: the answer must show the dates this check just wrote.
+        PurchaseOrder current = dateSync.reread(orderId).orElseThrow(() -> new NotFoundException("Container met tracking niet gevonden."));
+        if (!tracked(current)) throw new NotFoundException("Container met tracking niet gevonden.");
+        return stored(current, outcome);
+    }
+
+    /** The row from what is stored now; no source is asked. */
+    private Row stored(PurchaseOrder order, String refreshOutcome) {
+        VesselLinkStore.Link link = links.find(order);
+        Reference reference = trackingReference(order, link), dates = dateReference(order);
+        return row(order, link, reference == null ? null : store.find(reference.key()),
+                dates == null ? null : store.find(dates.key()), moves.find(order.id()), refreshOutcome);
     }
 
     public void syncDue() {
@@ -95,7 +126,7 @@ public class ContainerTrackingService {
                         touched = true;
                     }
                 }
-                PurchaseOrder forDates = orders.findById(order.id()).orElse(null);
+                PurchaseOrder forDates = dateSync.reread(order.id()).orElse(null);
                 Reference dates = forDates == null || forDates.archivedAt() != null || forDates.status() == PurchaseOrderStatus.ONTVANGEN
                         || forDates.receivedOn() != null ? null : dateReference(forDates);
                 if (dates != null && due(store.find(dates.key()), Instant.now())) {
@@ -113,6 +144,7 @@ public class ContainerTrackingService {
             Instant now = Instant.now();
             store.success(reference, observation, now);
             String reason = dateSync.shipment(order, observation, now, "Evergreen via bexy");
+            // The same instant as the success above: Snapshot.checkFailed() reads that as "date not applied".
             if (reason != null) store.failed(reference, reason, now);
         } catch (ShipsGoClient.TrackingFailure failure) {
             store.failed(reference, failure.getMessage(), Instant.now());
@@ -167,13 +199,17 @@ public class ContainerTrackingService {
         }
     }
 
+    private static boolean tracked(PurchaseOrder order) {
+        return order.archivedAt() == null && order.trackingReference() != null && !order.trackingReference().isBlank();
+    }
+
     private List<PurchaseOrder> trackedOrders() {
-        return orders.findAll().stream().filter(order -> order.archivedAt() == null && order.trackingReference() != null
-                        && !order.trackingReference().isBlank())
+        return orders.findAll().stream().filter(ContainerTrackingService::tracked)
                 .sorted(Comparator.comparing(PurchaseOrder::id).reversed()).toList();
     }
 
-    private Row row(PurchaseOrder order, VesselLinkStore.Link link, TrackingStore.Snapshot snapshot, TrackingStore.Snapshot dateSnapshot) {
+    private Row row(PurchaseOrder order, VesselLinkStore.Link link, TrackingStore.Snapshot snapshot, TrackingStore.Snapshot dateSnapshot,
+                    ArrivalMoveStore.Move move, String refreshOutcome) {
         Reference reference = trackingReference(order, link);
         Observation data = snapshot == null ? null : snapshot.observation();
         if (link != null && data != null) data = VoydarClient.since(data, cutoff(order, link));
@@ -202,6 +238,29 @@ public class ContainerTrackingService {
             if (dateError == null && plan.expectedArrival() != null && !Objects.equals(plan.expectedArrival(), order.expectedArrival()))
                 dateError = "De bronplanning wijkt af van de opgeslagen aankomstdatum. De opgeslagen datum is nog niet aangepast.";
         }
+        /* The last attempt failed, also when no source answered yet (the row's error then holds guidance, not the
+           failure). "No record yet" from the date lookup is waiting while it never answered (a fresh bill): it stays
+           the dateError line. Once it gave data, an answer without data is a failed check like any other. A received
+           order is never checked again, so a failure there is history, not news. */
+        boolean received = order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null;
+        boolean mainActive = link != null || (reference != null && provider.configured());
+        boolean waiting = dateSnapshot != null && dateSnapshot.updatedAt() == null && BexyClient.NO_DATA_YET.equals(dateSnapshot.error());
+        TrackingStore.Snapshot failed = received ? null : mainActive && snapshot != null && snapshot.checkFailed() ? snapshot
+                : dateSnapshot != null && dateSnapshot.checkFailed() && !waiting ? dateSnapshot : null;
+        String failure = failed == null ? null : failed == dateSnapshot && BexyClient.NO_DATA_YET.equals(failed.error()) ? DATES_GONE : failed.error();
+        // One text on the panel: the small date line says nothing the failure notice already says.
+        if (failure != null && failed == dateSnapshot) dateError = failure;
+        Integer movedDays = received ? null : ArrivalMoveStore.days(move, order.expectedArrival());
+        Instant manual = null;
+        if (automatic) {
+            Instant now = Instant.now();
+            Instant main = !mainActive ? null : snapshot == null || snapshot.checkedAt() == null ? Instant.EPOCH
+                    : snapshot.checkedAt().plusSeconds(link == null ? MANUAL_SECONDS_PAID : MANUAL_SECONDS_FREE);
+            Instant date = dateReference(order) == null ? null : dateSnapshot == null || dateSnapshot.checkedAt() == null ? Instant.EPOCH
+                    : dateSnapshot.checkedAt().plusSeconds(MANUAL_SECONDS_FREE);
+            Instant earliest = main == null ? date : date == null || main.isBefore(date) ? main : date;
+            if (earliest != null && earliest.isAfter(now)) manual = earliest;
+        }
         return new Row(order.id(), order.number(), order.alias(), order.trackingReference(), order.status().name(),
                 status, label(status), data == null ? dateData == null ? null : dateData.carrier() : data.carrier(),
                 data == null ? link != null ? "IMO " + link.imo() : dateData == null ? null : dateData.vessel() : data.vessel(),
@@ -213,7 +272,9 @@ public class ContainerTrackingService {
                 link == null ? sourceLink(order.trackingReference()) : "https://www.voydar.com/vessel/" + link.imo(),
                 data == null ? null : data.providerCheckedAt(), data == null ? null : data.providerUpdatedAt(),
                 source, link == null ? null : link.imo(), automatic, order.expectedArrival(), order.shippedOn(),
-                dateSource, evidence == null ? null : evidence.providerCheckedAt(), dateError);
+                dateSource, evidence == null ? null : evidence.providerCheckedAt(), dateError,
+                recognise(order.trackingReference()), failure, failed == null ? null : failed.checkedAt(), failed == null ? null : failed.updatedAt(),
+                movedDays == null ? null : move.from(), movedDays == null ? null : move.at(), movedDays, manual, refreshOutcome);
     }
 
     static Reference dateReference(PurchaseOrder order) {
@@ -222,11 +283,19 @@ public class ContainerTrackingService {
     }
 
     static Reference trackingReference(PurchaseOrder order, VesselLinkStore.Link link) {
-        return link == null ? referenceFor(order) : new Reference(hash("VOYDAR:ORDER:" + order.id() + ":" + link.referenceHash() + ":" + link.imo() + ":" + link.linkedAt()), "IMO:" + link.imo(), false);
+        return link == null ? referenceFor(order) : new Reference(vesselKey(order.id(), link.referenceHash(), link.imo(), link.linkedAt()), "IMO:" + link.imo(), false);
+    }
+    /** The key of an order's own port-call snapshot. It holds the link's reference hash: VesselLinkStore.rebind moves the snapshot with it. */
+    static String vesselKey(long orderId, String referenceHash, String imo, Instant linkedAt) {
+        return hash("VOYDAR:ORDER:" + orderId + ":" + referenceHash + ":" + imo + ":" + linkedAt);
     }
     static Reference vesselFeedReference(String imo) { return new Reference(hash("VOYDAR:FEED:" + imo), "IMO:" + imo, false); }
+    /**
+     * Port calls from the day before the departure day on. shippedOn is the origin port's own day (Ningbo is
+     * eight hours ahead of UTC), so UTC midnight of that day cut off the very departure that set the date.
+     */
     static Instant cutoff(PurchaseOrder order, VesselLinkStore.Link link) {
-        return order.shippedOn() == null ? link.linkedAt() : order.shippedOn().atStartOfDay(ZoneOffset.UTC).toInstant();
+        return order.shippedOn() == null ? link.linkedAt() : order.shippedOn().minusDays(1).atStartOfDay(ZoneOffset.UTC).toInstant();
     }
 
     static Reference referenceFor(PurchaseOrder order) {

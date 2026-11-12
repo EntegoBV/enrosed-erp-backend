@@ -2,18 +2,28 @@ package be.enrosed.sales.application;
 
 import be.enrosed.sales.application.port.out.SalesRepositories;
 import be.enrosed.sales.domain.Customer;
+import be.enrosed.sales.domain.CustomerCrmStatus;
+import be.enrosed.sales.domain.CustomerTouchpoint;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.shared.security.ActorRef;
+import be.enrosed.shared.security.AdminIdentityProvider;
+import be.enrosed.shared.security.CurrentActor;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.enterprise.inject.Instance;
 import jakarta.inject.Inject;
 import jakarta.transaction.Transactional;
 
+import java.time.Instant;
 import java.time.LocalDate;
+import java.util.ArrayList;
+import java.util.Comparator;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 @ApplicationScoped
 public class CustomerService {
@@ -25,11 +35,20 @@ public class CustomerService {
 
     @Inject
     Instance<ActivityLogService> activity;
+    /** Who ticks a contact moment; the system when there is no request (the demo loader). */
+    @Inject
+    Instance<CurrentActor> actor;
+    /** Turns the stored login behind a contact moment into the person's name, as the klantprijzen history does. */
+    @Inject
+    AdminIdentityProvider names;
     @Inject
     Instance<be.enrosed.sourcing.application.port.out.SourcingRepositories.PurchaseOrders> partnerPurchases;
     /** Features that keep rows of their own for a customer (website logins) clear them before the customer goes. */
     @Inject
     Instance<CustomerDeletionListener> deletionListeners;
+    /** Features that hang off the partner flag (the partner portal's sessions) hear when it goes off. */
+    @Inject
+    Instance<CustomerPartnerListener> partnerListeners;
 
     public CustomerService(SalesRepositories.Customers customers, SalesRepositories.Orders orders) {
         this.customers = customers;
@@ -37,11 +56,11 @@ public class CustomerService {
     }
 
     public List<Customer> list() {
-        return customers.findAll();
+        return customers.findAll().stream().map(this::named).toList();
     }
 
     public Customer get(long id) {
-        return customers.findById(id).orElseThrow(() -> new NotFoundException("Klant", id));
+        return named(customers.findById(id).orElseThrow(() -> new NotFoundException("Klant", id)));
     }
 
     @Transactional
@@ -53,9 +72,11 @@ public class CustomerService {
                 customer.postalCode(), customer.city(), customer.incoterm(), customer.paymentTerms(),
                 customer.notes(), LocalDate.now(), customer.partner(),
                 partnerPct(customer.partnerSharePct()), partnerPct(customer.partnerCostPct()),
-                customer.fiscalRepresentative(), invoiceNote(customer.invoiceNote())));
+                customer.fiscalRepresentative(), invoiceNote(customer.invoiceNote()),
+                crmStatus(customer.crmStatus(), CustomerCrmStatus.NIEUW),
+                touchpoints(customer.touchpoints(), List.of())));
         recordActivity(ActivityLogService.ACTION_CREATED, saved, "Klant aangemaakt");
-        return saved;
+        return named(saved);
     }
 
     @Transactional
@@ -68,12 +89,17 @@ public class CustomerService {
                 changes.postalCode(), changes.city(), changes.incoterm(), changes.paymentTerms(),
                 changes.notes(), current.createdAt(), changes.partner(),
                 partnerPct(changes.partnerSharePct()), partnerPct(changes.partnerCostPct()),
-                changes.fiscalRepresentative(), invoiceNote(changes.invoiceNote())));
+                changes.fiscalRepresentative(), invoiceNote(changes.invoiceNote()),
+                crmStatus(changes.crmStatus(), current.crmStatus()),
+                changes.touchpoints() == null ? null : touchpoints(changes.touchpoints(), current.touchpoints())));
         List<ActivityChangeDto> changesMade = customerChanges(current, saved);
         if (!changesMade.isEmpty()) {
             recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Klant bijgewerkt", changesMade);
         }
-        return saved;
+        if (current.partner() && !saved.partner() && partnerListeners != null) {
+            for (CustomerPartnerListener listener : partnerListeners) listener.partnerEnded(id);
+        }
+        return named(saved);
     }
 
     /**
@@ -93,7 +119,7 @@ public class CustomerService {
                 whenEmpty(current.postalCode(), postalCode), whenEmpty(current.city(), city), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.createdAt(), current.partner(),
                 current.partnerSharePct(), current.partnerCostPct(), current.fiscalRepresentative(),
-                current.invoiceNote());
+                current.invoiceNote(), current.crmStatus(), current.touchpoints());
         List<ActivityChangeDto> changesMade = customerChanges(current, filled);
         if (changesMade.isEmpty()) return current;
         Customer saved = customers.save(filled);
@@ -113,6 +139,57 @@ public class CustomerService {
         String trimmed = note.strip();
         if (trimmed.length() > 500) throw new BusinessRuleException("De vermelding op documenten mag hoogstens 500 tekens lang zijn");
         return trimmed;
+    }
+
+    /** The status as given when it is one we know; null means "not said", which falls back to the given default. */
+    private static String crmStatus(String given, String fallback) {
+        if (given == null || given.isBlank()) return fallback;
+        String status = given.strip();
+        if (!CustomerCrmStatus.isKnown(status)) throw new BusinessRuleException("Onbekende klantstatus: " + given);
+        return status;
+    }
+
+    /**
+     * The contact moments a client ticked, one per kind: a kind the customer already has keeps
+     * the moment and actor it was first ticked with, a new kind is ticked now by whoever is
+     * logged in. The client only ever sends kinds; at and by are never taken from it.
+     */
+    private List<CustomerTouchpoint> touchpoints(List<CustomerTouchpoint> given, List<CustomerTouchpoint> current) {
+        Map<String, CustomerTouchpoint> known = new LinkedHashMap<>();
+        if (current != null) for (CustomerTouchpoint touchpoint : current) known.put(touchpoint.kind(), touchpoint);
+        Map<String, CustomerTouchpoint> result = new LinkedHashMap<>();
+        /* Not said (an older client, or a create without the field): what the customer has stays. */
+        if (given == null) return current == null ? List.of() : current;
+        Instant now = Instant.now();
+        String who = actorName();
+        for (CustomerTouchpoint touchpoint : given) {
+            String kind = touchpoint == null || touchpoint.kind() == null ? null : touchpoint.kind().strip();
+            if (!CustomerTouchpoint.isValidKind(kind)) {
+                throw new BusinessRuleException("Onbekend contactmoment: " + (kind == null ? "" : kind));
+            }
+            if (result.containsKey(kind)) continue;
+            CustomerTouchpoint existing = known.get(kind);
+            result.put(kind, existing != null ? existing : new CustomerTouchpoint(kind, now, who));
+        }
+        return new ArrayList<>(result.values());
+    }
+
+    /** The canonical username, as every audit column stores it; {@link #named} turns it into a name on the way out. */
+    private String actorName() {
+        if (actor == null || !actor.isResolvable()) return ActorRef.SYSTEM.username();
+        return actor.get().name();
+    }
+
+    /**
+     * The customer as a client shows it: a contact moment names the person ("Emre", "Systeem"),
+     * never the stored login, which is the only name the Opvolging block would otherwise print.
+     */
+    private Customer named(Customer customer) {
+        if (customer == null || customer.touchpoints() == null || customer.touchpoints().isEmpty()) return customer;
+        return customer.withTouchpoints(customer.touchpoints().stream()
+                .map(touchpoint -> new CustomerTouchpoint(touchpoint.kind(), touchpoint.at(),
+                        names == null ? touchpoint.by() : names.displayNameFor(touchpoint.by())))
+                .toList());
     }
 
     private static java.math.BigDecimal partnerPct(java.math.BigDecimal value) {
@@ -186,8 +263,30 @@ public class CustomerService {
                 .add("fiscalRepresentative", "Inklaring via fiscaal vertegenwoordiger",
                         before.fiscalRepresentative() ? "ja" : "nee", after.fiscalRepresentative() ? "ja" : "nee")
                 .add("invoiceNote", "Vermelding op documenten", before.invoiceNote(), after.invoiceNote())
+                .add("crmStatus", "Status", CustomerCrmStatus.label(before.crmStatus()),
+                        CustomerCrmStatus.label(after.crmStatus()))
+                .add("touchpoints", "Contactmomenten", touchpointLabels(before.touchpoints()),
+                        touchpointLabels(after.touchpoints()))
                 .privateValue("address", "Adres", before.address(), after.address())
                 .privateValue("notes", "Notities", before.notes(), after.notes())
                 .build();
+    }
+
+    /**
+     * The ticked kinds as the Logboek shows them, in the order the screen lists them (unknown
+     * kinds last, by name) so a save that changed nothing but the row order logs nothing. Null
+     * for none, and also for "not loaded", so a before without rows never reads as a change.
+     */
+    private static String touchpointLabels(List<CustomerTouchpoint> touchpoints) {
+        if (touchpoints == null || touchpoints.isEmpty()) return null;
+        return touchpoints.stream()
+                .map(CustomerTouchpoint::kind)
+                .distinct()
+                .sorted(Comparator.comparingInt((String kind) -> {
+                    int index = CustomerTouchpoint.KNOWN_KINDS.indexOf(kind);
+                    return index < 0 ? Integer.MAX_VALUE : index;
+                }).thenComparing(Comparator.<String>naturalOrder()))
+                .map(CustomerTouchpoint::label)
+                .collect(java.util.stream.Collectors.joining(", "));
     }
 }

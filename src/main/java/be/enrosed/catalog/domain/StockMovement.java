@@ -28,7 +28,9 @@ public record StockMovement(
         /**
          * The container the pieces came on, when damage or a shortage is
          * reported after receipt; the order's dossier and the next supplier
-         * order read it back. Null for every other line.
+         * order read it back. A partner portal line (PARTNER_SALE,
+         * PARTNER_BUYBACK) names the partner container of its melding part,
+         * null for own stock. Null for every other line.
          */
         Long purchaseOrderId,
         Long ticaSaleId,
@@ -41,7 +43,11 @@ public record StockMovement(
         String sourceUnit
 ) {
     public enum Kind {
-        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO, SHORTAGE, SALE_RETURN;
+        PURCHASE_RECEIPT, MANUAL_CORRECTION, TRANSFER_OUT, TRANSFER_IN, STOCKTAKE, SALE, DAMAGED, DEMO, SHORTAGE, SALE_RETURN,
+        /** Pieces a partner reported sold through the portal (always negative); also the undo of a buyback. */
+        PARTNER_SALE,
+        /** Pieces a partner bought back on the clock (always positive); also the undo of a sale. */
+        PARTNER_BUYBACK;
 
         public String dutchLabel() {
             return switch (this) {
@@ -55,7 +61,17 @@ public record StockMovement(
                 case DEMO -> "Demo weggegeven";
                 case SHORTAGE -> "Te weinig geleverd";
                 case SALE_RETURN -> "Retour van klant";
+                case PARTNER_SALE -> "Verkocht via partner";
+                case PARTNER_BUYBACK -> "Teruggekocht door partner";
             };
+        }
+
+        /**
+         * A line of a partner portal melding: it belongs to the melding (undone by withdrawing it,
+         * never deleted from the book) and carries the melding's sold_on as sourceSoldAt.
+         */
+        public boolean isPartnerReport() {
+            return this == PARTNER_SALE || this == PARTNER_BUYBACK;
         }
 
         /** Whether this kind is a complaint the supplier may hear about. */

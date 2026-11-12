@@ -42,14 +42,18 @@ public final class ClosingSeparations {
     /**
      * @param advance             whether an invoice is an advance invoice, which ships nothing
      * @param previousClosingDate null in a first closing: the period then starts on 1 January of the year
+     * @param reportBacked        invoices made from partner meldingen: their pieces left through the meldingen'
+     *                            own stock lines (the roll lists those), so they are never a candidate
      */
     public static Invoices invoices(List<SalesOrder> all, Predicate<SalesOrder> advance, int closingYear,
-                                    LocalDate closingDate, Instant cutoffAt, LocalDate previousClosingDate) {
+                                    LocalDate closingDate, Instant cutoffAt, LocalDate previousClosingDate,
+                                    Set<Long> reportBacked) {
         List<SalesOrder> candidates = new ArrayList<>();
         List<SalesOrder> older = new ArrayList<>();
         for (SalesOrder order : all) {
             if (!order.isInvoice() || order.purpose() != SalesPurpose.STANDARD || !ISSUED.contains(order.status())) continue;
             if (productQuantities(order).isEmpty() || advance.test(order)) continue;
+            if (order.id() != null && reportBacked.contains(order.id())) continue;
             boolean before = order.orderDate() == null || (previousClosingDate == null
                     ? order.orderDate().isBefore(LocalDate.of(closingYear, 1, 1))
                     : !order.orderDate().isAfter(previousClosingDate));
@@ -90,9 +94,7 @@ public final class ClosingSeparations {
             var row = listed.row();
             if (Boolean.TRUE.equals(row.removed) || !StockMovement.Kind.SALE.name().equals(row.kind)
                     || !invoice.number().equals(row.refText)) continue;
-            boolean applied = Boolean.TRUE.equals(row.applied);
-            boolean happenedBefore = listed.countAfterClosingDate() ? listed.between() && !applied : applied;
-            if (happenedBefore) products.add(row.productId);
+            if (happenedBefore(listed)) products.add(row.productId);
         }
         return products;
     }
@@ -114,17 +116,27 @@ public final class ClosingSeparations {
     }
 
     /**
-     * The pieces per product that left a partner container by the cut-off: the larger of what its
-     * advance documents and what its settlement invoices shipped, as "Voorraad afpunten" counts them.
+     * The pieces per product (sales units) that left a partner container by the cut-off: the larger of
+     * what its advance documents and what its settlement invoices shipped, as "Voorraad afpunten"
+     * counts them, plus what partner meldingen took out of it (sold minus bought back, withdrawals
+     * included). Settlements made from meldingen are left out of the settlement sum: their pieces
+     * left through the meldingen' stock lines, which {@code reportedOut} already counts.
+     *
+     * @param reportBacked the documents made from partner meldingen
+     * @param reportedOut  per product, the net sales units the meldingen' stock lines of this container
+     *                     took out before the cut-off (the caller decides "before": the closing by the
+     *                     roll's answer per line, the batch start by booking time)
      */
-    public static Map<Long, Integer> partnerShipped(long purchaseOrderId, List<SalesOrder> all, Instant cutoffAt) {
+    public static Map<Long, Integer> partnerShipped(long purchaseOrderId, List<SalesOrder> all, Instant cutoffAt,
+                                                    Set<Long> reportBacked, Map<Long, Integer> reportedOut) {
         Map<Long, Integer> advances = new LinkedHashMap<>();
         Map<Long, Integer> settlements = new LinkedHashMap<>();
         for (SalesOrder order : all) {
             if (!Objects.equals(order.linkedPurchaseOrderId(), purchaseOrderId) || order.goodsShippedAt() == null
                     || !order.goodsShippedAt().isBefore(cutoffAt)) continue;
             Map<Long, Integer> target = order.isPartnerAdvance() ? advances
-                    : order.purpose() == SalesPurpose.PARTNER_SETTLEMENT ? settlements : null;
+                    : order.purpose() == SalesPurpose.PARTNER_SETTLEMENT
+                    && (order.id() == null || !reportBacked.contains(order.id())) ? settlements : null;
             if (target == null) continue;
             for (SalesOrderLine line : order.lines()) {
                 if (line.productId() != null && line.quantity() > 0) target.merge(line.productId(), line.quantity(), Integer::sum);
@@ -132,6 +144,46 @@ public final class ClosingSeparations {
         }
         Map<Long, Integer> shipped = new LinkedHashMap<>(advances);
         settlements.forEach((productId, quantity) -> shipped.merge(productId, quantity, Math::max));
+        reportedOut.forEach((productId, quantity) -> shipped.merge(productId, quantity, Integer::sum));
+        shipped.replaceAll((productId, quantity) -> Math.max(0, quantity));
+        shipped.values().removeIf(quantity -> quantity == 0);
         return shipped;
+    }
+
+    /**
+     * Whether a listed line of the roll happened on or before the closing date, the way
+     * {@link #alreadyOut} reads it: with a count after the closing date a line between the two counts
+     * as before when the user took it out of the roll; otherwise when it counts towards the closing.
+     */
+    public static boolean happenedBefore(StockRoll.Row listed) {
+        boolean applied = Boolean.TRUE.equals(listed.row().applied);
+        return listed.countAfterClosingDate() ? listed.between() && !applied : applied;
+    }
+
+    /**
+     * Per container and product: the net sales units partner meldingen' stock lines took out by the
+     * closing date. A line the roll lists counts by the roll's answer ({@link #happenedBefore}); a
+     * line it does not list by its booking time against the cut-off.
+     *
+     * @param movements the PARTNER_SALE / PARTNER_BUYBACK lines that name a container, in sales units
+     * @param listed    the roll's rows
+     */
+    public static Map<Long, Map<Long, Integer>> partnerReportedOut(List<StockMovement> movements, List<StockRoll.Row> listed,
+                                                                   Instant cutoffAt) {
+        Map<Long, Boolean> decided = new java.util.HashMap<>();
+        for (StockRoll.Row row : listed) {
+            if (row.row().movementId == null || Boolean.TRUE.equals(row.row().removed)) continue;
+            decided.put(row.row().movementId, happenedBefore(row));
+        }
+        Map<Long, Map<Long, Integer>> out = new LinkedHashMap<>();
+        for (StockMovement movement : movements) {
+            if (!movement.kind().isPartnerReport() || movement.purchaseOrderId() == null || movement.at() == null) continue;
+            boolean before = movement.id() != null && decided.containsKey(movement.id()) ? decided.get(movement.id())
+                    : movement.at().isBefore(cutoffAt);
+            if (!before) continue;
+            out.computeIfAbsent(movement.purchaseOrderId(), key -> new LinkedHashMap<>())
+                    .merge(movement.productId(), -movement.delta(), Integer::sum);
+        }
+        return out;
     }
 }

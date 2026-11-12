@@ -5,6 +5,7 @@ import be.enrosed.catalog.application.CataloguePhotoPlan;
 import be.enrosed.catalog.application.ContentTranslationService;
 import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
+import be.enrosed.catalog.application.port.out.CataloguePallet;
 import be.enrosed.catalog.application.port.out.PhotoStorage;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.ContentScope;
@@ -49,8 +50,15 @@ import java.util.Set;
 public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     private static final Logger LOG = Logger.getLogger(PdfCatalogRenderer.class);
-    /** Conservative A4 budget including chapter rows; long real SKUs wrap over several lines. */
-    private static final int OVERVIEW_ROWS_PER_PAGE = 12;
+    /**
+     * Conservative A4 budget including chapter rows; long real SKUs wrap over several lines, and
+     * every family row carries pallet, 20ft and 40ft. A layout whose overview still runs into the
+     * footnote is laid out again with fewer rows, down to {@link #MIN_OVERVIEW_ROWS_PER_PAGE}.
+     */
+    private static final int OVERVIEW_ROWS_PER_PAGE = 10;
+    private static final int MIN_OVERVIEW_ROWS_PER_PAGE = 6;
+    /** The first layout, then compact, tight or bare sheets and fewer overview rows where they are needed. */
+    private static final int MAX_BROCHURE_LAYOUTS = 5;
     /** All chapters share the same restrained bordeaux brand palette. */
     private static final int TONE_COUNT = 1;
     /* Real four-variant families with complete translated sales copy still fit the compact
@@ -59,6 +67,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private static final int FAMILY_PAGE_CAPACITY = 3_400;
     /** The overview says each family in one line; longer copy is cut at a word. */
     private static final int OVERVIEW_SUMMARY_CHARS = 92;
+    /* A recipient's name fits two cover lines and one running header line at these lengths. */
+    private static final int RECIPIENT_LINE_CHARS = 80;
+    private static final int RECIPIENT_HEADER_CHARS = 48;
     private static final Color CATALOG_IMAGE_BACKGROUND = Color.WHITE;
     /** Row-major order matches the single, reviewed five-by-four rose-head photograph. */
     private static final List<String> PALETTE_COLOURS = List.of(
@@ -78,6 +89,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private final CatalogEditorialAssets editorial;
     private final ContentTranslationService content;
     private final StaffContactService staffContacts;
+    private final CataloguePallet pallets;
 
     public PdfCatalogRenderer(@Location("catalog.html") Template simpleTemplate,
                               @Location("catalog-brochure.html") Template brochureTemplate,
@@ -89,7 +101,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                               PdfImageEncoder imageEncoder,
                               CatalogEditorialAssets editorial,
                               ContentTranslationService content,
-                              StaffContactService staffContacts) {
+                              StaffContactService staffContacts,
+                              CataloguePallet pallets) {
         this.simpleTemplate = simpleTemplate;
         this.brochureTemplate = brochureTemplate;
         this.products = products;
@@ -101,6 +114,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.editorial = editorial;
         this.content = content;
         this.staffContacts = staffContacts;
+        this.pallets = pallets;
     }
 
     /** One complete SKU-level row in the compact catalogue. */
@@ -110,7 +124,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                        String priceLabel, String displayPriceLabel, boolean inventoryKnown, Integer stockQuantity,
                        PhotoLayout photos, boolean photosRequested, String cartonQuantityLabel, String capacity20FtLabel,
                        /** "per bowl": what the piece price is per. */
-                       String perUnitLabel) {
+                       String perUnitLabel,
+                       /** "864 st. (72 omdozen)" on one europallet, or "-". */
+                       String palletLabel,
+                       /** "27.192 st." in one 40' HC, or "-". */
+                       String capacity40FtLabel) {
         /** Keep every selected image in source order without a clipped mosaic or extra strip. */
         public List<List<String>> photoRows() {
             List<String> images = new ArrayList<>();
@@ -136,7 +154,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String sku, String name, String colour, String size, String colourHex,
             String productSize, String cartonSize, int piecesPerCarton,
             String ean, String priceLabel, String image, String gpCapacity, String displayPriceLabel, String cartonQuantityLabel,
-            String perUnitLabel) {
+            String perUnitLabel,
+            /** Units on one europallet and in one 40' HC, worded like the 20ft figure; "-" when unknown. */
+            String palletCapacity, String hcCapacity) {
+        public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
+                               String productSize, String cartonSize, int piecesPerCarton,
+                               String ean, String priceLabel, String image, String gpCapacity,
+                               String displayPriceLabel, String cartonQuantityLabel, String perUnitLabel) {
+            this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
+                    ean, priceLabel, image, gpCapacity, displayPriceLabel, cartonQuantityLabel, perUnitLabel,
+                    "-", "-");
+        }
         public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
                                String productSize, String cartonSize, int piecesPerCarton,
                                String ean, String priceLabel, String image, String gpCapacity,
@@ -168,6 +196,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     /** One line of the specification block: a translated label and its value. */
     public record SpecRow(String label, String value) {}
 
+    /** Whether the variants differ in any of pallet, 20ft and 40ft, as their table cells word them. */
+    static boolean capacitiesDiffer(List<BrochureVariant> variants) {
+        return variants != null && variants.size() > 1
+                && (distinctCount(variants, BrochureVariant::palletCapacity) > 1
+                || distinctCount(variants, BrochureVariant::gpCapacity) > 1
+                || distinctCount(variants, BrochureVariant::hcCapacity) > 1);
+    }
+
+    private static long distinctCount(List<BrochureVariant> variants,
+                                      java.util.function.Function<BrochureVariant, String> value) {
+        return variants.stream().map(value).distinct().limit(2).count();
+    }
+
     /** Millimetre offsets expose one rose from the shared plate without modifying its pixels. */
     public record PaletteColour(String label, int left, int top) {}
 
@@ -184,7 +225,23 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             /** The chapter's tint class: bordeaux for the first chapter, then the other tones. */
             String tone, boolean largeDetailPhoto, String displayPriceLabel,
             /** "per bowl" when every variant shares the unit; null leaves the price without a suffix. */
-            String perUnitLabel) {
+            String perUnitLabel,
+            /** For a sheet the compact design cannot hold: a smaller hero and colour strip. */
+            boolean tightDetail,
+            /** The last resort, when even that does not hold: no colour photos, gallery or long description,
+                so the variant table with its prices always stays on the page. */
+            boolean bareDetail) {
+
+        public BrochureFamily(String anchor, String number, String name, String summary, String description,
+                String format, List<String> highlights, String categoryKey, String categoryName,
+                String familySize, String packageLine, String overviewImage, PhotoLayout photos,
+                String referencePriceLabel, boolean compactDetail, List<BrochureVariant> variants,
+                List<SpecRow> specs, int page, RangeFacts facts, String tone, boolean largeDetailPhoto,
+                String displayPriceLabel, String perUnitLabel) {
+            this(anchor, number, name, summary, description, format, highlights, categoryKey, categoryName,
+                    familySize, packageLine, overviewImage, photos, referencePriceLabel, compactDetail,
+                    variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel, perUnitLabel, false, false);
+        }
 
         public BrochureFamily(String anchor, String number, String name, String summary, String description,
                 String format, List<String> highlights, String categoryKey, String categoryName,
@@ -194,7 +251,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 String displayPriceLabel) {
             this(anchor, number, name, summary, description, format, highlights, categoryKey, categoryName,
                     familySize, packageLine, overviewImage, photos, referencePriceLabel, compactDetail,
-                    variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel, null);
+                    variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel, (String) null);
         }
 
         public BrochureFamily(String anchor, String number, String name, String summary, String description,
@@ -229,7 +286,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return new BrochureFamily("family-" + number, number, name, summary, description, format,
                     highlights, categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
                     referencePriceLabel, compactDetail, variants, specs, page, facts, tone, largeDetailPhoto, displayPriceLabel,
-                    perUnitLabel);
+                    perUnitLabel, tightDetail, bareDetail);
         }
 
         /** The same sheet in the compact design, for content the spacious sheet cannot hold. */
@@ -237,7 +294,23 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
                     categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
                     referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
-                    displayPriceLabel, perUnitLabel);
+                    displayPriceLabel, perUnitLabel, tightDetail, bareDetail);
+        }
+
+        /** The compact sheet with a smaller hero and colour strip, for content the compact design cannot hold. */
+        public BrochureFamily tight() {
+            return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
+                    categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
+                    referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
+                    displayPriceLabel, perUnitLabel, true, bareDetail);
+        }
+
+        /** The tight sheet without colour photos, gallery or long description: the variant table stays whole. */
+        public BrochureFamily bare() {
+            return new BrochureFamily(anchor, number, name, summary, description, format, highlights,
+                    categoryKey, categoryName, familySize, packageLine, overviewImage, photos,
+                    referencePriceLabel, true, variants, specs, page, facts, tone, largeDetailPhoto,
+                    displayPriceLabel, perUnitLabel, true, true);
         }
 
         /** The one line the overview says about this family. */
@@ -292,10 +365,13 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     .anyMatch(variant -> present(variant.ean()) && !"-".equals(variant.ean()));
         }
 
-        /** Differing or partially unknown capacities belong to the individual SKU. */
-        public boolean showVariant20Ft() {
-            return showVariantTable() && variants.stream().map(BrochureVariant::gpCapacity)
-                    .distinct().limit(2).count() > 1;
+        /**
+         * Differing or partially unknown capacities belong to the individual SKU: when any of pallet,
+         * 20ft and 40ft differs, all three go on a line of their own under each variant row (and none
+         * in the specification list), so the trio is never split.
+         */
+        public boolean showVariantCapacities() {
+            return showVariantTable() && capacitiesDiffer(variants);
         }
 
         /** A single product without story copy gets the large product shot and the roomy list. */
@@ -369,7 +445,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      */
     public record RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
                              String productSize, String packaging, String carton, String cartonPieces,
-                             String cbm, String hcCapacity, String ean, String gpCapacity) {
+                             String cbm, String hcCapacity, String ean, String gpCapacity,
+                             /** Units on one europallet; printed with 20ft and 40ft, "-" when unknown. */
+                             String palletCapacity) {
+        public RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
+                          String productSize, String packaging, String carton, String cartonPieces,
+                          String cbm, String hcCapacity, String ean, String gpCapacity) {
+            this(skuLabel, colours, colourLabel, sizeLabel, productSize, packaging, carton,
+                    cartonPieces, cbm, hcCapacity, ean, gpCapacity, "-");
+        }
+
         public RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
                           String productSize, String packaging, String carton, String cartonPieces,
                           String cbm, String hcCapacity, String ean) {
@@ -396,6 +481,26 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                     family.anchor(), family.page(), family.overviewImage(), family.facts(),
                     family.referencePriceLabel(), family.displayPriceLabel(), family.perUnitLabel());
         }
+
+        /**
+         * "Display (12 st.):" of "Display (12 st.): € 49,00 - € 54,00": the narrow price cell puts
+         * the amount under these words. The whole label when it names no amount after a colon.
+         */
+        public String displayPriceHead() {
+            int split = displayPriceSplit();
+            return split < 0 ? displayPriceLabel : displayPriceLabel.substring(0, split + 1).strip();
+        }
+
+        /** "€ 49,00 - € 54,00": the amount after the words; empty when the label has no colon. */
+        public String displayPriceAmount() {
+            int split = displayPriceSplit();
+            return split < 0 ? "" : displayPriceLabel.substring(split + 1).strip();
+        }
+
+        /* Every language's display total ends in ": {price}" (" : " in French); the amount has no colon. */
+        private int displayPriceSplit() {
+            return displayPriceLabel == null ? -1 : displayPriceLabel.lastIndexOf(": ");
+        }
     }
 
     public record OverviewPage(int number, int total, List<OverviewRow> rows) {}
@@ -403,9 +508,23 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     @Override
     public Document render(CatalogExportService.Model catalog) {
         if (catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE) {
-            return new Document("enrosed-wholesale-brochure.pdf", brochurePdf(catalog), "application/pdf");
+            return new Document(fileName(catalog), brochurePdf(catalog), "application/pdf");
         }
-        return new Document("enrosed-catalogus.pdf", fonts.render(renderHtml(catalog)), "application/pdf");
+        return new Document(fileName(catalog), fonts.render(renderHtml(catalog)), "application/pdf");
+    }
+
+    /**
+     * The name the studio saves the PDF under, built the same way there:
+     * "enrosed-prijslijst-bloemen-janssens-nl.pdf" for a recipient, else
+     * "enrosed-brochure-nl.pdf" or "enrosed-catalogus-nl.pdf".
+     */
+    static String fileName(CatalogExportService.Model catalog) {
+        String language = catalogLanguage(catalog.request().language()).code();
+        if (catalog.recipient() != null) {
+            return "enrosed-prijslijst-" + catalog.recipient().fileSlug() + "-" + language + ".pdf";
+        }
+        return (catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
+                ? "enrosed-brochure-" : "enrosed-catalogus-") + language + ".pdf";
     }
 
     /**
@@ -415,7 +534,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     String renderHtml(CatalogExportService.Model catalog) {
         requireCompleteCopy(catalog);
         return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
-                ? brochureHtml(catalog, new PhotoResolver(), Set.of()) : simpleHtml(catalog);
+                ? brochureHtml(catalog, new PhotoResolver(), Set.of(), Set.of(), Set.of(), OVERVIEW_ROWS_PER_PAGE)
+                : simpleHtml(catalog);
     }
 
     /**
@@ -426,27 +546,71 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private byte[] brochurePdf(CatalogExportService.Model catalog) {
         requireCompleteCopy(catalog);
         PhotoResolver photos = new PhotoResolver();
+        Set<String> compactSheets = new LinkedHashSet<>();
+        Set<String> tightSheets = new LinkedHashSet<>();
+        Set<String> bareSheets = new LinkedHashSet<>();
+        int overviewRows = OVERVIEW_ROWS_PER_PAGE;
         List<FamilySheetFit.Overflow> overflows = new ArrayList<>();
-        Optional<byte[]> pdf = fonts.render(brochureHtml(catalog, photos, Set.of()), laidOut -> {
-            overflows.addAll(FamilySheetFit.overflowing(laidOut));
-            return overflows.stream().allMatch(FamilySheetFit.Overflow::compact);
-        });
-        if (pdf.isEmpty()) {
-            Set<String> compactSheets = overflows.stream().filter(overflow -> !overflow.compact())
-                    .map(FamilySheetFit.Overflow::anchor)
-                    .collect(java.util.stream.Collectors.toCollection(LinkedHashSet::new));
-            LOG.infof("Catalogusfiches %s passen niet ruim op hun pagina; compacte opmaak gebruikt",
-                    compactSheets);
+        List<FamilySheetFit.OverviewRoom> overview = new ArrayList<>();
+        for (int layout = 1; ; layout++) {
+            boolean last = layout == MAX_BROCHURE_LAYOUTS;
+            int rows = overviewRows;
             overflows.clear();
-            pdf = fonts.render(brochureHtml(catalog, photos, compactSheets), laidOut -> {
-                overflows.addAll(FamilySheetFit.overflowing(laidOut));
-                return true;
-            });
+            overview.clear();
+            Optional<byte[]> pdf = fonts.render(
+                    brochureHtml(catalog, photos, compactSheets, tightSheets, bareSheets, rows), laidOut -> {
+                        overflows.addAll(FamilySheetFit.overflowing(laidOut));
+                        overview.addAll(FamilySheetFit.overviewRoom(laidOut));
+                        boolean sheetsCanShrink = overflows.stream().anyMatch(overflow -> !overflow.bare());
+                        boolean overviewCanShrink = rows > MIN_OVERVIEW_ROWS_PER_PAGE
+                                && overview.stream().anyMatch(FamilySheetFit.OverviewRoom::overflowing);
+                        return last || (!sheetsCanShrink && !overviewCanShrink);
+                    });
+            if (pdf.isPresent()) {
+                overflows.forEach(overflow -> LOG.warnf(
+                        "Catalogusfiche %s is ook compact %.1f mm te lang voor één A4-pagina; kort de teksten in",
+                        overflow.anchor(), overflow.millimetres()));
+                /* Nothing moves an overview row to the next page: a long table is clipped at the footnote. */
+                for (FamilySheetFit.OverviewRoom room : overview) {
+                    if (room.overflowing()) {
+                        LOG.warnf("Overzichtspagina %d loopt %.1f mm in de voetnoot; de laatste rij wordt afgesneden",
+                                (Object) room.page(), -room.millimetres());
+                    } else {
+                        LOG.debugf("Overzichtspagina %d: %.1f mm vrij boven de voetnoot",
+                                (Object) room.page(), room.millimetres());
+                    }
+                }
+                return pdf.get();
+            }
+            Set<String> nowCompact = new LinkedHashSet<>();
+            Set<String> nowTight = new LinkedHashSet<>();
+            Set<String> nowBare = new LinkedHashSet<>();
+            for (FamilySheetFit.Overflow overflow : overflows) {
+                if (!overflow.compact()) nowCompact.add(overflow.anchor());
+                else if (!overflow.tight()) nowTight.add(overflow.anchor());
+                else if (!overflow.bare()) nowBare.add(overflow.anchor());
+            }
+            if (!nowCompact.isEmpty()) {
+                LOG.infof("Catalogusfiches %s passen niet ruim op hun pagina; compacte opmaak gebruikt", nowCompact);
+                compactSheets.addAll(nowCompact);
+            }
+            if (!nowTight.isEmpty()) {
+                LOG.infof("Catalogusfiches %s passen ook compact niet; kleinere beelden gebruikt", nowTight);
+                tightSheets.addAll(nowTight);
+            }
+            if (!nowBare.isEmpty()) {
+                LOG.infof("Catalogusfiches %s passen ook klein niet; zonder kleurfoto's en lange tekst", nowBare);
+                bareSheets.addAll(nowBare);
+            }
+            if (rows > MIN_OVERVIEW_ROWS_PER_PAGE
+                    && overview.stream().anyMatch(FamilySheetFit.OverviewRoom::overflowing)) {
+                /* Below the fullest page: a budget the pagination rounds back to the same pages changes nothing. */
+                int fullest = overview.stream().mapToInt(FamilySheetFit.OverviewRoom::rows).max().orElse(rows);
+                overviewRows = Math.max(MIN_OVERVIEW_ROWS_PER_PAGE, Math.min(rows, fullest) - 1);
+                LOG.infof("Het overzicht loopt in zijn voetnoot; opnieuw met hoogstens %d rijen per pagina",
+                        overviewRows);
+            }
         }
-        overflows.forEach(overflow -> LOG.warnf(
-                "Catalogusfiche %s is ook compact %.1f mm te lang voor één A4-pagina; kort de teksten in",
-                overflow.anchor(), overflow.millimetres()));
-        return pdf.orElseThrow();
     }
 
     private void requireCompleteCopy(CatalogExportService.Model catalog) {
@@ -488,7 +652,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<Item> uncategorised = new ArrayList<>();
             for (Product product : catalog.products()) {
                 Item item = simpleItem(
-                        product, language, request, photos, copy, catalogueFamilyPhotoIds);
+                        product, language, request, catalog.prices(), photos, copy, catalogueFamilyPhotoIds);
                 List<Item> bucket = product.categoryId() == null
                         ? uncategorised : byCategory.get(product.categoryId());
                 (bucket == null ? uncategorised : bucket).add(item);
@@ -510,6 +674,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         CompanyProfile profile = company.get();
         String title = present(request.title()) ? request.title().trim()
                 : copy(copy, "catalog.simple.title");
+        boolean namedUnits = catalog.products().stream().anyMatch(PdfCatalogRenderer::namedUnit);
         return simpleTemplate
                 .data("sections", sections)
                 .data("itemCount", catalog.products().size())
@@ -523,6 +688,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("logo", editorial.image("logo-gold.png"))
                 .data("company", profile)
                 .data("catalogContacts", staffContacts.catalogContacts())
+                .data("palletBasis", palletBasis(language, copy))
+                .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
+                /* The running header is one line: a long name is cut shorter there. */
+                .data("recipientShort", catalog.recipient() == null ? ""
+                        : clamp(catalog.recipient().name(), RECIPIENT_HEADER_CHARS))
+                .data("validityLine", validityLine(catalog, language, copy))
+                /* Every page says whose prices these are; an anonymous list keeps its footer as it was. */
+                .data("priceBasis", catalog.recipient() != null && request.includePrices()
+                        ? priceBasis(catalog, namedUnits, copy) : "")
                 .data("copy", copy)
                 .render();
     }
@@ -543,7 +717,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 items = new ArrayList<>();
             }
             for (Product product : group.variants()) {
-                items.add(simpleItem(product, language, request, photos, copy, catalogueFamilyPhotoIds));
+                items.add(simpleItem(product, language, request, catalog.prices(), photos, copy,
+                        catalogueFamilyPhotoIds));
             }
             previousKey = key;
             previousCategory = group.category();
@@ -560,7 +735,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private String brochureHtml(CatalogExportService.Model catalog, PhotoResolver photos,
-                                Set<String> compactSheets) {
+                                Set<String> compactSheets, Set<String> tightSheets, Set<String> bareSheets,
+                                int overviewRows) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = catalogCopy(language);
@@ -585,9 +761,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String previousCategoryKey = null;
         List<CatalogExportService.FamilyGroup> familyOrder = request.resolvedPreserveProductOrder()
                 ? catalog.families() : brochureFamilyOrder(catalog.families());
+        String priceHeading = priceHeading(catalog, copy);
         for (CatalogExportService.FamilyGroup group : familyOrder) {
             FamilyRenderData rendered = brochureFamily(
-                    group, language, request, photos, copy, index++);
+                    group, language, request, catalog.prices(), priceHeading, photos, copy, index++);
             BrochureFamily family = rendered.family();
             allFamilies.add(family);
             renderedFamilies.add(rendered);
@@ -604,7 +781,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
            intro page and the family sheets. Every family learns its page so
            the overview can point at it and the footers can say it. */
         List<List<int[]>> overviewSlots = overviewSlots(
-                byChapter.values().stream().map(List::size).toList());
+                byChapter.values().stream().map(List::size).toList(), overviewRows);
         int overviewPageCount = overviewSlots.size();
         /* The first page after the cover is 2; the overview pages come before the chapters. */
         int page = 2 + (options.includeOverview() ? overviewPageCount : 0);
@@ -633,7 +810,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<BrochureFamily> chapter = new ArrayList<>();
             for (FamilyRenderData rendered : entry.getValue()) {
                 BrochureFamily placed = rendered.family().placed(twoDigits(familyNumber++), page++, tone);
-                chapter.add(compactSheets.contains(placed.anchor()) ? placed.compact() : placed);
+                chapter.add(bareSheets.contains(placed.anchor()) ? placed.bare()
+                        : tightSheets.contains(placed.anchor()) ? placed.tight()
+                        : compactSheets.contains(placed.anchor()) ? placed.compact() : placed);
             }
             pagedFamilies.addAll(chapter);
             sections.add(new BrochureSection(twoDigits(sectionIndex++), name, description,
@@ -656,6 +835,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 : copy(copy, "catalog.brochure.intro.eyebrow") + " "
                         + LocalDate.now().getYear();
         String intro = present(request.intro()) ? request.intro().trim() : "";
+        boolean namedUnits = catalog.products().stream().anyMatch(PdfCatalogRenderer::namedUnit);
 
         return brochureTemplate
                 .data("title", title)
@@ -676,7 +856,12 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("options", options)
                 .data("includePrices", request.includePrices())
                 /* One named unit in the book turns the "per piece" column header and footnote neutral. */
-                .data("namedUnits", catalog.products().stream().anyMatch(PdfCatalogRenderer::namedUnit))
+                .data("namedUnits", namedUnits)
+                .data("palletBasis", palletBasis(language, copy))
+                .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
+                .data("validityLine", validityLine(catalog, language, copy))
+                .data("priceHeading", priceHeading)
+                .data("priceBasis", request.includePrices() ? priceBasis(catalog, namedUnits, copy) : "")
                 .data("copy", copy)
                 .data("company", profile)
                 .data("catalogContacts", staffContacts.catalogContacts())
@@ -783,8 +968,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private Item simpleItem(Product product, Language language,
-                            CatalogExportService.Request request, PhotoResolver photos,
-                            Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
+                            CatalogExportService.Request request, CatalogExportService.PriceBook prices,
+                            PhotoResolver photos, Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         int allowed = request.resolvedPhotosPerProduct(product.familyId());
         List<PhotoRef> imageRefs = CataloguePhotoPlan.compactRow(
                         planVariant(product), catalogueFamilyPhotoIds, allowed, photos::usablePlan)
@@ -799,21 +984,24 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? "" : dimensionLabel(product.carton().dimensions()),
                 product.hsCode(), product.carton() == null ? null : product.carton().gpCapacity(),
                 request.includePrices()
-                        ? defaultText(priceLabel(product, language),
+                        ? defaultText(priceLabel(product, language, prices),
                                 copy(copy, "catalog.brochure.overview.priceonrequest"))
                         : null,
-                request.includePrices() ? displayPriceLabel(product, language, copy) : null,
+                request.includePrices() ? displayPriceLabel(product, language, copy, prices) : null,
                 product.inventoryKnown(), product.inventoryKnown() ? product.stockQuantity() : null,
                 photos.simpleLayout(imageRefs), allowed > 0,
                 countsInOwnWords(product) ? cartonQuantity(product, language, copy, false) : null,
-                countsInOwnWords(product) ? capacity20Ft(product, language, copy) : null,
-                perUnitLabel(product, language, copy));
+                /* The three capacities read alike: "864 st. (72 omdozen)", "11.196 st.", "27.192 st.". */
+                namedCapacity(product, product.carton() == null ? null : product.carton().gpCapacity(), language, copy),
+                perUnitLabel(product, language, copy),
+                palletLabel(product, language, copy, true),
+                namedCapacity(product, product.carton() == null ? null : product.carton().hcCapacity(), language, copy));
     }
 
     private FamilyRenderData brochureFamily(
             CatalogExportService.FamilyGroup group, Language language,
-            CatalogExportService.Request request, PhotoResolver photos,
-            Map<String, String> copy, int index) {
+            CatalogExportService.Request request, CatalogExportService.PriceBook prices,
+            String priceHeading, PhotoResolver photos, Map<String, String> copy, int index) {
         Product first = group.variants().getFirst();
         CatalogFamilyReader.Family family = group.content();
         String name = family == null ? first.nameIn(language) : family.nameIn(language);
@@ -860,21 +1048,25 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         product.carton() == null ? "" : compactDimensions(product.carton().dimensions()),
                         product.carton() == null ? 0 : product.carton().piecesPerCarton(),
                         defaultText(product.canonicalBarcode(), "-"),
-                        request.includePrices() ? priceLabel(product, language) : null,
+                        request.includePrices() ? priceLabel(product, language, prices) : null,
                         allowed > 0 && group.variants().size() > 1
                                 ? photos.variantImage(product, family) : null,
                         capacity20Ft(product, language, copy),
-                        request.includePrices() ? displayPriceLabel(product, language, copy) : null,
+                        request.includePrices() ? displayPriceLabel(product, language, copy, prices) : null,
                         cartonQuantity(product, language, copy, true),
-                        perUnitLabel(product, language, copy)))
+                        perUnitLabel(product, language, copy),
+                        palletCapacity(product, language, copy),
+                        capacity40Ft(product, language, copy)))
                 .toList();
 
         String familySize = familyDimension(family, first);
         String packageLine = packageLine(family, group.variants(), language, copy);
         String referencePriceLabel = request.includePrices()
-                ? referencePriceLabel(group.variants(), language, copy) : null;
+                ? referencePriceLabel(group.variants(), language, copy, prices) : null;
         String number = twoDigits(index);
-        List<SpecRow> specs = specRows(group.variants(), language, copy, request.includePrices());
+        List<SpecRow> specs = specRows(group.variants(), language, copy,
+                request.includePrices() ? prices : null, priceHeading,
+                capacitiesDiffer(variants) ? null : product -> palletLabel(product, language, copy, false));
         ensureFamilyPageCapacity(name, summary, description, format, highlights,
                 categoryName, familySize, packageLine, referencePriceLabel,
                 variants, photoLayout.extras().size(), specs.size());
@@ -885,14 +1077,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 compactDetail(summary, description, highlights, variants.size(),
                         photoLayout.extras().size(),
                         variants.stream().anyMatch(variant -> present(variant.image()))),
-                variants, specs, 0, rangeFacts(group.variants(), language, copy), "tone-1", largeDetail,
-                request.includePrices() ? familyDisplayPriceLabel(group.variants(), language, copy) : null,
+                variants, specs, 0, rangeFacts(group.variants(), language, copy,
+                        product -> palletCapacity(product, language, copy)), "tone-1", largeDetail,
+                request.includePrices() ? familyDisplayPriceLabel(group.variants(), language, copy, prices) : null,
                 familyPerUnitLabel(group.variants(), language, copy));
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
     }
 
     /** The family's line in the range table, read off its variants. */
-    private static RangeFacts rangeFacts(List<Product> variants, Language language, Map<String, String> copy) {
+    private static RangeFacts rangeFacts(List<Product> variants, Language language, Map<String, String> copy,
+                                         java.util.function.Function<Product, String> pallet) {
         Product first = variants.getFirst();
         Map<String, String> words = DocumentText.of(language);
         List<ColourDot> colours = new ArrayList<>();
@@ -928,12 +1122,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 cartonPieces,
                 sharedOrFirst(variants, product -> product.carton() == null || !positive(product.carton().cbm())
                         ? "" : DocumentFormat.cbm(product.carton().cbm())),
-                sharedOrFirst(variants, product -> {
-                    Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
-                    return capacity == null || capacity <= 0 ? "" : capacityQuantity(product, capacity, language, copy);
-                }),
+                /* Pallet, 20ft and 40ft always go together; an unknown figure says "-". */
+                sharedOrFirst(variants, product -> capacity40Ft(product, language, copy)),
                 variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "",
-                sharedOrFirst(variants, product -> capacity20Ft(product, language, copy)));
+                sharedOrFirst(variants, product -> capacity20Ft(product, language, copy)),
+                sharedOrFirst(variants, pallet));
     }
 
     /** One SKU, two SKUs, or the first and the last with a dash: enough to find the family in a price list. */
@@ -960,13 +1153,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /**
      * Where each line of the range table lands: a chapter heading followed
-     * by its families, {@link #OVERVIEW_ROWS_PER_PAGE} lines a page, and a
+     * by its families, at most {@code rowsPerPageLimit} lines a page, and a
      * heading never stranded at the foot of a page. Each slot is
      * {chapter index, family index} with -1 for the heading itself.
      */
     static List<List<int[]>> overviewSlots(List<Integer> chapterSizes) {
+        return overviewSlots(chapterSizes, OVERVIEW_ROWS_PER_PAGE);
+    }
+
+    static List<List<int[]>> overviewSlots(List<Integer> chapterSizes, int rowsPerPageLimit) {
         int totalRows = chapterSizes.stream().filter(size -> size > 0).mapToInt(size -> size + 1).sum();
-        int pageCount = Math.max(1, (totalRows + OVERVIEW_ROWS_PER_PAGE - 1) / OVERVIEW_ROWS_PER_PAGE);
+        int pageCount = Math.max(1, (totalRows + rowsPerPageLimit - 1) / rowsPerPageLimit);
         /* Share spare space between pages instead of leaving one orphaned family on the last. */
         int rowsPerPage = Math.max(2, (totalRows + pageCount - 1) / pageCount);
         List<List<int[]>> pages = new ArrayList<>();
@@ -1022,6 +1219,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<String> highlights, String categoryName, String familySize,
             String packageLine, String referencePriceLabel,
             List<BrochureVariant> variants, int galleryCount, int specCount) {
+        /* Shared pallet, 20ft and 40ft figures print once, as specification rows already counted above. */
+        boolean capacitiesPerVariant = capacitiesDiffer(variants);
         int capacityUse = capacityText(name, 80)
                 + specCount * 45
                 + textLength(summary)
@@ -1033,8 +1232,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + capacityText(packageLine, 80)
                 + capacityText(referencePriceLabel, 24)
                 + variants.size() * 150
-                + variants.stream().mapToInt(PdfCatalogRenderer::variantCapacityUse).sum()
+                + variants.stream().mapToInt(variant -> variantCapacityUse(variant, capacitiesPerVariant)).sum()
                 + galleryCount * 180;
+        LOG.debugf("Catalogusfiche '%s': tekstbudget %d van %d", defaultText(name, "product"),
+                (Object) capacityUse, (Object) FAMILY_PAGE_CAPACITY);
         if (capacityUse <= FAMILY_PAGE_CAPACITY) return;
         throw new BusinessRuleException("Cataloguspagina voor '" + defaultText(name, "product")
                 + "' bevat te veel tekst, varianten of beelden voor één vaste A4-pagina. "
@@ -1058,7 +1259,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      * price here because a one-row table would only repeat them.
      */
     private static List<SpecRow> specRows(
-            List<Product> variants, Language language, Map<String, String> copy, boolean includePrices) {
+            List<Product> variants, Language language, Map<String, String> copy,
+            /** Null without prices. */
+            CatalogExportService.PriceBook prices, String priceHeading,
+            /** Null when the variants differ in pallet, 20ft or 40ft: the variant table then carries all three. */
+            java.util.function.Function<Product, String> pallet) {
         List<SpecRow> rows = new ArrayList<>();
         Product first = variants.getFirst();
         boolean single = variants.size() == 1;
@@ -1093,14 +1298,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? "" : DocumentFormat.cbm(product.carton().cbm()));
         // Resolve each variant separately: a manual count or its own calculated
         // capacity. A real unknown must not inherit another variant's value.
-        addSpec(rows, copy(copy, ownWords
-                ? "catalog.spec.capacity20ft" : "catalog.spec.container20ft"), variants,
-                product -> capacity20Ft(product, language, copy));
-        addSpec(rows, copy(copy, ownWords
-                ? "catalog.spec.capacity40ft" : "catalog.spec.container"), variants, product -> {
-            Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
-            return capacity == null || capacity <= 0 ? "" : capacityQuantity(product, capacity, language, copy);
-        });
+        // Pallet, 20ft and 40ft always stand together, in that order; "-" when unknown.
+        if (pallet != null) {
+            addSpec(rows, copy(copy, ownWords
+                    ? "catalog.spec.capacitypallet" : "catalog.spec.pallet"), variants, pallet);
+            addSpec(rows, copy(copy, ownWords
+                    ? "catalog.spec.capacity20ft" : "catalog.spec.container20ft"), variants,
+                    product -> capacity20Ft(product, language, copy));
+            addSpec(rows, copy(copy, ownWords
+                    ? "catalog.spec.capacity40ft" : "catalog.spec.container"), variants,
+                    product -> capacity40Ft(product, language, copy));
+        }
         addSpec(rows, copy(copy, "catalog.spec.hscode"), variants,
                 product -> defaultText(product.hsCode(), ""));
         if (!single) {
@@ -1110,9 +1318,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             if (present(sizes)) rows.add(new SpecRow(copy(copy, "catalog.spec.sizes"), sizes));
         } else {
             if (present(first.canonicalBarcode())) rows.add(new SpecRow("EAN", first.canonicalBarcode()));
-            if (includePrices) {
-                String price = priceLabel(first, language);
-                String display = displayPriceLabel(first, language, copy);
+            if (prices != null) {
+                String price = priceLabel(first, language, prices);
+                String display = displayPriceLabel(first, language, copy, prices);
                 boolean displayPrice = present(display);
                 String per = perUnitLabel(first, language, copy);
                 if (present(display) && present(price)
@@ -1121,7 +1329,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 } else if (present(display)) {
                     price = display;
                 }
-                rows.add(new SpecRow(copy(copy, "catalog.brochure.overview.referenceprice"),
+                rows.add(new SpecRow(priceHeading,
                         present(price) ? displayPrice ? price : price + " " + per
                                 : copy(copy, "catalog.brochure.overview.priceonrequest")));
             }
@@ -1134,8 +1342,69 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return capacity == null ? "-" : capacityQuantity(product, capacity, language, copy);
     }
 
+    /** Units in one 40' HC: the hand count, else full cartons by volume; "-" when unknown. */
+    private static String capacity40Ft(Product product, Language language, Map<String, String> copy) {
+        Integer capacity = product.carton() == null ? null : product.carton().hcCapacity();
+        return capacity == null || capacity <= 0 ? "-" : capacityQuantity(product, capacity, language, copy);
+    }
+
+    /** Whole omdozen on one pallet as Palletberekening stacks them; 0 when the carton size is incomplete. */
+    private int cartonsPerPallet(Product product) {
+        return product.carton() == null ? 0 : pallets.cartonsPerPallet(product.carton());
+    }
+
+    /** Units on one pallet, worded like the container figures: "864", "96 displays", "480 bowls". */
+    private String palletCapacity(Product product, Language language, Map<String, String> copy) {
+        int cartons = cartonsPerPallet(product);
+        return cartons <= 0 ? "-"
+                : capacityQuantity(product, (long) cartons * product.carton().piecesPerCarton(), language, copy);
+    }
+
+    /**
+     * The pallet figure with the omdozen it takes, where there is room for them: "864 (72 omdozen)"
+     * in the specification list, "864 st. (72 omdozen)" with {@code unitWord} in the compact catalogue.
+     */
+    private String palletLabel(Product product, Language language, Map<String, String> copy, boolean unitWord) {
+        int cartons = cartonsPerPallet(product);
+        if (cartons <= 0) return "-";
+        long units = (long) cartons * product.carton().piecesPerCarton();
+        return copy(copy, "catalog.quantity.palletcartons")
+                .replace("{units}", unitWord ? namedCapacity(product, units, language, copy)
+                        : capacityQuantity(product, units, language, copy))
+                .replace("{cartons}", integer(cartons, language));
+    }
+
+    /** A capacity that always names its unit ("9.600 st.", "96 displays", "480 bowls"); "-" when unknown. */
+    private static String namedCapacity(Product product, Integer quantity, Language language,
+                                        Map<String, String> copy) {
+        return quantity == null || quantity <= 0 ? "-" : namedCapacity(product, quantity.longValue(), language, copy);
+    }
+
+    private static String namedCapacity(Product product, long quantity, Language language,
+                                        Map<String, String> copy) {
+        return product.packaging().soldAsDisplay() ? capacityQuantity(product, quantity, language, copy)
+                : unitsText(product, quantity, language, copy);
+    }
+
+    /** What the per-pallet figures assume, once per document: footprint, loaded height, weight. */
+    private String palletBasis(Language language, Map<String, String> copy) {
+        CataloguePallet.Basis basis = pallets.basis();
+        return copy(copy, "catalog.common.palletbasis")
+                .replace("{size}", measure(basis.widthCm(), language) + " × " + measure(basis.depthCm(), language))
+                .replace("{height}", measure(basis.maxHeightCm(), language))
+                .replace("{weight}", measure(basis.maxWeightKg(), language));
+    }
+
+    /** "120", "14,4": a pallet measure in the document's own number format. */
+    private static String measure(BigDecimal value, Language language) {
+        if (value == null) return "-";
+        java.text.NumberFormat format = java.text.NumberFormat.getNumberInstance(language.locale());
+        format.setMaximumFractionDigits(1);
+        return format.format(value);
+    }
+
     /** Quantities remain stored commercial units; the label makes displays distinct from inner pieces. */
-    private static String capacityQuantity(Product product, int quantity, Language language,
+    private static String capacityQuantity(Product product, long quantity, Language language,
                                            Map<String, String> copy) {
         String count = integer(quantity, language);
         if (product.packaging().soldAsDisplay()) {
@@ -1231,14 +1500,17 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return colon < 0 ? label : label.substring(colon + 2);
     }
 
-    private static int variantCapacityUse(BrochureVariant variant) {
+    /** {@code capacitiesPerVariant}: the variant table carries pallet, 20ft and 40ft on a line under each row. */
+    private static int variantCapacityUse(BrochureVariant variant, boolean capacitiesPerVariant) {
         return capacityText(variant.sku(), 24)
                 + capacityText(variant.name(), 80)
                 + capacityText(variant.colour(), 32)
                 + capacityText(variant.size(), 24)
                 + capacityText(variant.productSize(), 40)
                 + capacityText(variant.cartonSize(), 48)
-                + capacityText(variant.gpCapacity(), 14)
+                + (capacitiesPerVariant ? capacityText(variant.palletCapacity(), 14)
+                        + capacityText(variant.gpCapacity(), 14)
+                        + capacityText(variant.hcCapacity(), 14) : 0)
                 + capacityText(variant.ean(), 24)
                 + capacityText(variant.priceLabel(), 24)
                 + capacityText(variant.displayPriceLabel(), 48);
@@ -1318,8 +1590,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private record CatalogPrices(BigDecimal piece, BigDecimal display, Integer pieces,
                                  boolean approximatePiece) {}
 
-    private static CatalogPrices catalogPrices(Product product) {
-        BigDecimal amount = product.computedSalesPriceEur();
+    /** {@code amount} is what the price book prints: one-off, the customer's, the catalogue's, or null. */
+    private static CatalogPrices catalogPrices(Product product, BigDecimal amount) {
         if (!positive(amount)) return new CatalogPrices(null, null, null, false);
         var packaging = product.packaging();
         Integer pieces = packaging == null ? null : packaging.piecesPerUnit();
@@ -1340,14 +1612,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return new CatalogPrices(amount, amount.multiply(quantity), pieces, false);
     }
 
-    private static String priceLabel(Product product, Language language) {
-        CatalogPrices prices = catalogPrices(product);
+    private static String priceLabel(Product product, Language language, CatalogExportService.PriceBook book) {
+        CatalogPrices prices = catalogPrices(product, book.printed(product));
         return prices.piece() == null ? null
                 : (prices.approximatePiece() ? "≈ " : "") + formatPrice(prices.piece(), language);
     }
 
-    private static String displayPriceLabel(Product product, Language language, Map<String, String> copy) {
-        CatalogPrices prices = catalogPrices(product);
+    private static String displayPriceLabel(Product product, Language language, Map<String, String> copy,
+                                            CatalogExportService.PriceBook book) {
+        CatalogPrices prices = catalogPrices(product, book.printed(product));
         return prices.display() == null ? null : displayPriceLabel(product,
                 prices.pieces(), formatPrice(prices.display(), language), language, copy);
     }
@@ -1364,8 +1637,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /** A family total is meaningful only when all selected variants share confirmed display contents. */
     private static String familyDisplayPriceLabel(List<Product> variants, Language language,
-                                                  Map<String, String> copy) {
-        List<CatalogPrices> prices = variants.stream().map(PdfCatalogRenderer::catalogPrices).toList();
+                                                  Map<String, String> copy, CatalogExportService.PriceBook book) {
+        List<CatalogPrices> prices = variants.stream()
+                .map(product -> catalogPrices(product, book.printed(product))).toList();
         if (prices.isEmpty() || prices.stream().anyMatch(price -> price.display() == null)) return null;
         Integer pieces = prices.getFirst().pieces();
         if (prices.stream().anyMatch(price -> !Objects.equals(pieces, price.pieces()))) return null;
@@ -1377,8 +1651,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     private String referencePriceLabel(
-            List<Product> variants, Language language, Map<String, String> copy) {
-        List<CatalogPrices> resolved = variants.stream().map(PdfCatalogRenderer::catalogPrices).toList();
+            List<Product> variants, Language language, Map<String, String> copy,
+            CatalogExportService.PriceBook book) {
+        List<CatalogPrices> resolved = variants.stream()
+                .map(product -> catalogPrices(product, book.printed(product))).toList();
         List<BigDecimal> prices = resolved.stream().map(CatalogPrices::piece)
                 .filter(Objects::nonNull)
                 .map(value -> value.setScale(2, java.math.RoundingMode.HALF_UP))
@@ -1393,6 +1669,46 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         }
         return copy(copy, "catalog.brochure.overview.from") + " " + minimum + " · "
                 + copy(copy, "catalog.brochure.overview.priceonrequest");
+    }
+
+    /** "Prijslijst voor Bloemen Janssens" with prices, "Samengesteld voor …" without; "" when anonymous. */
+    private static String recipientLine(CatalogExportService.Model catalog, Map<String, String> copy, int chars) {
+        if (catalog.recipient() == null) return "";
+        return copy(copy, catalog.request().includePrices() ? "catalog.pricelist.for" : "catalog.recipient.for")
+                .replace("{customer}", clamp(catalog.recipient().name(), chars));
+    }
+
+    /** "Geldig tot 31/12/2026" for a priced PDF with a validity date; "" otherwise. */
+    private static String validityLine(CatalogExportService.Model catalog, Language language,
+                                       Map<String, String> copy) {
+        LocalDate until = catalog.request().pricesValidUntil();
+        if (!catalog.request().includePrices() || until == null) return "";
+        return copy(copy, "catalog.pricelist.validuntil").replace("{date}", DocumentText.date(until, language));
+    }
+
+    /** "Uw prijs" on a price list for a recipient, "Referentieprijs" otherwise. */
+    private static String priceHeading(CatalogExportService.Model catalog, Map<String, String> copy) {
+        return copy(copy, catalog.recipient() != null && catalog.request().includePrices()
+                ? "catalog.pricelist.yourprice" : "catalog.brochure.overview.referenceprice");
+    }
+
+    /** The VAT and unit basis of the printed prices, naming the recipient when there is one. */
+    private static String priceBasis(CatalogExportService.Model catalog, boolean namedUnits,
+                                     Map<String, String> copy) {
+        if (catalog.recipient() == null) {
+            return copy(copy, namedUnits ? "catalog.brochure.overview.pricebasisunits"
+                    : "catalog.brochure.overview.pricebasis");
+        }
+        return copy(copy, namedUnits ? "catalog.pricelist.basisunits" : "catalog.pricelist.basis")
+                .replace("{customer}", clamp(catalog.recipient().name(), RECIPIENT_LINE_CHARS));
+    }
+
+    /** A name as typed, cut at a word with "…" past {@code chars}, so it never runs into fixed print areas. */
+    static String clamp(String value, int chars) {
+        String text = value == null ? "" : value.strip().replaceAll("\\s+", " ");
+        if (text.length() <= chars) return text;
+        int cut = text.lastIndexOf(' ', chars - 1);
+        return text.substring(0, cut > chars / 2 ? cut : chars - 1).strip() + "…";
     }
 
     /** Confirmed trade policy; also shown when the catalogue omits individual prices. */

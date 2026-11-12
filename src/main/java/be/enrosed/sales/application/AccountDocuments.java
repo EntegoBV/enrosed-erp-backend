@@ -384,14 +384,15 @@ public class AccountDocuments {
 
     /**
      * A line as the document stands. The carton content is the product's own, never guessed from
-     * quantity ÷ cartons: 3 stolpen out of a carton of 12 is not "1 doos × 3".
+     * quantity ÷ cartons: 3 stolpen out of a carton of 12 is not "1 doos × 3". A line staff set
+     * to per piece reads like one of a product sold per piece (customerOrderStep).
      */
     static DetailLine currentLine(PricedOrder.Line line, Product product, Language language) {
         boolean hasPrice = line.unitPrice() != null && line.unitPrice().signum() > 0;
         int known = product == null ? 0 : OrderSteps.knownPiecesPerCarton(product.carton());
         Integer cartons = known <= 0 ? null
                 : line.quantity() % known == 0 ? Integer.valueOf(line.quantity() / known)
-                : line.orderStep() == OrderStep.CARTON ? Integer.valueOf((line.quantity() + known - 1) / known)
+                : line.customerOrderStep() == OrderStep.CARTON ? Integer.valueOf((line.quantity() + known - 1) / known)
                 : null;
         Packaging packaging = product == null ? null : product.packaging();
         String description = line.customerDescription() == null || line.customerDescription().isBlank()
@@ -399,7 +400,7 @@ public class AccountDocuments {
         return new DetailLine(line.productId(), line.sku(), description, cartons, known > 0 ? known : null,
                 line.quantity(), hasPrice ? line.unitPrice() : null,
                 hasPrice ? Money.money(line.discountPct()) : null, hasPrice ? Money.money(line.net()) : null,
-                line.orderStep().name(), packaging == null ? SalesUnit.PIECE.name() : packaging.salesUnit().name(),
+                line.customerOrderStep().name(), packaging == null ? SalesUnit.PIECE.name() : packaging.salesUnit().name(),
                 UnitDto.of(packaging == null ? null : packaging.unitKey(), language));
     }
 

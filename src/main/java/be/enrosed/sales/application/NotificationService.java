@@ -45,6 +45,8 @@ public class NotificationService {
     @Inject Instance<WebOrderDeliveries> deliveries;
     @Inject Instance<SalesOrderService> salesOrders;
     @Inject Instance<be.enrosed.sourcing.tracking.ContainerArrivalReminders> containerArrivals;
+    /** Partner meldingen of the last 14 days (be.enrosed.partnerportal); absent in pure unit tests. */
+    @Inject Instance<PartnerSaleNotificationFeed> partnerSales;
     /** How long the news that a customer cancelled their own order stays in the feed. */
     private static final Duration CUSTOMER_CANCEL_NEWS = Duration.ofDays(14);
 
@@ -76,8 +78,13 @@ public class NotificationService {
         AFGEWEZEN,
         /** The customer viewed the quote. */
         BEKEKEN,
-        /** A tracked purchase approaches its currently planned arrival. */
-        CONTAINER_AANKOMST
+        /** A tracked purchase approaches its currently planned arrival, or tracking moved that arrival. */
+        CONTAINER_AANKOMST,
+        /**
+         * A partner reported an auction or direct sale, or a buyback on the clock (Veilingverkopen). News, never
+         * work; orderId is null (older screens must not open /sales/<id>), the melding is in url and notificationId.
+         */
+        PARTNER_VERKOOP
     }
 
     public record Notification(
@@ -92,8 +99,16 @@ public class NotificationService {
             Instant at,
             String url,
             /** Stable event identity when several reminders concern the same order. */
-            String notificationId
+            String notificationId,
+            /** PARTNER_VERKOOP only: the melding still has parts to invoice (the bell counts it). Absent otherwise. */
+            @com.fasterxml.jackson.annotation.JsonInclude(com.fasterxml.jackson.annotation.JsonInclude.Include.NON_NULL)
+            Boolean open
     ) {
+        public Notification(Kind kind, Long orderId, String orderNumber, String customer, String title,
+                            String detail, boolean actionNeeded, Instant at, String url, String notificationId) {
+            this(kind, orderId, orderNumber, customer, title, detail, actionNeeded, at, url, notificationId, null);
+        }
+
         /** Compatibility for existing sales-only notifications. */
         public Notification(Kind kind, Long orderId, String orderNumber, String customer, String title,
                             String detail, boolean actionNeeded, Instant at) {
@@ -225,6 +240,14 @@ public class NotificationService {
 
         if (containerArrivals != null && containerArrivals.isResolvable())
             items.addAll(containerArrivals.get().feed(Instant.now()));
+
+        if (partnerSales != null && partnerSales.isResolvable()) {
+            try {
+                items.addAll(partnerSales.get().feed(Instant.now()));
+            } catch (RuntimeException unavailable) {
+                /* The partner portal's news is never a reason to lose the rest of the feed. */
+            }
+        }
 
         /* Newest first; notifications without a timestamp go to the back
            instead of the top - a null should not read as "just now". */

@@ -76,7 +76,11 @@ public record SalesOrder(
         LoadMode loadMode,
         /** Footprint used by the automatic stacking calculation. */
         PalletProfile palletProfile,
-        /** Optional total pallet height override in cm, including the wooden pallet itself. */
+        /**
+         * Total pallet height in cm, including the wooden pallet itself: the standard when the
+         * document was made unless someone changed it. Null only on documents made before
+         * 2026-11-07, which count the 260 cm of that time (SalesSettings.LEGACY_MAX_HEIGHT_CM).
+         */
         BigDecimal maxPalletHeightCm,
         /** Tariff basis underneath the optional {@link FreightState#TE_BEPALEN} overlay. */
         FreightPricingStrategy freightPricingStrategy,
@@ -455,6 +459,36 @@ public record SalesOrder(
                 freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, value, layout, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
+    }
+
+    /** The same draft under this id: priced, as an unsaved draft of that stored document, like the document. */
+    public SalesOrder withId(Long value) {
+        if (java.util.Objects.equals(id, value)) return this;
+        return new SalesOrder(value, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt);
+    }
+
+    /** The same document with another total pallet height (cm, the wooden pallet included). */
+    public SalesOrder withMaxPalletHeightCm(BigDecimal value) {
+        if (java.util.Objects.equals(maxPalletHeightCm, value)) return this;
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, value,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
                 creditedInvoiceId, creditReason, goodsReturnedAt);
     }

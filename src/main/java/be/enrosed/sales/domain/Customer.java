@@ -4,6 +4,7 @@ import be.enrosed.shared.Language;
 
 import java.math.BigDecimal;
 import java.time.LocalDate;
+import java.util.List;
 
 public record Customer(
         Long id,
@@ -41,7 +42,15 @@ public record Customer(
          */
         boolean fiscalRepresentative,
         /** A sentence of our own that goes on every quote and invoice for this customer. */
-        String invoiceNote
+        String invoiceNote,
+        /** A CustomerCrmStatus code; null is a customer written before statuses existed, or "keep" from a client. */
+        String crmStatus,
+        /**
+         * The kinds of contact we had with this customer, one per kind. Null means unknown
+         * (a client that did not send them, a caller that does not care); an empty list
+         * means none.
+         */
+        List<CustomerTouchpoint> touchpoints
 ) {
     /** Compatibility for callers written before partner customers existed. */
     public Customer(Long id, String company, String contact, String email, String phone,
@@ -63,6 +72,17 @@ public record Customer(
                 partnerCostPct, false, null);
     }
 
+    /** Compatibility for callers written before the CRM status and contact moments existed. */
+    public Customer(Long id, String company, String contact, String email, String phone,
+                    String vatNumber, String countryCode, Language language, String address,
+                    String postalCode, String city, String incoterm, String paymentTerms,
+                    String notes, LocalDate createdAt, boolean partner, BigDecimal partnerSharePct,
+                    BigDecimal partnerCostPct, boolean fiscalRepresentative, String invoiceNote) {
+        this(id, company, contact, email, phone, vatNumber, countryCode, language, address,
+                postalCode, city, incoterm, paymentTerms, notes, createdAt, partner, partnerSharePct,
+                partnerCostPct, fiscalRepresentative, invoiceNote, null, null);
+    }
+
     /** What a partner customer shares by default: half the profit unless agreed otherwise. */
     public BigDecimal partnerSharePctOrDefault() {
         return partnerSharePct != null ? partnerSharePct : new BigDecimal("50");
@@ -81,13 +101,21 @@ public record Customer(
     public Customer withDeliveryAddress(String address, String postalCode, String city) {
         return new Customer(id, company, contact, email, phone, vatNumber, countryCode, language, address,
                 postalCode, city, incoterm, paymentTerms, notes, createdAt, partner, partnerSharePct,
-                partnerCostPct, fiscalRepresentative, invoiceNote);
+                partnerCostPct, fiscalRepresentative, invoiceNote, crmStatus, touchpoints);
+    }
+
+    /** The same customer with these contact moments: how the service hands them out with the person's name. */
+    public Customer withTouchpoints(List<CustomerTouchpoint> touchpoints) {
+        return new Customer(id, company, contact, email, phone, vatNumber, countryCode, language, address,
+                postalCode, city, incoterm, paymentTerms, notes, createdAt, partner, partnerSharePct,
+                partnerCostPct, fiscalRepresentative, invoiceNote, crmStatus, touchpoints);
     }
 
     /** The delivery block of a packing slip for one order; a blank contact keeps the record's. */
     public Customer withDelivery(String contact, String address, String postalCode, String city, String countryCode) {
         return new Customer(id, company, contact == null || contact.isBlank() ? this.contact : contact, email, phone,
                 vatNumber, countryCode, language, address, postalCode, city, incoterm, paymentTerms, notes,
-                createdAt, partner, partnerSharePct, partnerCostPct, fiscalRepresentative, invoiceNote);
+                createdAt, partner, partnerSharePct, partnerCostPct, fiscalRepresentative, invoiceNote,
+                crmStatus, touchpoints);
     }
 }

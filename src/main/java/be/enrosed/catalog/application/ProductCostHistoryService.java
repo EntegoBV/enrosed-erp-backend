@@ -231,6 +231,46 @@ public class ProductCostHistoryService {
         return found;
     }
 
+    /**
+     * The Enrosed kost inside costs products carry or carried, for the products given (null: every product), in
+     * one read of the rows that kept their parts. Resultaat counts that part of a sold cost as revenue (Emre,
+     * 2026-11-06): Enrosed pays it to nobody.
+     */
+    public EnrosedParts enrosedParts(java.util.Collection<Long> productIds) {
+        if (productIds != null && productIds.isEmpty()) return new EnrosedParts(Map.of());
+        String parts = "(r.goodsEur is not null or r.originEur is not null or r.freightEur is not null or r.dutyEur is not null"
+                + " or r.destinationEur is not null or r.enrosedEur is not null or r.separateEur is not null)";
+        var query = entities.createQuery("select r.productId, r.landedUnitEur, r.enrosedEur from ProductCostHistoryEntity r where "
+                + parts + (productIds == null ? "" : " and r.productId in :ids") + " order by r.appliedAt desc, r.id desc", Object[].class);
+        if (productIds != null) query.setParameter("ids", productIds);
+        Map<Long, List<BigDecimal[]>> rows = new HashMap<>();
+        for (Object[] row : query.getResultList()) {
+            rows.computeIfAbsent((Long) row[0], id -> new java.util.ArrayList<>())
+                    .add(new BigDecimal[] { (BigDecimal) row[1], (BigDecimal) row[2] });
+        }
+        return new EnrosedParts(rows);
+    }
+
+    /** Per product its rows with parts, newest first: each a cost and the Enrosed kost in it. */
+    public static final class EnrosedParts {
+        private final Map<Long, List<BigDecimal[]>> rows;
+
+        EnrosedParts(Map<Long, List<BigDecimal[]>> rows) { this.rows = rows; }
+
+        /**
+         * The Enrosed kost in one unit of this cost: that of the newest row with parts carrying the same cost (four
+         * decimals), the rule of the sales line's Gelande kost sheet. Zero when no row explains the cost: a cost typed
+         * by hand, a row from before the parts were kept, a container sale's own lines (frozen without it).
+         */
+        public BigDecimal enrosedIn(Long productId, BigDecimal unitCost) {
+            if (productId == null || unitCost == null || unitCost.signum() <= 0) return BigDecimal.ZERO;
+            for (BigDecimal[] row : rows.getOrDefault(productId, List.of())) {
+                if (sameCost(row[0], unitCost)) return row[1] == null ? BigDecimal.ZERO : row[1].max(BigDecimal.ZERO).min(unitCost);
+            }
+            return BigDecimal.ZERO;
+        }
+    }
+
     private ProductCostHistoryEntity latest(long productId) {
         return history.find("productId", newestFirst(), productId).firstResult();
     }

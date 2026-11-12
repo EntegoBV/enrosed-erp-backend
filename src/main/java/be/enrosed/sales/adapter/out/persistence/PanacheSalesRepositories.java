@@ -6,8 +6,14 @@ import be.enrosed.sales.domain.*;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.persistence.LockModeType;
 
+import java.time.Instant;
+import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.Optional;
+import java.util.Set;
+import java.util.stream.Collectors;
 
 /** The sales-side port adapters onto Panache. */
 public final class PanacheSalesRepositories {
@@ -18,33 +24,78 @@ public final class PanacheSalesRepositories {
     public static class CustomerAdapter implements SalesRepositories.Customers {
 
         private final SalesDaos.Customers dao;
+        private final SalesDaos.CustomerTouchpoints touchpoints;
 
-        public CustomerAdapter(SalesDaos.Customers dao) {
+        public CustomerAdapter(SalesDaos.Customers dao, SalesDaos.CustomerTouchpoints touchpoints) {
             this.dao = dao;
+            this.touchpoints = touchpoints;
         }
 
+        /** Two queries whatever the number of customers: the list, then every touchpoint row grouped by customer. */
         @Override
         public List<Customer> findAll() {
-            return dao.listAll().stream().map(SalesMapper::toDomain).toList();
+            List<CustomerEntity> entities = dao.listAll();
+            Map<Long, List<CustomerTouchpointEntity>> byCustomer = touchpoints.listAll().stream()
+                    .collect(Collectors.groupingBy(row -> row.customerId));
+            return entities.stream()
+                    .map(entity -> SalesMapper.toDomain(entity, byCustomer.getOrDefault(entity.id, List.of())))
+                    .toList();
         }
 
         @Override
         public Optional<Customer> findById(long id) {
-            return Optional.ofNullable(dao.findById(id)).map(SalesMapper::toDomain);
+            return Optional.ofNullable(dao.findById(id))
+                    .map(entity -> SalesMapper.toDomain(entity, touchpointsOf(entity.id)));
         }
 
         @Override
         public Customer save(Customer customer) {
-            CustomerEntity entity = customer.id() == null ? null : dao.findById(customer.id());
+            /* Locked for the rest of the transaction, as the Orders adapter does: two saves of one
+               customer at once (the phone and the desk ticking the same contact moment) would both
+               see no row for the kind and the second would die on uk_customer_touchpoint_kind. */
+            CustomerEntity entity = customer.id() == null ? null
+                    : dao.findById(customer.id(), LockModeType.PESSIMISTIC_WRITE);
             if (entity == null) entity = new CustomerEntity();
             SalesMapper.apply(customer, entity);
             if (entity.id == null) dao.persist(entity);
             dao.flush();
-            return SalesMapper.toDomain(entity);
+            if (customer.touchpoints() != null) reconcileTouchpoints(entity.id, customer.touchpoints());
+            return SalesMapper.toDomain(entity, touchpointsOf(entity.id));
+        }
+
+        /**
+         * Brings the rows in line with the kinds the domain object carries: a kind that is new gets
+         * a row with the moment and actor it carries, a kind left out loses its row, a kind that is
+         * already there is not touched, so its first moment survives a save that changed something
+         * else. The service decides the moment; this only stores it.
+         */
+        private void reconcileTouchpoints(long customerId, List<CustomerTouchpoint> wanted) {
+            Map<String, CustomerTouchpointEntity> existing = new LinkedHashMap<>();
+            for (CustomerTouchpointEntity row : touchpointsOf(customerId)) existing.put(row.kind, row);
+            Set<String> keep = new HashSet<>();
+            for (CustomerTouchpoint touchpoint : wanted) {
+                if (touchpoint == null || touchpoint.kind() == null || !keep.add(touchpoint.kind())) continue;
+                if (existing.containsKey(touchpoint.kind())) continue;
+                CustomerTouchpointEntity row = new CustomerTouchpointEntity();
+                row.customerId = customerId;
+                row.kind = touchpoint.kind();
+                row.doneAt = touchpoint.at() == null ? Instant.now() : touchpoint.at();
+                row.doneBy = touchpoint.by();
+                touchpoints.persist(row);
+            }
+            for (CustomerTouchpointEntity row : existing.values()) {
+                if (!keep.contains(row.kind)) touchpoints.delete(row);
+            }
+            touchpoints.flush();
+        }
+
+        private List<CustomerTouchpointEntity> touchpointsOf(long customerId) {
+            return touchpoints.list("customerId = ?1 order by doneAt, id", customerId);
         }
 
         @Override
         public void deleteById(long id) {
+            touchpoints.delete("customerId", id);
             dao.deleteById(id);
         }
     }
@@ -206,14 +257,48 @@ public final class PanacheSalesRepositories {
 
         @Override
         public SalesOrder save(SalesOrder order) {
-            if (order.id() != null) lockById(order.id());
-            SalesOrderEntity entity = order.id() == null ? null : dao.findById(order.id());
-            if (order.id() != null && entity == null) throw new be.enrosed.shared.NotFoundException("Document", order.id());
-            if (entity == null) entity = new SalesOrderEntity();
+            /* Every new document chooses its pallet count rule: a creation that slipped through
+               here would otherwise get one nobody chose. */
+            if (order.id() == null)
+                throw new IllegalStateException("A new sales document is made with create(order, palletRule)");
+            lockById(order.id());
+            SalesOrderEntity entity = dao.findById(order.id());
+            if (entity == null) throw new be.enrosed.shared.NotFoundException("Document", order.id());
             SalesMapper.apply(order, entity);
-            if (entity.id == null) dao.persist(entity);
             dao.flush();
             return SalesMapper.toDomain(entity);
+        }
+
+        /* The rule is written once, with the row; the column is not updatable, so no save can change it. */
+        @Override
+        public SalesOrder create(SalesOrder order, PalletCountRule palletRule) {
+            if (order.id() != null) throw new IllegalStateException("Document " + order.id() + " already exists; save it");
+            if (palletRule == null) throw new IllegalStateException("A new sales document needs its pallet count rule");
+            SalesOrderEntity entity = new SalesOrderEntity();
+            entity.palletCountRule = palletRule.name();
+            SalesMapper.apply(order, entity);
+            dao.persist(entity);
+            dao.flush();
+            return SalesMapper.toDomain(entity);
+        }
+
+        /* Native, so a deleted document keeps its rule in the trash too; flushing waits for the
+           commit, as the lock does, because save() and create() flush themselves. */
+        @Override
+        public PalletCountRule palletCountRule(long id) {
+            List<?> rows = dao.getEntityManager().createNativeQuery("select palletcountrule from sales_order where id = :id")
+                    .setParameter("id", id).setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList();
+            return PalletCountRule.stored(rows.isEmpty() ? null : (String) rows.getFirst());
+        }
+
+        @Override
+        public java.util.Map<Long, PalletCountRule> palletCountRules() {
+            @SuppressWarnings("unchecked")
+            List<Object[]> rows = dao.getEntityManager().createNativeQuery("select id, palletcountrule from sales_order")
+                    .setFlushMode(jakarta.persistence.FlushModeType.COMMIT).getResultList();
+            java.util.Map<Long, PalletCountRule> rules = new java.util.HashMap<>();
+            for (Object[] row : rows) rules.put(((Number) row[0]).longValue(), PalletCountRule.stored((String) row[1]));
+            return rules;
         }
 
         @Override

@@ -641,6 +641,17 @@ public class StockClosingService {
 
         /* ---- 1. the closing quantity per product and location: the booked count rolled to the closing date */
         StockRoll.Result roll = roll(closing, cutoff, now, productsById, orders, sales, index, notices);
+        /* Documents made from partner meldingen ship nothing themselves; the meldingen' own stock lines name their
+           container and count by the roll's answer for each line (by booking time when the roll does not list it). */
+        Set<Long> reportBacked = salesOrders.get().reportBackedIds(sales);
+        List<StockMovement> partnerLines = new ArrayList<>();
+        for (PurchaseOrder order : orders) {
+            if (!order.isPartnerContainer()) continue;
+            for (StockMovement movement : stock.get().movementsForPurchaseOrder(order.id())) {
+                if (movement.kind().isPartnerReport()) partnerLines.add(movement);
+            }
+        }
+        Map<Long, Map<Long, Integer>> reportedOut = ClosingSeparations.partnerReportedOut(partnerLines, roll.rows(), cutoff);
         closing.quantityBasis = InventoryUnits.BASE_PIECE;
         Map<Long, StockCountLineEntity> countLineById = new HashMap<>();
         List<StockCountService.Anchor> anchors = counts.anchors(closing.closingYear);
@@ -754,7 +765,8 @@ public class StockClosingService {
                         lot.productId(), lotRow.capacity, lotRow.unitValueEur, lotRow.unitGoodsEur, lotRow.unitTransportEur,
                         lotRow.unitLogisticsEur, lotRow.unitSeparateEur, lotRow.unitEstimatedEur);
                 if (ROLE_OWN.equals(role) && lot.capacity() > 0) periodLots.add(valued);
-                if (ROLE_PARTNER.equals(role)) partnerLots.add(partnerLot(order, valued, row.partnerName, sales, cutoff, index, factor));
+                if (ROLE_PARTNER.equals(role)) partnerLots.add(partnerLot(order, valued, row.partnerName, sales, cutoff, index, factor,
+                        reportBacked, reportedOut.getOrDefault(order.id(), Map.of())));
                 if (transit) separateRows.add(transitRow(order, row, lot, payments, closingDate, index, factor));
             }
             if (!live) continue;
@@ -784,7 +796,7 @@ public class StockClosingService {
         /* ---- 3. invoices that were sent and not afgepunt */
         SalesAdvanceBillingService.Views billing = advanceBilling.isResolvable() ? advanceBilling.get().views(sales) : null;
         ClosingSeparations.Invoices invoices = ClosingSeparations.invoices(sales, order -> advance(billing, order),
-                closing.closingYear, closingDate, cutoff, previous == null ? null : previous.closingDate);
+                closing.closingYear, closingDate, cutoff, previous == null ? null : previous.closingDate, reportBacked);
         List<FifoValuer.Invoice> invoiced = new ArrayList<>();
         for (SalesOrder invoice : invoices.candidates()) {
             invoiced.add(new FifoValuer.Invoice(invoice.id(), invoice.number(), invoice.orderDate(),
@@ -1443,8 +1455,10 @@ public class StockClosingService {
     }
 
     private static FifoValuer.PartnerLot partnerLot(PurchaseOrder order, FifoValuer.Lot lot, String partnerName,
-                                                    List<SalesOrder> sales, Instant cutoff, Index index, int factor) {
-        int shipped = InventoryUnits.quantity(ClosingSeparations.partnerShipped(order.id(), sales, cutoff).getOrDefault(lot.productId(), 0), factor);
+                                                    List<SalesOrder> sales, Instant cutoff, Index index, int factor,
+                                                    Set<Long> reportBacked, Map<Long, Integer> reportedOut) {
+        int shipped = InventoryUnits.quantity(ClosingSeparations.partnerShipped(order.id(), sales, cutoff, reportBacked, reportedOut)
+                .getOrDefault(lot.productId(), 0), factor);
         StockClosingDecisionEntity quantity = index.partnerQuantity(order.id(), lot.productId());
         return new FifoValuer.PartnerLot(lot, partnerName, shipped, quantity == null ? null : quantity.quantity,
                 decidedOf(index.container(ClosingDecisionKind.PARTNER_CONTAINER, order.id())));
@@ -1694,7 +1708,8 @@ public class StockClosingService {
             List<SalesOrder> sales = salesOrders.get().list();
             SalesAdvanceBillingService.Views billing = advanceBilling.isResolvable() ? advanceBilling.get().views(sales) : null;
             return ClosingSeparations.invoices(sales, order -> advance(billing, order), closing.closingYear, closing.closingDate,
-                            InventoryClock.cutoffAt(closing.closingDate), previous() == null ? null : previous().closingDate)
+                            InventoryClock.cutoffAt(closing.closingDate), previous() == null ? null : previous().closingDate,
+                            salesOrders.get().reportBackedIds(sales))
                     .candidates().stream().anyMatch(invoice -> invoice.id() == salesOrderId);
         }
 

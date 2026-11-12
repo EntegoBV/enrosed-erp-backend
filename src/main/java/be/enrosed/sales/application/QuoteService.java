@@ -803,7 +803,8 @@ public class QuoteService {
 
     /**
      * Rounds every proposed quantity up to the product's order step, unless the
-     * quote keeps exact pieces.
+     * quote keeps exact pieces or staff set that product's line to per piece:
+     * there the customer's number stands, as the quote link shows it.
      *
      * Zero stays zero: it means "drop this line" and is not a quantity.
      */
@@ -840,7 +841,9 @@ public class QuoteService {
                     throw new BusinessRuleException(
                             "Product " + product.describe() + " is niet beschikbaar om toe te voegen");
                 }
-                if (!exact) {
+                boolean perPiece = order.lines().stream()
+                        .anyMatch(existing -> existing.productId().equals(line.productId()) && existing.countsPerPiece());
+                if (!exact && !perPiece) {
                     quantity = be.enrosed.catalog.domain.OrderSteps.roundUp(quantity,
                             be.enrosed.catalog.domain.OrderSteps.unitsPerStep(product));
                 }
@@ -984,7 +987,7 @@ public class QuoteService {
             } else if (proposal.quantity() > 0) {
                 updated.add(new SalesOrderLine(line.id(), line.productId(), proposal.quantity(),
                         line.unitPriceEur(), line.manualDiscountPct(), line.deliveryWeek(), line.unitCostEur(), line.unavailable(), line.requestedQuantity(),
-                        line.unitsPerOrderStep()));
+                        line.unitsPerOrderStep(), line.stockCostEur(), line.priceSource(), line.perPiece()));
             }
             /* quantity 0 means: drop this line */
         }
@@ -1011,7 +1014,9 @@ public class QuoteService {
         record(order, QuoteEvent.Type.VOORSTEL_OVERGENOMEN, false, handledBy,
                 "Voorstel van de klant overgenomen", responseMessage);
 
-        return orders.save(new SalesOrder(
+        /* Kept lines keep their price and its source; a product the customer added takes the
+           customer's agreed price, as the quote link offered it, where the quote pins those. */
+        return orders.save(salesOrders.withPriceSources(order, new SalesOrder(
                 order.id(), order.number(), order.customerId(), order.countryCode(),
                 order.orderDate(), BusinessDays.add(LocalDate.now(), 30), QuoteStatus.CONCEPT,
                 order.incoterm(), order.paymentTerms(), order.notes(),
@@ -1025,7 +1030,9 @@ public class QuoteService {
                 order.freightCarrierId(), order.freightCarrierExtraEur(),
                 order.docType(), order.invoiceDueDate(), order.paidAt(), order.sourceQuoteId(),
                 order.goodsShippedAt(),
-                updated, order.pallets()).carrying(order));
+                /* The hand layout follows the adopted quantities, as on a save. */
+                updated, SalesLineAvailability.reconcilePallets(order.pallets(), updated, this::productOrNull))
+                .carrying(order)));
     }
 
     private be.enrosed.catalog.domain.Product productOrNull(Long productId) {
