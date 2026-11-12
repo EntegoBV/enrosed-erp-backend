@@ -20,8 +20,9 @@ import java.util.Optional;
 import java.util.function.LongFunction;
 
 /**
- * Builds product tiles: the catalogue is read once per request, family names in one query, the
- * partner's default count units (partner_product_unit) once per partner that is asked for.
+ * Builds product tiles: the catalogue is read once per request, family names and the categories (in
+ * Enrosed's own order) in one query each, the partner's default count units (partner_product_unit) once
+ * per partner that is asked for.
  */
 @ApplicationScoped
 public class PartnerProductTiles {
@@ -65,21 +66,31 @@ public class PartnerProductTiles {
         }
         Map<Long, String> families = queries.familyNames(byId.values().stream()
                 .map(Product::familyId).filter(Objects::nonNull).distinct().toList());
-        return new Catalog(byId, families, customerId, units::unitsOf);
+        Map<Long, TileCategory> categories = new HashMap<>();
+        int order = 0;
+        for (Map.Entry<Long, String> category : queries.categoryNamesInOrder().entrySet()) {
+            categories.put(category.getKey(), new TileCategory(category.getValue(), order++));
+        }
+        return new Catalog(byId, families, categories, customerId, units::unitsOf);
     }
+
+    /** A category as a tile names it: its name and its place in Enrosed's own category order (0 first). */
+    record TileCategory(String name, int order) {}
 
     public static final class Catalog {
         private final Map<Long, Product> products;
         private final Map<Long, String> families;
+        private final Map<Long, TileCategory> categories;
         private final Long partnerId;
         private final LongFunction<Map<Long, String>> unitsOf;
         private final Map<Long, PartnerPortalViews.ProductTile> tiles = new HashMap<>();
         private final Map<Long, Map<Long, String>> defaults = new HashMap<>();
 
-        Catalog(Map<Long, Product> products, Map<Long, String> families, Long partnerId,
-                LongFunction<Map<Long, String>> unitsOf) {
+        Catalog(Map<Long, Product> products, Map<Long, String> families, Map<Long, TileCategory> categories,
+                Long partnerId, LongFunction<Map<Long, String>> unitsOf) {
             this.products = products;
             this.families = families;
+            this.categories = categories;
             this.partnerId = partnerId;
             this.unitsOf = unitsOf;
         }
@@ -124,24 +135,33 @@ public class PartnerProductTiles {
                 if (product == null) {
                     return new PartnerPortalViews.ProductTile(id, null, "Product #" + id, null, null, null, null,
                             "stuk", "stuks", 1, false, null, counting.salesUnit(), counting.piecesPerSalesUnit(),
-                            counting.pieceOne(), counting.pieceOther(), offered, PartnerCountUnits.STUK);
+                            counting.pieceOne(), counting.pieceOther(), offered, PartnerCountUnits.STUK,
+                            null, null, null);
                 }
                 PartnerProductNames.Names names = PartnerProductNames.of(product);
                 Optional<SalesPhotoService.Choice> photo = SalesPhotoService.choose(product);
+                /* A category id without its row (deleted since) reads as no category. */
+                TileCategory category = product.categoryId() == null ? null : categories.get(product.categoryId());
                 return new PartnerPortalViews.ProductTile(id, product.sku(), names.name(), names.variant(),
                         names.colourHex(), product.familyId(),
                         product.familyId() == null ? null : families.get(product.familyId()),
                         names.unitOne(), names.unitOther(), names.piecesPerUnit(),
                         photo.isPresent(), photo.map(SalesPhotoService.Choice::version).orElse(null),
                         counting.salesUnit(), counting.piecesPerSalesUnit(), counting.pieceOne(), counting.pieceOther(),
-                        offered, PartnerCountUnits.STUK);
+                        offered, PartnerCountUnits.STUK, category == null ? null : product.categoryId(),
+                        category == null ? null : category.name(), category == null ? null : category.order());
             });
         }
 
-        /** Family first (a product without one sorts under its own name), then name, variant, id. */
+        /**
+         * Category first in Enrosed's own order (a product without a category last), then family (a product
+         * without one sorts under its own name), name, variant, id.
+         */
         public Comparator<PartnerPortalViews.ProductTile> order() {
             return Comparator
-                    .comparing((PartnerPortalViews.ProductTile tile) -> PartnerProductNames.sortKey(
+                    .comparing((PartnerPortalViews.ProductTile tile) -> tile.categoryOrder() == null
+                            ? Integer.MAX_VALUE : tile.categoryOrder())
+                    .thenComparing((PartnerPortalViews.ProductTile tile) -> PartnerProductNames.sortKey(
                             tile.familyName() != null ? tile.familyName() : tile.name()))
                     .thenComparing(tile -> PartnerProductNames.sortKey(tile.name()))
                     .thenComparing(tile -> PartnerProductNames.sortKey(tile.variant()))

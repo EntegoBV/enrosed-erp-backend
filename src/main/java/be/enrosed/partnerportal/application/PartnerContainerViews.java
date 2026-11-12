@@ -62,12 +62,12 @@ public final class PartnerContainerViews {
                             String locationName, ContainerTotals totals, List<ContainerLine> lines) {}
 
     /**
-     * ProductTile (unwrapped, so it reads as the same flat tile the rest of the portal gets) plus the product card's
-     * specification: category, colour and size, the product's own size and weight, the packaging kind and size, the
-     * omdoos (sales units per carton, size, weight) and the omdozen per pallet (null when unknown or not fitting).
+     * ProductTile (unwrapped, so it reads as the same flat tile the rest of the portal gets; it carries the category:
+     * categoryId, categoryName, categoryOrder) plus the product card's specification: colour and size, the product's
+     * own size and weight, the packaging kind and size, the omdoos (sales units per carton, size, weight) and the
+     * omdozen per pallet (null when unknown or not fitting).
      */
-    public record ProductSpec(@JsonUnwrapped PartnerPortalViews.ProductTile tile, Long categoryId,
-                              String categoryName, String colour, String variantSize, Size productCm,
+    public record ProductSpec(@JsonUnwrapped PartnerPortalViews.ProductTile tile, String colour, String variantSize, Size productCm,
                               BigDecimal productWeightKg, String packagingKind, Size packagingCm,
                               Integer unitsPerCarton, Size cartonCm, BigDecimal cartonWeightKg,
                               Integer cartonsPerPallet) {}

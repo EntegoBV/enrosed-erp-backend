@@ -2914,7 +2914,12 @@ the Factureren figures and notes come in later stages on top of it.
   Tiles (`ProductTile`, `StockTile`, `RecentSaleTile`, and every melding `Entry`) carry `salesUnit`,
   `piecesPerSalesUnit`, `pieceOne/pieceOther`, `countUnits [{unit, one, other, pieces}]` and
   `defaultUnit` (the partner's `partner_product_unit` row when the product still offers it, else
-  STUK; `PartnerProductTiles.load(customerId)` / `Catalog.tile(productId, customerId)`). Staff:
+  STUK; `PartnerProductTiles.load(customerId)` / `Catalog.tile(productId, customerId)`), and since
+  review round 2 `categoryId`, `categoryName`, `categoryOrder` (the product's category and its place
+  in Enrosed's own order: position, then name, 0 first; null without one; `PartnerPortalQueries.
+  categoryNamesInOrder`), so the portal groups Voorraad and the Melden picker by category without the
+  containers answer. `Catalog.order()` sorts category first (none last), then family, name, variant:
+  the overview stock and the containers' products; recentSales stays newest first. Staff:
   `GET /api/partner-portal-admin/{customerId}/units` -> the stored rows `[{productId, unit}]`;
   `PUT` `{changes: [{productId, unit|null}]}` partial (null or STUK removes the row; a unit the
   product does not offer is refused, the whole request then changes nothing), under the partner lock.
@@ -3189,7 +3194,8 @@ the Factureren figures and notes come in later stages on top of it.
   fillPercent, pallets, palletsUnknown, weightKg, weightUnknown, cbmUnknown}` and `lines
   [{productId, quantity (sales units; received: usable), orderedQuantity (received, only when it
   differs), pieces, cartons, cbm, pallets, weightKg}]`. `products` = the portal ProductTile
-  (`@JsonUnwrapped`) + category, colour, size, product B×D×H and weight, packaging kind and size,
+  (`@JsonUnwrapped`, which carries the category since review round 2) + colour, size, product B×D×H
+  and weight, packaging kind and size,
   `unitsPerCarton`, omdoos B×D×H and weight, `cartonsPerPallet` (`CataloguePallet`, the sales
   settings' pallet). Never: prices, costs, freight, duties, payments, amounts, supplier (id, name,
   reference, version), notes / issue note / description / supplier note / tracking reference,

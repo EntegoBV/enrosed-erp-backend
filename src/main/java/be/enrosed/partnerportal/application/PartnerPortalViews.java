@@ -28,16 +28,21 @@ public final class PartnerPortalViews {
      * A product as a tile shows it. unitOne / unitOther / piecesPerUnit name the sales unit (round 1);
      * round 2 adds how it counts: salesUnit PIECE | DISPLAY, piecesPerSalesUnit, the piece noun, the
      * offered count units smallest first ({unit, one, other, pieces}) and the partner's default unit.
+     * categoryId / categoryName / categoryOrder (review round 2): the product's category and its place in
+     * Enrosed's own category order (0 first; null without a category), for grouping like the ERP's
+     * Voorraad. Never a price.
      */
     public record ProductTile(long productId, String sku, String name, String variant, String colourHex,
                               Long familyId, String familyName, String unitOne, String unitOther,
                               int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
                               int piecesPerSalesUnit, String pieceOne, String pieceOther,
-                              List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit) {
+                              List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit,
+                              Long categoryId, String categoryName, Integer categoryOrder) {
         ProductTile withDefaultUnit(String unit) {
             return unit == null || unit.equals(defaultUnit) ? this : new ProductTile(productId, sku, name, variant,
                     colourHex, familyId, familyName, unitOne, unitOther, piecesPerUnit, hasPhoto, photoVersion,
-                    salesUnit, piecesPerSalesUnit, pieceOne, pieceOther, countUnits, unit);
+                    salesUnit, piecesPerSalesUnit, pieceOne, pieceOther, countUnits, unit, categoryId, categoryName,
+                    categoryOrder);
         }
     }
 
@@ -46,12 +51,14 @@ public final class PartnerPortalViews {
                             Long familyId, String familyName, String unitOne, String unitOther,
                             int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
                             int piecesPerSalesUnit, String pieceOne, String pieceOther,
-                            List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit, int quantity) {
+                            List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit, int quantity,
+                            Long categoryId, String categoryName, Integer categoryOrder) {
         static StockTile of(ProductTile tile, int quantity) {
             return new StockTile(tile.productId(), tile.sku(), tile.name(), tile.variant(), tile.colourHex(),
                     tile.familyId(), tile.familyName(), tile.unitOne(), tile.unitOther(), tile.piecesPerUnit(),
                     tile.hasPhoto(), tile.photoVersion(), tile.salesUnit(), tile.piecesPerSalesUnit(), tile.pieceOne(),
-                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), quantity);
+                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), quantity, tile.categoryId(),
+                    tile.categoryName(), tile.categoryOrder());
         }
     }
 
@@ -61,12 +68,14 @@ public final class PartnerPortalViews {
                                  int piecesPerUnit, boolean hasPhoto, String photoVersion, String salesUnit,
                                  int piecesPerSalesUnit, String pieceOne, String pieceOther,
                                  List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit,
-                                 int soldQuantity, LocalDate lastSoldOn, BigDecimal lastAverageEur) {
+                                 int soldQuantity, LocalDate lastSoldOn, BigDecimal lastAverageEur,
+                                 Long categoryId, String categoryName, Integer categoryOrder) {
         static RecentSaleTile of(ProductTile tile, int soldQuantity, LocalDate lastSoldOn, BigDecimal lastAverageEur) {
             return new RecentSaleTile(tile.productId(), tile.sku(), tile.name(), tile.variant(), tile.colourHex(),
                     tile.familyId(), tile.familyName(), tile.unitOne(), tile.unitOther(), tile.piecesPerUnit(),
                     tile.hasPhoto(), tile.photoVersion(), tile.salesUnit(), tile.piecesPerSalesUnit(), tile.pieceOne(),
-                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), soldQuantity, lastSoldOn, lastAverageEur);
+                    tile.pieceOther(), tile.countUnits(), tile.defaultUnit(), soldQuantity, lastSoldOn, lastAverageEur,
+                    tile.categoryId(), tile.categoryName(), tile.categoryOrder());
         }
     }
 
@@ -104,12 +113,13 @@ public final class PartnerPortalViews {
                               BigDecimal transportEur, BigDecimal costEur, String enteredUnit, int enteredCount,
                               BigDecimal piecePriceEur, int enteredPiecesPerUnit, int pieces) {}
 
-    /** One product of a melding with the full tile (round 2) and its sale and buyback. */
+    /** One product of a melding with the full tile (round 2, the category since review round 2) and its sale and buyback. */
     public record Entry(long productId, String name, String variant, String colourHex, String unitOne,
                         String unitOther, boolean hasPhoto, String photoVersion, SalePart sale, BuybackPart buyback,
                         String sku, Long familyId, String familyName, int piecesPerUnit, String salesUnit,
                         int piecesPerSalesUnit, String pieceOne, String pieceOther,
-                        List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit) {}
+                        List<PartnerCountUnits.CountUnit> countUnits, String defaultUnit,
+                        Long categoryId, String categoryName, Integer categoryOrder) {}
 
     /**
      * commission / transport / extra are the sale side's; buybackEur is the terugkoopkost (buyback gross +

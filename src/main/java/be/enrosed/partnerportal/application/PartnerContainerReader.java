@@ -1,10 +1,8 @@
 package be.enrosed.partnerportal.application;
 
-import be.enrosed.catalog.application.CategoryService;
 import be.enrosed.catalog.application.StockService;
 import be.enrosed.catalog.application.port.out.CataloguePallet;
 import be.enrosed.catalog.domain.Carton;
-import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.Dimensions;
 import be.enrosed.catalog.domain.Packaging;
 import be.enrosed.catalog.domain.Product;
@@ -66,18 +64,16 @@ public class PartnerContainerReader {
 
     private final PurchaseOrderService purchaseOrders;
     private final PartnerProductTiles tiles;
-    private final CategoryService categories;
     private final StockService stock;
     private final CataloguePallet pallet;
     private final ArrivalMoveStore moves;
     private final PartnerContainerQueries queries;
 
     public PartnerContainerReader(PurchaseOrderService purchaseOrders, PartnerProductTiles tiles,
-                                  CategoryService categories, StockService stock, CataloguePallet pallet,
+                                  StockService stock, CataloguePallet pallet,
                                   ArrivalMoveStore moves, PartnerContainerQueries queries) {
         this.purchaseOrders = purchaseOrders;
         this.tiles = tiles;
-        this.categories = categories;
         this.stock = stock;
         this.pallet = pallet;
         this.moves = moves;
@@ -113,9 +109,8 @@ public class PartnerContainerReader {
         }
         containers.sort(ORDER);
         List<PartnerContainerViews.ProductSpec> products = new ArrayList<>();
-        Map<Long, String> categoryNames = categoryNames();
         productIds.stream().map(catalog::tile).sorted(catalog.order())
-                .forEach(tile -> products.add(spec(tile, catalog, categoryNames, perPallet)));
+                .forEach(tile -> products.add(spec(tile, catalog, perPallet)));
         CataloguePallet.Basis basis = pallet.basis();
         return new PartnerContainerViews.ContainerPage(today,
                 new PartnerContainerViews.Pallet(basis.widthCm(), basis.depthCm(), basis.maxHeightCm()),
@@ -280,33 +275,23 @@ public class PartnerContainerReader {
     /* ------------------------------------------------------------------ products */
 
     private PartnerContainerViews.ProductSpec spec(PartnerPortalViews.ProductTile tile,
-                                                   PartnerProductTiles.Catalog catalog,
-                                                   Map<Long, String> categoryNames, Map<Long, Integer> perPallet) {
+                                                   PartnerProductTiles.Catalog catalog, Map<Long, Integer> perPallet) {
         Product product = catalog.product(tile.productId()).orElse(null);
         if (product == null) {
-            return new PartnerContainerViews.ProductSpec(tile, null, null, null, null, null, null, null, null, null,
-                    null, null, null);
+            return new PartnerContainerViews.ProductSpec(tile, null, null, null, null, null, null, null, null,
+                    null, null);
         }
         Dimensions own = product.dimensions();
         Packaging packaging = product.packaging();
         Carton carton = product.carton() == null ? Carton.empty() : product.carton();
         int fit = cartonsPerPallet(tile.productId(), product, perPallet);
-        return new PartnerContainerViews.ProductSpec(tile, product.categoryId(),
-                product.categoryId() == null ? null : categoryNames.get(product.categoryId()),
+        return new PartnerContainerViews.ProductSpec(tile,
                 blankToNull(product.colour()), blankToNull(product.variantSize()), size(own),
                 positive(own == null ? null : own.weightKg()),
                 packaging == null ? "NONE" : packaging.kind().name(),
                 packaging == null || !packaging.isPresent() ? null : size(packaging.dimensions()),
                 Math.max(1, carton.piecesPerCarton()), size(carton.dimensions()), positive(carton.weightKg()),
                 fit > 0 ? fit : null);
-    }
-
-    private Map<Long, String> categoryNames() {
-        Map<Long, String> names = new HashMap<>();
-        for (Category category : categories.list()) {
-            if (category.id() != null) names.put(category.id(), category.name());
-        }
-        return names;
     }
 
     private static PartnerContainerViews.Size size(Dimensions dimensions) {

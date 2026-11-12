@@ -221,7 +221,7 @@ public class PartnerReportReader {
                             entryBuyback.pieces),
                     tile.sku(), tile.familyId(), tile.familyName(), tile.piecesPerUnit(), tile.salesUnit(),
                     tile.piecesPerSalesUnit(), tile.pieceOne(), tile.pieceOther(), tile.countUnits(),
-                    tile.defaultUnit()));
+                    tile.defaultUnit(), tile.categoryId(), tile.categoryName(), tile.categoryOrder()));
         }
         BigDecimal buybackCost = buyback.net.negate();
         PartnerPortalViews.Totals totals = new PartnerPortalViews.Totals(sale.quantity, buyback.quantity,
