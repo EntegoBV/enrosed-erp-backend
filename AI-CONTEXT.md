@@ -2254,6 +2254,136 @@ The sales list preloads both reads once per request (`SalesEnrosedCost.preloadFo
 `SalesEnrosedCostCache`; `StockBatchService.saleCosts()` = every shipment's takes in one read). TICA:
 `GET /api/tica/analytics` days carry `enrosedCostEur`, the same rule on the product's current cost.
 
+## Voorraadradar / stock radar (back 2026-11-15, without a browser)
+
+A personal bot for Emre: watches the products he wants to buy and pushes + mails
+him when a shop can deliver or hand one over within
+`enrosed.stockradar.max-delivery-days` (3), or a Coolblue store has it. Products
+are `Family`s with `Item`s (variants): the iPhone Duo in white (Sterrenwit) and
+blue (Nachthemel), 256 and 512 GB (Apple parts MK2D4ZD/A, MK2F4ZD/A, MK2E4ZD/A,
+MK2G4ZD/A), and the PS5 Pro (2 TB). Package `be.enrosed.stockradar`, table
+`stock_radar_watch` (one row per watch key `shop:item`, e.g. `coolblue-be:blauw-256`,
+`ps-direct-be:ps5-pro`; migration `docs/migrations/2026-11-15/stock-radar-postgresql.sql`,
+which also drops the first radar's `stock_radar_store`).
+
+- **Why it was removed and what changed (2026-10-31 .. 11-13):** the first radar
+  launched Playwright + Chromium twice a minute inside the ERP's JVM (~2,900
+  launches a day); production memory grew ~0.7 GB a day past the 3 GB heap until
+  each redeploy, CPU went to 0.35-0.75 vCPU. This version has **no browser and no
+  child process**: plain `java.net.http` only, one client and one cookie jar for
+  the process, bodies capped at 6 MB, 30 s to answer + 20 s to arrive, the page's
+  own charset. Requests carry a desktop Chrome user agent (since October 2026; with
+  an honest client name Coolblue answers 403 — Emre's call) and only Accept,
+  Accept-Language and Accept-Encoding: no client hints or Sec-Fetch headers that
+  would claim a browser context. Emre asked on 2026-11-15 to "pretend to be a real
+  browser" for MediaMarkt NL and Krëfel: refused, that is bot-detection evasion. Do not bring Playwright back into this package; if a browser shop is
+  ever wanted, run it as a disposable worker process like `TicaPortalClient`.
+- **iPhone Duo shops read** (`StockRadarStores`): Apple online
+  (`/be-nl/shop/delivery-message`) and Apple Store Brussel R486
+  (`/be-nl/shop/retail/pickup-message`), one request each for all four parts;
+  Coolblue BE/NL 986123 / 986125 / 986124 / 986126 (JSON-LD `availability` + the
+  product's `"promise"`; store stock from `storeAvailabilities`, a store counting
+  only when it is on the product's `availableForPickup` list and its
+  `orderStartDate` has come: new stores show stock before they open, and some
+  locations are no shops; without JSON-LD the product's own `availabilityState`
+  in the page data);
+  Vanden Borre `iphone-duo-{256,512}gb-{sw,ns}` (sku 7592493 / 7592418 / 7592558 /
+  7592442; the server-rendered `id="availability"` section + the JSON-LD offer with
+  the page's own sku; never the rest of the page, accessories use the same words).
+  Its phrases: "binnen 30 min." and "na 30 min" (today), "binnen 1 à 2 dagen" (the
+  later day), "binnen max. 10 dagen", "28.11.2026"; a delivery text the reader
+  cannot date is `dateUnknown` and never available. Apple's pickup "Beschikbaar za
+  29 nov" is dated that day, not today. Coolblue's JSON-LD `sku` must be the watched
+  article. A PlayStation waiting room counts only when the page is no product page
+  and carries Queue-it's own host or form fields.
+  Amazon.com.be, Amazon.de and Amazon.nl (Emre, 2026-11-15: "volg ook"), ASINs
+  B0HJB16BGD / B0HJB7WK3H / B0HJB23TJP / B0HJ9QHDLH (shared by .com.be, .nl and
+  .de; .fr has its own), one page a minute per store with the four iPhones in turn. A page counts only when its hidden
+  `<input id="ASIN">` is the watched ASIN: Amazon shows another variant under a
+  sold-out address (it hides sold-out variants: `suppressOOSAndUndeliverableVariants`;
+  2026-11-15 the white 256 GB showed the 2 TB, which the first radar read as "256 GB
+  beschikbaar"), and that is "Nu niet te koop: Amazon toont …", never the other
+  variant's stock. `#availability` "Op voorraad" / "Nog maar"
+  (+ fr/de) with the earliest `data-csa-c-delivery-time` of the delivery block (the
+  free date and "Of snelste bezorging …"); "Tijdelijk niet op voorraad" or
+  "rupture" with a buy box is a backorder, not stock; the price allows U+202F
+  (amazon.fr). "Server Busy" (the old radar's Chromium got it 397 times against 7
+  reads) and Amazon's captcha are refusals. Amazon.de and .nl say "levering naar
+  België niet bevestigd"; Amazon.fr is a manual link. Amazon's
+  official data route (Creators API, OffersV2) needs an affiliate account with 10
+  referred sales in 30 days; Keepa can alert on .de/.fr if Emre wants a paid route.
+- **PS5 Pro shops read:** PlayStation Direct België, which moved into
+  playstation.com (`https://www.playstation.com/nl-be/ps5/ps5-pro/buy-now/`;
+  direct.playstation.com answers 301 to it): the JSON-LD block `pdp-product-jsonld`
+  (sku `PSD001-PSDE01942_39-PS5PROCHASASIRSE-E000K3A7V`, price, availability) and the
+  page data's `stockLevelStatus` for that sku entry (the one with `displayPrice`);
+  in stock only when both agree (the page is a render up to ~4 min old). A Queue-it
+  waiting room is reported as "Wachtrij actief (waarschijnlijk verkoop)" so Emre can
+  join it himself; the radar never tries to pass it. Coolblue BE/NL 954519 (PS5 Pro
+  Digital Edition, listed at ~€ 1,59x in Nov 2026 against € 899.99 at PlayStation).
+  Vanden Borre has no PS5 Pro page while it has none: its listing
+  `/gaming/spelconsole/sony-playstation-5-pro` says "Momenteel hebben we helaas geen
+  voorraad beschikbaar" until an ItemList JSON-LD with the product appears.
+- **Not read, listed as manual shops with a link** (`MANUAL`, per product):
+  MediaMarkt BE (403 to the server), MediaMarkt NL and Krëfel (only a real browser
+  gets in), bol.com (403). The radar never works around a block: no browser, no
+  proxy, no solving of robot checks.
+- **Rhythm** (Emre, 2026-11-15: "doe per minuut"): a 10 s `@Scheduled` tick looks
+  what is due per *slot* (a page, or a group that takes turns), every slot once a
+  minute, up to 10 % later. **Coolblue's pages take turns per country, one page a
+  minute** (four iPhones + the PS5 Pro, so each every 5 min): four pages a minute
+  brought Coolblue's AWS WAF robot check within minutes (seen 2026-11-15). Every
+  Coolblue iPhone page names the online `availabilityState` of all four iPhones; one
+  that turns InStock there is read next, at once (`followCoolblue`). Pages of one
+  shop are asked one after the other, 1.5 s apart; shops in parallel on virtual
+  threads; rounds on one background thread.
+- **Failures:** a refusal (403, 429, 503, Apple's 541, Amazon's Server Busy, an AWS
+  WAF challenge page, `StockRadar.robotCheck`) waits 2, 4, 8, then 15 min, and
+  holds back every page of that host (`hostNotBefore`), not only the refused one;
+  other failures 2, 4, 5 min for that page. The waits are set before the round's
+  state is saved (a database failure does not undo them) and rebuilt from the rows
+  at start, so a redeploy does not ask a refusing shop again at once. Failures never count as "not available". The row keeps `refused`, so the
+  screen says "Wacht" (no good answer yet) instead of "Fout"; "Fout" is for a page
+  that fails three times in a row for another reason (layout changed).
+- **Verdict and alerts:** available = in stock and (no date, or date ≤ today + N);
+  a pre-order without a date never counts. Becoming available → push + mail; a
+  Coolblue store that joins after the "beschikbaar" got out → push + mail, each
+  store once per available period (`announced_places`, written on delivery and
+  cleared by "weer weg", so one odd read never rings a store twice and a lost store
+  alert comes again); "weer weg" needs two reads in a row and is a push only, with
+  the same tag (`stock-radar:<key>`), so it replaces the "beschikbaar" banner on the
+  phone. Titles start with the product's icon (📱, 🎮). Push topics are
+  `sr-<shop>-<item>` (32 characters max, distinct per watch). An alert that did not
+  get out is tried again only on a read that is available itself, after 1, 2, 4 …
+  at most 60 min (in memory). `last_push_status` / `last_mail_status` belong to the
+  last alert only (null for a door it did not use). The very first start (empty
+  table) sends one "staat weer aan" push + mail.
+- **Extra mail addresses** (Emre, 2026-11-15: "een extra mail naar kunnen zetten"):
+  table `stock_radar_recipient`, at most five, set on the screen
+  (`PUT /api/stock-radar/mail-recipients` `{"emails": [...]}`, the whole list;
+  invalid → 422). Every radar mail goes to `mail-to` first and then to each extra
+  address separately, so nobody sees the others; push stays with the notify user.
+- **Doors:** push to the devices of `enrosed.stockradar.notify-user` (emre) only,
+  through `StockRadarPushSender`, which stays silent while `enrosed.push.enabled`
+  is false; mail to `enrosed.stockradar.mail-to` (emre@entego.be) as a direct
+  Brevo POST with the sender name "Enrosed voorraadradar", only logged while
+  `quarkus.mailer.mock` is true.
+- **REST** `/api/stock-radar` (`GET` → `{…, families[{items, shops, manual}], watches}`;
+  `POST /{key}/check` with a watch or shop key, answering `{started, queuedSeconds,
+  feed}`: a page of a shop whose pages take turns that was asked under a minute ago
+  goes next instead; `PUT /mail-recipients`; `POST /test-push`, `POST /test-mail`,
+  which follow the radar's own push/mail switches and say when the mailer only
+  mocks): only the notified user gets an answer, other staff a 404 (partners and
+  anonymous callers are refused by the role check first).
+- **Switches:** `STOCK_RADAR_ENABLED` (unset = on only when
+  `RAILWAY_ENVIRONMENT_NAME` is `production`: Railway test runs on a copy of
+  production's devices, and a local prod-profile run on a dump would push to
+  Emre's phone), `STOCK_RADAR_PUSH_ENABLED`,
+  `STOCK_RADAR_MAIL_ENABLED`, `STOCK_RADAR_SPEED` (2 = half the traffic),
+  `STOCK_RADAR_MAX_DELIVERY_DAYS`.
+- **CLI check without the app**: `java -cp 'target/quarkus-app/lib/main/*:target/quarkus-app/lib/boot/*:target/quarkus-app/app/*' be.enrosed.stockradar.StockRadarProbe [watch-or-shop-keys]`
+  (one read per page; keep it rare, Coolblue's robot check comes quickly).
+
 ## Klantprijzen and the priced catalogue (2026-11-06)
 
 Emre: "prijzen maken per klant ... en dan als je exporteert VOOR een klant, dat dan die prijzen

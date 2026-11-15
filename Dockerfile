@@ -148,7 +148,7 @@ COPY docs/migrations/2026-11-10/purchase-order-arrival-moved-postgresql.sql ./mi
 COPY docs/migrations/2026-11-10/sales-line-per-piece-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-10/partner-portal-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-12/partner-portal-r2-postgresql.sql ./migrations/
-COPY docs/migrations/2026-11-13/stock-radar-removed-postgresql.sql ./migrations/
+COPY docs/migrations/2026-11-15/stock-radar-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-15/purchase-order-arrivals-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-15/customer-login-activity-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
