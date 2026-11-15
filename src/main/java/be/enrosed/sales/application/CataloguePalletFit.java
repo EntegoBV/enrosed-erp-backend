@@ -8,7 +8,9 @@ import jakarta.enterprise.context.ApplicationScoped;
 /**
  * The catalogue's per-pallet figure: the same stacking as Palletberekening, on the standard
  * pallet of the sales settings (a europallet 120 x 80 cm, 260 cm high with the wood, 700 kg,
- * unless configured otherwise), the one a new sales document is made with.
+ * unless configured otherwise), the one a new sales document is made with. The per-kar figure
+ * stacks the same way on the Deense kar at its standard 230 cm ({@link PalletSpec#deenseKar()}),
+ * upright as a quote counts, never tipped as Palletberekening may.
  */
 @ApplicationScoped
 public class CataloguePalletFit implements CataloguePallet {
@@ -30,5 +32,16 @@ public class CataloguePalletFit implements CataloguePallet {
     @Override
     public int cartonsPerPallet(Carton carton) {
         return calculator.fit(carton, settings.pallet()).cartonsPerPallet();
+    }
+
+    @Override
+    public Basis karBasis() {
+        PalletSpec kar = PalletSpec.deenseKar();
+        return new Basis(kar.lengthCm(), kar.widthCm(), kar.maxHeightCm(), kar.maxWeightKg());
+    }
+
+    @Override
+    public int cartonsPerKar(Carton carton) {
+        return calculator.fit(carton, PalletSpec.deenseKar()).cartonsPerPallet();
     }
 }

@@ -6,64 +6,74 @@
   <style>
     @page {
       size: A4;
-      margin: 19mm 12mm 21mm;
+      margin: 18mm 12mm 22mm;
       @top-center { content: element(catalog-header); }
       @bottom-center { content: element(catalog-footer); }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #30242a; background: #fff; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8.5pt; line-height: 1.35; }
+    body { margin: 0; color: #30242a; background: #fff; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
     table { border-collapse: collapse; }
     td { vertical-align: top; word-wrap: break-word; }
     .running-header { position: running(catalog-header); width: 100%; border-bottom: .25mm solid #c8ac78; padding-bottom: 2mm; color: #725b62; font-size: 7.5pt; }
     .running-header table, .running-footer table { width: 100%; table-layout: fixed; }
     .running-brand { width: 29mm; color: #59172d; font-weight: 600; letter-spacing: 1.2px; }
     .running-title { text-align: right; }
-    .running-footer { position: running(catalog-footer); width: 100%; border-top: .2mm solid #d8c8bb; padding-top: 2mm; color: #7d6a6c; font-size: 6.7pt; line-height: 1.35; }
+    .running-footer { position: running(catalog-footer); width: 100%; border-top: .2mm solid #d8c8bb; padding-top: 2mm; color: #7d6a6c; font-size: 6.5pt; line-height: 1.35; }
     .footer-note { margin-bottom: 1mm; }
     .footer-page { width: 22mm; text-align: right; color: #59172d; }
     .page-number:before { content: counter(page); }
     .page-total:before { content: counter(pages); }
-    .masthead { margin: 0 0 5mm; padding: 5mm 6mm; color: #fffaf3; background: #4b1024; border-bottom: .5mm solid #bea16a; }
+
+    .masthead { margin: 0 0 4mm; padding: 4.2mm 5.5mm; color: #fffaf3; background: #4b1024; border-bottom: .5mm solid #bea16a; }
     .masthead table { width: 100%; table-layout: fixed; }
-    .masthead .heading { padding-right: 5mm; }
-    .logo { width: 39mm; height: auto; }
-    h1 { margin: 3mm 0 2mm; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 25pt; font-weight: 600; line-height: 1.06; word-wrap: break-word; }
-    .eyebrow { color: #e1c590; font-size: 7.5pt; letter-spacing: .8px; }
-    .meta { width: 62mm; padding-top: 1mm; text-align: right; color: #eee3dc; font-size: 7.5pt; line-height: 1.5; }
+    .masthead .heading { padding-right: 5mm; vertical-align: bottom; }
+    .logo { width: 33mm; height: auto; }
+    h1 { margin: 2.4mm 0 1.4mm; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 22pt; font-weight: 600; line-height: 1.06; word-wrap: break-word; }
+    .eyebrow { color: #e1c590; font-size: 7.3pt; letter-spacing: .8px; }
+    .meta { width: 62mm; text-align: right; color: #eee3dc; font-size: 7.2pt; line-height: 1.45; vertical-align: bottom; }
     .meta strong { color: #fff; font-weight: 600; }
-    .recipient { margin-top: 1.6mm; color: #fffaf3; font-size: 9pt; font-weight: 600; line-height: 1.3; word-wrap: break-word; }
-    .intro { margin: 0 0 5mm; padding: 2mm 0 2mm 4mm; color: #59454d; border-left: .5mm solid #bea16a; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12pt; line-height: 1.3; word-wrap: break-word; }
-    /* Retry the complete product on the next page; td-only avoidance cannot do that. */
-    .product-block { page-break-inside: avoid; margin-bottom: 2.2mm; }
-    /* Keep the heading with just the first product, never the whole category. */
-    .chapter { padding: 3mm 0 2.2mm; page-break-after: avoid; }
+    .recipient { margin-top: 1.4mm; color: #fffaf3; font-size: 9pt; font-weight: 600; line-height: 1.3; word-wrap: break-word; }
+    .intro { margin: 0 0 4mm; padding: 1.6mm 0 1.6mm 4mm; color: #59454d; border-left: .5mm solid #bea16a; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11.5pt; line-height: 1.3; word-wrap: break-word; }
+
+    /* A product moves to the next page whole; its category heading travels with the first one. */
+    .product-block { page-break-inside: avoid; margin-bottom: 3.2mm; }
+    .chapter { padding: 2.4mm 0 1.8mm; page-break-after: avoid; }
     .chapter table { width: 100%; table-layout: fixed; }
-    .chapter .number { width: 12mm; color: #ad8952; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 22pt; line-height: 1; }
-    .chapter h2 { margin: 0; color: #59172d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 18pt; font-weight: 600; line-height: 1.1; word-wrap: break-word; }
-    .chapter .description { margin-top: 1mm; color: #756168; font-size: 8pt; line-height: 1.35; }
-    .product-row { width: 100%; table-layout: fixed; border-top: .35mm solid #a88051; border-bottom: .2mm solid #e5d9d2; }
-    .product-row > tbody > tr { page-break-inside: avoid; }
-    .product-row > tbody > tr > td { padding: 3mm; }
-    .product-row .visual { width: 38mm; padding: 2mm 2mm 2mm 0; vertical-align: middle; }
-    .photo-grid { width: 100%; table-layout: fixed; }
-    .photo-grid td { padding: .5mm; text-align: center; vertical-align: middle; }
-    .photo-grid.multiple td { width: 50%; }
-    .photo-grid img { display: block; width: 100%; height: auto; }
-    .image-unavailable { padding: 4mm 1mm; color: #9d898d; font-size: 7.5pt; text-align: center; }
-    .identity { padding-left: 1mm; }
-    .name { margin: 0 0 1.4mm; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 14pt; font-weight: 600; line-height: 1.12; word-wrap: break-word; }
-    .sku { color: #6e585d; font-size: 7.7pt; line-height: 1.3; word-wrap: break-word; }
-    .option { margin-top: 2mm; color: #382a30; font-size: 9pt; font-weight: 500; }
-    .dimensions { margin-top: 1mm; color: #725e64; font-size: 8pt; }
-    .facts { width: 64mm; background: #f6f1ed; color: #524047; font-size: 8pt; line-height: 1.4; }
-    .fact { margin-bottom: .6mm; word-wrap: break-word; }
-    .fact-label { color: #826b72; font-size: 7.5pt; }
-    .fact strong { font-weight: 500; }
-    .price { margin-top: 2mm; padding-top: 1.4mm; border-top: .2mm solid #d6c2af; color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
-    .price small { font-size: 7.5pt; font-weight: 400; color: #725b63; }
-    .display-price { margin-top: .7mm; color: #725b63; font-size: 7.5pt; font-weight: 400; line-height: 1.25; }
-    .display-price--primary { margin-top: 0; color: #64132e; font-size: 12pt; font-weight: 600; }
-    .nostock { margin-top: 1.5mm; color: #9a552f; font-size: 7.5pt; }
+    .chapter .number { width: 10mm; color: #ad8952; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 19pt; line-height: 1; }
+    .chapter h2 { margin: 0; color: #59172d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 16pt; font-weight: 600; line-height: 1.1; word-wrap: break-word; }
+    .chapter .description { margin-top: .8mm; color: #756168; font-size: 7.5pt; line-height: 1.35; }
+
+    .product { width: 100%; table-layout: fixed; border-top: .35mm solid #a88051; }
+    .product > tbody > tr > td { padding: 2mm 0 1.6mm; }
+    .name { margin: 0; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 13.5pt; font-weight: 600; line-height: 1.12; word-wrap: break-word; }
+    .sub { margin-top: .7mm; color: #725e64; font-size: 7.3pt; line-height: 1.35; }
+    .sub b { color: #382a30; font-weight: 500; }
+    .price-cell { width: 60mm; padding-left: 4mm !important; text-align: right; }
+    .price-main { color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
+    .price-main small { color: #725b63; font-size: 7.3pt; font-weight: 400; }
+    .price-sub { margin-top: .5mm; color: #725b63; font-size: 7.3pt; line-height: 1.25; }
+
+    /* Carton, pallet, kar, 20ft and 40ft always together, in that order. */
+    .logistics { width: 100%; table-layout: fixed; background: #f6f1ed; }
+    .logistics td { padding: 1.5mm 2.2mm 1.6mm; border-left: .25mm solid #fff; }
+    .logistics td.first { border-left: 0; }
+    .logistics .label { color: #826b72; font-size: 6.4pt; line-height: 1.25; letter-spacing: .15px; }
+    .logistics .value { margin-top: .5mm; color: #30242a; font-size: 8.2pt; font-weight: 600; line-height: 1.2; }
+    .logistics .detail { color: #826b72; font-size: 6.6pt; line-height: 1.25; }
+
+    .colours { width: 100%; table-layout: fixed; margin-top: 1.4mm; }
+    .colours td.colour { padding: .9mm 1.6mm .9mm 0; vertical-align: top; }
+    .colour-card { width: 100%; table-layout: fixed; }
+    .colour-card td { vertical-align: middle; }
+    .colour-card td.thumb { width: 17.6mm; padding-right: 1.8mm; }
+    .thumb img { display: block; width: 15.8mm; height: 15.8mm; border: .2mm solid #eee4dc; }
+    .thumb .no-photo { width: 15.8mm; height: 15.8mm; border: .2mm dashed #e2d6cd; }
+    .colour-text { color: #725e64; font-size: 6.6pt; line-height: 1.32; word-wrap: break-word; }
+    .colour-name { color: #382a30; font-size: 7.8pt; font-weight: 600; line-height: 1.25; }
+    .dot { display: inline-block; width: 2.6mm; height: 2.6mm; margin: 0 1mm .3mm 0; border: .2mm solid #b7a89e; border-radius: 50%; vertical-align: middle; }
+    .sku { color: #4f3f45; letter-spacing: .1px; }
+    .nostock { color: #9a552f; font-weight: 500; }
+
     html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
     html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
     html[lang="el"] .name { font-size: 11pt; }
@@ -72,7 +82,7 @@
 <body>
 <div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title}{#if recipientShort} · {recipientShort}{/if} · {itemCountLabel}</td></tr></table></div>
 <div class="running-footer">
-  <div class="footer-note">{#if priceBasis}{priceBasis} {/if}{#if validityLine}{validityLine}. {/if}{copy['catalog.simple.footer']} {palletBasis}</div>
+  <div class="footer-note">{#if priceBasis}{priceBasis} {/if}{#if validityLine}{validityLine}. {/if}{copy['catalog.simple.footer']} {palletBasis} {karBasis}</div>
   <table><tr><td>ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
 </div>
 
@@ -97,9 +107,9 @@
 {#if intro}<div class="intro">{intro}</div>{/if}
 
 {#for section in sections}
-  {#for it in section.items}
+  {#for p in section.products}
     <div class="product-block">
-      {#if it_index == 0 && section.name}
+      {#if p_index == 0 && section.name}
         <div class="chapter">
           <table><tr><td class="number">{section.number}</td><td>
             <h2>{section.name}</h2>
@@ -107,41 +117,45 @@
           </td></tr></table>
         </div>
       {/if}
-      <table class="product-row"><tbody><tr>
-        {#if it.photosRequested}
-          <td class="visual">
-            {#if it.photos.present}
-              <table class="photo-grid{#if it.photos.count > 1} multiple{/if}">
-                {#for photoRow in it.photoRows}<tr>{#for photo in photoRow}<td><img src="{photo}" alt="{it.name}"/></td>{/for}{#if it.photos.count > 1 && photoRow.size == 1}<td></td>{/if}</tr>{/for}
-              </table>
-            {#else}<div class="image-unavailable">{copy['catalog.common.imageunavailable']}</div>{/if}
+      <table class="product"><tbody><tr>
+        <td>
+          <h3 class="name">{p.name}</h3>
+          <div class="sub">{#if p.size}<b>{p.size}</b> · {/if}{#if p.productSize}{copy['catalog.common.productdimensions']} {p.productSize} · {/if}{copy['catalog.spec.hscode']} {#if p.hsCode}{p.hsCode}{#else}-{/if}</div>
+        </td>
+        {#if p.priceLabel}
+          <td class="price-cell">
+            {#if p.displayPriceLabel}
+              <div class="price-main">{p.displayPriceLabel}</div>
+              {#if p.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<div class="price-sub">{p.priceLabel} · {p.perUnitLabel}</div>{/if}
+            {#else}
+              <div class="price-main">{p.priceLabel}{#if p.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{p.perUnitLabel}</small>{/if}</div>
+            {/if}
           </td>
         {/if}
-        <td class="identity">
-          <h3 class="name">{it.name}</h3>
-          <div class="sku">SKU · {it.sku}</div>
-          {#if it.colour || it.variantSize}<div class="option">{#if it.colour}{it.colour}{/if}{#if it.colour && it.variantSize} · {/if}{#if it.variantSize}{it.variantSize}{/if}</div>{/if}
-          {#if it.size}<div class="dimensions">{copy['catalog.spec.productsize']} · {it.size}</div>{/if}
-          {#if it.inventoryKnown}{#if it.stockQuantity <= 0}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}{/if}
-        </td>
-        <td class="facts">
-          <div class="fact"><span class="fact-label">{copy['catalog.common.carton']}</span><br/><strong>{#if it.cartonQuantityLabel}{it.cartonQuantityLabel}{#else}{it.piecesPerCarton} {copy['catalog.simple.perbox']}{/if}</strong>{#if it.cartonSize} · {it.cartonSize}{/if}</div>
-          {#if it.barcodeInner}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.product']}</span> {it.barcodeInner}</div>{/if}
-          {#if it.barcodeOuter}<div class="fact"><span class="fact-label">EAN · {copy['catalog.common.carton']}</span> {it.barcodeOuter}</div>{/if}
-          <div class="fact"><span class="fact-label">{copy['catalog.spec.hscode']}</span> {#if it.hsCode}{it.hsCode}{#else}-{/if}</div>
-          <div class="fact"><span class="fact-label">{copy['catalog.simple.pallet']}</span> {it.palletLabel}</div>
-          <div class="fact"><span class="fact-label">{copy['catalog.simple.container20ft']}</span> {#if it.capacity20FtLabel}{it.capacity20FtLabel}{#else}{#if it.piecesPer20Ft != null}{it.piecesPer20Ft} {copy['catalog.common.pieces']}{#else}-{/if}{/if}</div>
-          <div class="fact"><span class="fact-label">{copy['catalog.simple.container40ft']}</span> {it.capacity40FtLabel}</div>
-          {#if it.priceLabel}<div class="price">
-            {#if it.displayPriceLabel}
-              <div class="display-price display-price--primary">{it.displayPriceLabel}</div>
-              {#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<small>{it.priceLabel} · {it.perUnitLabel}</small>{/if}
-            {#else}
-              {it.priceLabel}{#if it.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{it.perUnitLabel}</small>{/if}
-            {/if}
-          </div>{/if}
-        </td>
       </tr></tbody></table>
+      <table class="logistics"><tr>
+        <td class="first"><div class="label">{copy['catalog.common.carton']}</div><div class="value">{p.cartonQuantity}</div>{#if p.cartonSize}<div class="detail">{p.cartonSize}</div>{/if}</td>
+        <td><div class="label">{copy['catalog.simple.pallet']}</div><div class="value">{p.palletUnits}</div>{#if p.palletCartons}<div class="detail">{p.palletCartons}</div>{/if}</td>
+        <td><div class="label">{copy['catalog.simple.kar']}</div><div class="value">{p.karUnits}</div>{#if p.karCartons}<div class="detail">{p.karCartons}</div>{/if}</td>
+        <td><div class="label">{copy['catalog.simple.container20ft']}</div><div class="value">{p.capacity20Ft}</div></td>
+        <td><div class="label">{copy['catalog.simple.container40ft']}</div><div class="value">{p.capacity40Ft}</div></td>
+      </tr></table>
+      <table class="colours">
+        {#for row in p.colourRows}<tr>
+          {#for c in row.cells}<td class="colour">
+            <table class="colour-card"><tr>
+              {#if p.photos}<td class="thumb">{#if c.image}<img src="{c.image}" alt="{c.label}"/>{#else}<div class="no-photo"></div>{/if}</td>{/if}
+              <td class="colour-text">
+                <div class="colour-name">{#if c.hasSwatch}<span class="dot" style="background:{c.swatch}"></span>{/if}{c.label}</div>
+                <div class="sku">{c.sku}</div>
+                {#if c.ean}<div>EAN {c.ean}</div>{/if}
+                {#if c.cartonEan}<div>EAN {copy['catalog.common.carton']} {c.cartonEan}</div>{/if}
+                {#if c.outOfStock}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}
+              </td>
+            </tr></table>
+          </td>{/for}{#if row.filler > 0}{#for f in row.filler}<td class="colour"></td>{/for}{/if}
+        </tr>{/for}
+      </table>
     </div>
   {/for}
 {/for}

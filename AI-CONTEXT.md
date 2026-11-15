@@ -575,9 +575,24 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   ": "), and every price there wraps at its spaces (a range after its
   dash; an amount never breaks inside), so a long one stays inside the cell
   instead of running over the logistics column.
-- **Pallet, 20ft and 40ft always together** (Emre, 2026-11-06), in that order,
-  in every layout: the compact facts (Europallet "864 st. (72 omdozen)",
-  20ft, 40ft HC), the brochure range table (one line of three figures that
+- **Compact overzicht = one block per product** (Emre, 2026-11-15, "Compact pdf kan
+  iets beter"): `catalog.html` prints a family's colours under one heading (the family's
+  catalogue name, as the brochure; a product's own name only without a family, or where
+  the family has no name in that language and the product has), one Maat / product size /
+  HS line, one logistics strip (Omdoos, Europallet, Deense kar, 20ft, 40ft) and one price,
+  then the colours four to a row with a 16 mm photo (five without photos) with
+  swatch, SKU, EAN, carton EAN and "Niet op voorraad". `compactProducts` splits a family
+  into one block per set of colours whose printed figures are equal (`compactFigures`:
+  carton, pallet, kar, 20ft, 40ft, unit, price and display price), so every figure is true
+  for every colour under it; several Maten in one block go next to their colours. On a
+  local copy of the old test data the 62-colour EN list went from 13 to 7 pages (5,7 to
+  2,5 MB). The strict copy check still asks
+  the product names in this layout (unchanged, so no export starts failing). The old
+  per-SKU `Item` rows are gone.
+- **Pallet, kar, 20ft and 40ft always together** (Emre, 2026-11-06; the Deense kar
+  joined the compact layout on 2026-11-15), in that order: the compact strip (Europallet
+  "864 st." with "(72 omdozen)" under it, Deense kar likewise, 20ft, 40ft HC), the
+  brochure range table (no kar there yet) (one line of three figures that
   wraps between figures), the family specification list (the pallet with its
   omdozen in brackets) when every variant shares all three, else one line
   under each variant row of the variant table with all three (never split
@@ -592,7 +607,12 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   2026-11-07 to 2026-11-10, key
   `catalog.common.palletbasis`) closes the overview footnote and the compact
   footer. A carton without a weight is counted by height only, and there is
-  no hand count per product for the pallet.
+  no hand count per product for the pallet. Per Deense kar = the same
+  `PalletCalculator.fit` on `PalletSpec.deenseKar()` (127 × 54,5 cm floor, 16,5 cm
+  base counted as wood, 230 cm loaded from the floor, 450 kg, no shelves, upright: the
+  ERP's `karSpec(KAR_MAX_HEIGHT_CM)`), through `CataloguePallet.cartonsPerKar`; its basis
+  line (`catalog.common.karbasis`, label `catalog.simple.kar`) follows the pallet's in the
+  compact footer.
 - **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
   `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
   15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
