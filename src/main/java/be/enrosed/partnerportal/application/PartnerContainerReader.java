@@ -118,7 +118,7 @@ public class PartnerContainerReader {
         CataloguePallet.Basis basis = pallet.basis();
         return new PartnerContainerViews.ContainerPage(today,
                 new PartnerContainerViews.Pallet(basis.widthCm(), basis.depthCm(), basis.maxHeightCm()),
-                List.copyOf(containers), List.copyOf(products));
+                List.copyOf(containers), List.copyOf(products), places.nameFor(null, false));
     }
 
     /* ------------------------------------------------------------------ one container */
@@ -191,6 +191,7 @@ public class PartnerContainerReader {
                 palletsKnown == 0 ? null : palletSum, palletsUnknown, weightKnown ? weight : null, weightUnknown,
                 cbmUnknown);
 
+        String place = places.nameFor(order.receivingLocationId(), own);
         LocalDate movedFrom = !received && move != null && move.from() != null
                 && !move.from().equals(order.expectedArrival()) ? move.from() : null;
         boolean old = received
@@ -201,11 +202,12 @@ public class PartnerContainerReader {
                 type == null ? null : type.code(), type == null ? null : type.label(), order.orderDate(),
                 order.shippedOn(), order.expectedArrival(), due, order.receivedOn(), movedFrom,
                 order.isStockBooked(), old, order.departurePort(), order.destinationPort(),
-                places.nameFor(order.receivingLocationId(), own), totals, List.copyOf(lines),
-                /* What the ERP set by hand: the hour at the port with its day, the day and hour at the warehouse. */
+                place, totals, List.copyOf(lines),
+                /* What the ERP set by hand: the hour at the port with its day, the day and hour at the warehouse; the
+                   warehouse arrival only where the place may be named (his own container or the main warehouse). */
                 received || order.expectedArrival() == null ? null : ArrivalPlanStore.View.of(plan).containerAt(),
-                received ? null : plan.warehouseOn(),
-                received || plan.warehouseOn() == null ? null : ArrivalPlanStore.View.of(plan).warehouseAt());
+                received || place == null ? null : plan.warehouseOn(),
+                received || place == null || plan.warehouseOn() == null ? null : ArrivalPlanStore.View.of(plan).warehouseAt());
     }
 
     /** Each product on pallets of its own (what the warehouse does after unloading); null without a fit. */

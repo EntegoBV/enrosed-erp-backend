@@ -78,5 +78,7 @@ public final class PartnerContainerViews {
 
     /** Containers: open ones by arrival (as Komt eraan), then received ones newest first; products once each. */
     public record ContainerPage(LocalDate serverDate, Pallet pallet, List<Container> containers,
-                                List<ProductSpec> products) {}
+                                List<ProductSpec> products,
+                                /* Since 2026-11-15: the main warehouse's name (Zaltbommel), the column of the arrival set by hand. */
+                                String warehouseName) {}
 }

@@ -65,10 +65,11 @@ public class ArrivalPlanStore {
 
     /**
      * The sheet's save. containerOn is the order's expectedArrival (null: no day yet); containerAt and warehouseAt are
-     * "HH:mm" or empty. followTracking true gives the container's day back to track &amp; trace: the day sent stays
-     * until the source's next date replaces it, and the hour goes.
+     * "HH:mm" or empty. containerByHand counts only while the order has track &amp; trace: true keeps the day and hour
+     * sent ("Zelf instellen"), false lets tracking follow ("Track &amp; trace volgen"): the day sent stays until the
+     * source's next date replaces it, and the hour goes, as sources name a day.
      */
-    public record Request(LocalDate containerOn, String containerAt, Boolean followTracking,
+    public record Request(LocalDate containerOn, String containerAt, Boolean containerByHand,
                           LocalDate warehouseOn, String warehouseAt) {}
 
     /** followed: the container's day went back to tracking now, so the caller lets tracking apply its date. */
@@ -109,13 +110,12 @@ public class ArrivalPlanStore {
             throw new BusinessRuleException("Kies eerst de dag van de aankomst in " + placeName(order.receivingLocationId));
 
         boolean tracked = order.trackingReference != null && !order.trackingReference.isBlank();
-        boolean follow = Boolean.TRUE.equals(request.followTracking());
         boolean wasByHand = Boolean.TRUE.equals(order.arrivalByHand);
+        /* By hand only means something while track & trace could move the day, and only with a day to keep. */
+        boolean byHand = tracked && containerOn != null && Boolean.TRUE.equals(request.containerByHand());
+        boolean follow = tracked && !byHand;
         if (follow) containerAt = null;
         boolean dayMoved = !Objects.equals(order.expectedArrival, containerOn);
-        boolean containerMoved = dayMoved || !Objects.equals(order.expectedArrivalTime, containerAt);
-        /* By hand: the day or hour was set here while track & trace could move it. Unchanged keeps what it was. */
-        boolean byHand = follow || containerOn == null ? false : containerMoved ? tracked || wasByHand : wasByHand;
 
         String place = placeName(order.receivingLocationId);
         var changes = ActivityChangeSet.create()
@@ -140,7 +140,7 @@ public class ArrivalPlanStore {
         if (!changes.isEmpty())
             activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
                     Long.toString(order.id), order.number, follow && wasByHand ? "Aankomst container volgt weer track & trace" : "Aankomst bijgewerkt", changes);
-        return new Result(follow && tracked);
+        return new Result(follow && wasByHand);
     }
 
     /** The place the container is unloaded at, as the order's "Lossen op" names it: Zaltbommel for the main warehouse. */

@@ -3224,3 +3224,33 @@ works without ShipsGo and keeps working with it. Details: `docs/integrations/con
   port). The write side (a check that moves the arrival: 5 → 8 → 9 → 10 → 5 december, the bell row
   following by the two-day rule) ran against a local stand-in for the date source that only the
   test JVM trusted. Never run against the real Bexy, Voydar or ShipsGo, nor on PostgreSQL.
+
+## Aankomst met de hand: container en Zaltbommel, op dag en uur (2026-11-15)
+
+Emre: "aankomst container ook manueel kunnen zetten en aankomst Zaltbommel manueel op dag en uur van de
+inkooporders; Verhoeven moet het op zijn portaal terugzien."
+
+- **Columns** (migration `docs/migrations/2026-11-15/purchase-order-arrivals-postgresql.sql`, in the Dockerfile and
+  the pre-deploy runner): `purchase_order.expected_arrival_time` (time), `arrival_by_hand` (boolean),
+  `warehouse_arrival_on` (date), `warehouse_arrival_time` (time). All nullable; null everywhere = as before.
+- **`sourcing.tracking.ArrivalPlanStore`** owns them (the `PurchaseOrder` record does not carry them, as
+  `ArrivalMoveStore`): `all()`, `find(id)`, `set(id, Request)`. PUT `/api/purchase-orders/{id}/arrival`
+  (`SourcingResource.setArrival`) with `{containerOn, containerAt "HH:mm", containerByHand, warehouseOn,
+  warehouseAt}` writes `expected_arrival` too (a moved day clears the four arrival-moved columns as a form save
+  does), refuses a received order, an hour without its day and an hour that is not uu:mm (409 in Dutch), and
+  logs the changes ("Aankomst container", "Uur aankomst container", "Aankomst container met de hand", "Aankomst
+  {plaats}", "Uur aankomst {plaats}"). Do not read the order before the write in that request: outside a
+  transaction the request keeps the first read and answered the old day (seen and fixed while building).
+- **By hand** counts only while the order has a track & trace reference and a day: `TrackingDateSync.apply`
+  then keeps `expected_arrival` (the departure still follows); a day tracking does move clears the hour. The
+  tracking row has `arrivalByHand` and `sourceArrival` (the source's usable date while it differs; no "wijkt
+  af" dateError then). `containerByHand: false` on a by-hand order gives it back: `ContainerTrackingService.
+  adoptStoredDates` applies the stored source date at once when it is fresh, else the next check does.
+- **Order form save** (`PanacheSourcingRepositories.save`): a day that changes there drops the hour and the hand
+  mark (the screens no longer edit the day in the form; an older screen or a stale draft is planning).
+- **Order answer**: `PurchaseOrderView.arrival` (`ArrivalPlanStore.View`, never null; the list reads all plans
+  once).
+- **Partner portal** (`PartnerContainerReader`): `Container.expectedArrivalTime`, `warehouseArrivalOn`,
+  `warehouseArrivalTime` (null once received; the warehouse ones only where the place may be named: his own
+  container or the main warehouse), `ContainerPage.warehouseName` (the MAIN location's name, Zaltbommel).
+- Checked on a local dev jar through the API (both modes, the form save, the refusals, the portal answer).

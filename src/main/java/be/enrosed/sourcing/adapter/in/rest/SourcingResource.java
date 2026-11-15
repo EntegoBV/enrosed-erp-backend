@@ -302,7 +302,8 @@ public class SourcingResource {
     @PUT
     @Path("/purchase-orders/{id}/arrival")
     public PurchaseOrderView setArrival(@PathParam("id") long id, ArrivalPlanStore.Request request) {
-        purchaseOrders.get(id);
+        /* No read of the order before the write: outside a transaction this request would keep the order as it
+           read it first, and answer with the day from before (TrackingDateSync.reread says the same). */
         ArrivalPlanStore.Result result = arrivals.set(id, request);
         if (result.followed()) tracking.adoptStoredDates(id);
         return currentView(id);
