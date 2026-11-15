@@ -374,7 +374,8 @@ public final class StockRadarStores {
     private static final Pattern VDB_LD_AVAILABILITY = Pattern.compile("\"availability\"\\s*:\\s*\"https?://schema.org/(\\w+)\"");
     private static final Pattern VDB_LD_PRICE = Pattern.compile("\"price\"\\s*:\\s*\"?([0-9]+(?:\\.[0-9]+)?)");
     private static final Pattern VDB_HOME = Pattern.compile("Levering aan huis\\s*:\\s*(.{2,60}?)\\s+(?:Gratis|Koop nu|Afhaling|€|Express)");
-    private static final Pattern VDB_COLLECT = Pattern.compile("winkels\\s+((?:binnen|na|vanaf)[^.]{2,40}?|vandaag|morgen|overmorgen)\\.?\\s+(?:Toon alle|Afhaalpunt|Gratis|Koop nu)");
+    /** "binnen 30 min.", "binnen 1 à 2 dagen", "binnen max. 2 dagen", "vanaf 17.11.2026": inner dots allowed, a closing one dropped. */
+    private static final Pattern VDB_COLLECT = Pattern.compile("winkels\\s+((?:binnen|na|vanaf)\\s.{2,40}?|vandaag|morgen|overmorgen)\\.?\\s+(?:Toon alle|Afhaalpunt|Gratis|Koop nu)");
     private static final Pattern VDB_COLLECT_FAST = Pattern.compile("Click&Collect\\s*:?\\s*(?:Gratis\\s*)?((?:na|binnen) \\d+ min|vandaag|morgen)");
     private static final Pattern VDB_POINT = Pattern.compile("Afhaalpunt\\s*:\\s*(.{2,50}?)\\s+(?:Gratis|Koop nu|Stuur)");
     private static final Pattern VDB_UNSURE = Pattern.compile("(Levering in \\d{4} niet zeker)");

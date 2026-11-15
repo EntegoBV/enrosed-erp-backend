@@ -154,16 +154,31 @@ public class StockRadarService {
             QuarkusTransaction.requiringNew().run(() -> {
                 for (WatchStateEntity row : WatchStateEntity.<WatchStateEntity>listAll()) rows.put(row.watchKey, row);
             });
+            // Per slot: the failures in a row of its pages (a group's pages each count, they all asked the same shop),
+            // dated by the latest of them.
+            Map<String, Integer> errors = new HashMap<>();
+            Map<String, Instant> latest = new HashMap<>();
+            Map<String, Boolean> refusedSlot = new HashMap<>();
             for (Watch watch : StockRadarStores.WATCHES) {
                 WatchStateEntity row = rows.get(watch.key());
                 if (row == null || row.errorCount == null || row.errorCount == 0 || row.checkedAt == null) continue;
-                boolean refused = Boolean.TRUE.equals(row.refused);
-                long wait = Math.min(refused ? MAX_REFUSED_BACKOFF_SECONDS : MAX_BACKOFF_SECONDS, (long) interval() * (1L << Math.min(4, row.errorCount)));
-                Instant until = row.checkedAt.plusSeconds(wait);
+                String slot = watch.slot();
+                int count = watch.group() == null ? row.errorCount : row.errorCount + errors.getOrDefault(slot, 0);
+                errors.put(slot, watch.group() == null ? Math.max(errors.getOrDefault(slot, 0), row.errorCount) : count);
+                latest.merge(slot, row.checkedAt, (a, b) -> a.isAfter(b) ? a : b);
+                refusedSlot.merge(slot, Boolean.TRUE.equals(row.refused), (a, b) -> a || b);
+            }
+            for (Map.Entry<String, Integer> entry : errors.entrySet()) {
+                String slot = entry.getKey();
+                boolean refused = refusedSlot.getOrDefault(slot, false);
+                int count = entry.getValue();
+                long wait = Math.min(refused ? MAX_REFUSED_BACKOFF_SECONDS : MAX_BACKOFF_SECONDS, (long) interval() * (1L << Math.min(4, count)));
+                Instant until = latest.get(slot).plusSeconds(wait);
                 if (!until.isAfter(now)) continue;
-                slotErrors.merge(watch.slot(), row.errorCount, Math::max);
-                nextCheck.merge(watch.slot(), until, (a, b) -> a.isAfter(b) ? a : b);
-                if (refused) hostNotBefore.merge(hostOf(watch.url()), until, (a, b) -> a.isAfter(b) ? a : b);
+                slotErrors.merge(slot, count, Math::max);
+                nextCheck.merge(slot, until, (a, b) -> a.isAfter(b) ? a : b);
+                String url = StockRadarStores.WATCHES.stream().filter(watch -> watch.slot().equals(slot)).map(Watch::url).findFirst().orElse(null);
+                if (refused && url != null) hostNotBefore.merge(hostOf(url), until, (a, b) -> a.isAfter(b) ? a : b);
             }
         } catch (RuntimeException failure) {
             LOG.warnf("Voorraadradar: wachttijden niet hersteld (%s)", failure.getClass().getSimpleName());
@@ -234,9 +249,12 @@ public class StockRadarService {
             if (!picked) continue;
             if (exact != null && exact.group() != null) promote(exact.group(), exact.key());
             Instant asked = slotAsked.get(slot);
-            if ((asked != null && asked.isAfter(now.minusSeconds(INTERVAL_SECONDS))) || hostWaiting(slot, now)) {
-                if (exact != null && exact.group() != null) {
+            boolean waiting = hostWaiting(slot, now);
+            if ((asked != null && asked.isAfter(now.minusSeconds(INTERVAL_SECONDS))) || waiting) {
+                if ((exact != null && exact.group() != null) || waiting) {
                     Instant next = nextCheck.getOrDefault(slot, now);
+                    Instant hostWait = members.isEmpty() ? null : hostNotBefore.get(hostOf(members.getFirst().url()));
+                    if (hostWait != null && hostWait.isAfter(next)) next = hostWait;
                     queued = Math.max(queued, Math.max(0, java.time.Duration.between(now, next).toSeconds()));
                 }
                 continue;
@@ -459,6 +477,7 @@ public class StockRadarService {
             Instant notBefore = retryNotBefore.get(watch.key());
             if (notBefore == null || !notBefore.isAfter(now)) alert = new Alert(AlertKind.AVAILABLE, watch, seen, List.of());
         }
+        row.readAvailable = available;
         row.inStock = seen.inStock();
         row.statusText = seen.statusText();
         row.deliveryBy = seen.deliveryBy();
@@ -592,6 +611,7 @@ public class StockRadarService {
             catch (RuntimeException failure) { LOG.warnf("Voorraadradar-push mislukt (%s)", failure.getClass().getSimpleName()); statuses = List.of(-1); }
         }
         Integer mailStatus = null;
+        boolean mailArrived = false;
         if (mailEnabled && sendMail) {
             String text = String.join("\n",
                     watch.item().product(),
@@ -604,15 +624,17 @@ public class StockRadarService {
                     "Bestellen: " + watch.orderUrl(),
                     "",
                     "Gezien op " + ZonedDateTime.ofInstant(now, BRUSSELS).format(STAMP) + " door de Enrosed voorraadradar.");
-            mailStatus = mailAll(title.substring(icon.length()).trim(), text).mainStatus();
+            MailRound round = mailAll(title.substring(icon.length()).trim(), text);
+            mailStatus = round.mainStatus();
+            // Any address that got it counts: a retry would mail everyone again.
+            mailArrived = round.sent() > 0;
         }
         Integer pushStatus = statuses.isEmpty() ? null : statuses.stream().filter(s -> s >= 200 && s < 300).findFirst().orElse(statuses.getFirst());
         Integer mailResult = mailStatus;
         // No door at all (push off or no device, and no mail for this alert): nothing to retry.
         boolean noDoor = statuses.isEmpty() && mailStatus == null;
-        boolean delivered = alert.kind() == AlertKind.GONE || noDoor
-                || (pushStatus != null && pushStatus >= 200 && pushStatus < 300)
-                || (mailStatus != null && (mailStatus == 0 || (mailStatus >= 200 && mailStatus < 300)));
+        boolean delivered = alert.kind() == AlertKind.GONE || noDoor || mailArrived
+                || (pushStatus != null && pushStatus >= 200 && pushStatus < 300);
         if (alert.kind() != AlertKind.GONE) {
             if (delivered) {
                 retryNotBefore.remove(watch.key());
@@ -696,7 +718,7 @@ public class StockRadarService {
     MailRound mailAll(String subject, String text) {
         List<String> to = new ArrayList<>();
         to.add(mailTo);
-        try { to.addAll(extraRecipients()); }
+        try { for (String extra : extraRecipients()) if (!extra.equalsIgnoreCase(mailTo)) to.add(extra); }
         catch (RuntimeException failure) { LOG.warnf("Voorraadradar: extra mailadressen niet gelezen (%s)", failure.getClass().getSimpleName()); }
         Integer main = null;
         String mainDetail = null;
@@ -780,7 +802,7 @@ public class StockRadarService {
      * {@code refused}: the last failure was the shop saying no (403, 429, 503, 541, a robot check), not a broken page.
      */
     public record WatchRow(String key, String family, String shop, String item, String url, String orderUrl, int rhythmSeconds,
-                           Boolean available, Boolean inStock, String statusText, LocalDate deliveryBy, BigDecimal priceEur, String places,
+                           Boolean available, Boolean readAvailable, Boolean inStock, String statusText, LocalDate deliveryBy, BigDecimal priceEur, String places,
                            Instant checkedAt, Instant goodAt, Instant changedAt, Instant notifiedAt, Instant nextCheckAt, String lastError,
                            int errorCount, boolean refused, long checkCount, Integer lastPushStatus, Integer lastMailStatus) {}
 
@@ -796,7 +818,8 @@ public class StockRadarService {
             WatchStateEntity row = rows.get(watch.key());
             int turns = watch.group() == null ? 1 : (int) StockRadarStores.WATCHES.stream().filter(other -> watch.group().equals(other.group())).count();
             list.add(new WatchRow(watch.key(), watch.item().family().key(), watch.shop().key(), watch.item().key(), watch.url(), watch.orderUrl(), interval() * turns,
-                    row == null ? null : row.available, row == null ? null : row.inStock, row == null ? null : row.statusText,
+                    row == null ? null : row.available, row == null ? null : row.readAvailable,
+                    row == null ? null : row.inStock, row == null ? null : row.statusText,
                     row == null ? null : row.deliveryBy, row == null ? null : row.priceEur, row == null ? null : row.places,
                     row == null ? null : row.checkedAt, row == null ? null : row.goodAt, row == null ? null : row.changedAt,
                     row == null ? null : row.notifiedAt, nextFor(watch), row == null ? null : row.lastError,
@@ -816,7 +839,8 @@ public class StockRadarService {
         }
         // Unknown (null) when the list cannot be read: never an empty list the screen would then save over the real one.
         List<String> extra;
-        try { extra = extraRecipients(); } catch (RuntimeException failure) { extra = null; }
+        try { extra = extraRecipients().stream().filter(address -> !address.equalsIgnoreCase(mailTo)).toList(); }
+        catch (RuntimeException failure) { extra = null; }
         return new Feed(enabled(), pushEnabled && push.enabled(), mailEnabled, notifyUser, mailTo, extra, maxDeliveryDays, interval(),
                 devices, lastTickAt, lastRoundAt, lastRoundMillis, Instant.now(), families, list);
     }
@@ -824,6 +848,8 @@ public class StockRadarService {
     /** When this watch's page is read next: its slot's time, plus a minute per turn ahead of it in a group. */
     private Instant nextFor(Watch watch) {
         Instant slotNext = nextCheck.get(watch.slot());
+        Instant hostWait = hostNotBefore.get(hostOf(watch.url()));
+        if (slotNext != null && hostWait != null && hostWait.isAfter(slotNext)) slotNext = hostWait;
         if (slotNext == null || watch.group() == null) return slotNext;
         List<Watch> members = StockRadarStores.WATCHES.stream().filter(other -> watch.group().equals(other.group())).toList();
         int turn = turns(members).indexOf(watch);

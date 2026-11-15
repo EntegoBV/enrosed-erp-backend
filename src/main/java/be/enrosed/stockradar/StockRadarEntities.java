@@ -26,6 +26,12 @@ public final class StockRadarEntities {
         /** Deliverable or collectable within the configured window; null until the first successful read. */
         @Column(name = "available")
         public Boolean available;
+        /**
+         * What the latest good read itself says. "available" waits a second read before "weer weg";
+         * the screen shows this one, so an undated or sold-out read is never shown as "Nu".
+         */
+        @Column(name = "read_available")
+        public Boolean readAvailable;
         @Column(name = "in_stock")
         public Boolean inStock;
         @Column(name = "status_text", length = 300)
