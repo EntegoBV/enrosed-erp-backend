@@ -58,6 +58,8 @@ public class CustomerAccountService {
     private static final int MIN_PASSWORD_LENGTH = 10;
     private static final int MAX_PASSWORD_BYTES = 72;
     private static final Duration LAST_SEEN_STEP = Duration.ofMinutes(15);
+    /** The Websitelogin block counts the visits of this many days. */
+    static final Duration RECENT_VISITS = Duration.ofDays(30);
     private static final String ACTIVITY_ENTITY = "CUSTOMER";
 
     /**
@@ -334,7 +336,25 @@ public class CustomerAccountService {
                 account.email, account.contactName, account.language, account.status,
                 account.passwordSetAt, account.lastLoginAt, account.lastLinkSentAt,
                 account.lastLinkError, link == null ? null : link.expiresAt, account.createdAt,
-                account.createdBy, account.disabledAt, account.disabledBy, activeSessions);
+                account.createdBy, account.disabledAt, account.disabledBy, activeSessions,
+                lastActiveAt(account), CustomerLoginActivity.visits(CustomerLoginActivity.moments(
+                        now.minus(RECENT_VISITS), now.plusSeconds(1), account.id)).size());
+    }
+
+    /**
+     * The latest moment the login was in use: its last activity row, its last login (choosing a
+     * password with the link counts) or the last-seen of a session still on record.
+     */
+    private static Instant lastActiveAt(CustomerAccountEntity account) {
+        Instant latest = account.lastLoginAt;
+        Instant event = CustomerLoginActivity.lastMoments(List.of(account.id)).get(account.id);
+        if (event != null && (latest == null || event.isAfter(latest))) latest = event;
+        CustomerSessionEntity seen = CustomerSessionEntity
+                .find("accountId = ?1 order by lastSeenAt desc", account.id).firstResult();
+        if (seen != null && seen.lastSeenAt != null && (latest == null || seen.lastSeenAt.isAfter(latest))) {
+            latest = seen.lastSeenAt;
+        }
+        return latest;
     }
 
     // ------------------------------------------------------------------ customer: log in
@@ -343,14 +363,14 @@ public class CustomerAccountService {
      * One bcrypt per attempt, whatever the cause of a failure: unknown address, no password
      * yet, withdrawn, customer gone and a wrong password all end in the same 401.
      */
-    public AccountDtos.SessionResponse login(String normalizedEmail, String password) {
+    public AccountDtos.SessionResponse login(String normalizedEmail, String password, String device) {
         Credentials known = normalizedEmail == null ? null
                 : inTransaction(() -> credentials(normalizedEmail));
         String submitted = password == null ? "" : password;
         boolean matches = hashing(() -> BcryptUtil.matches(submitted,
                 known == null ? dummyHash : known.passwordHash()));
         AccountDtos.SessionResponse session = known == null || !matches ? null
-                : inTransaction(() -> openSession(known));
+                : inTransaction(() -> openSession(known, device));
         if (session == null) {
             throw new CustomerUnauthorizedException(CustomerUnauthorizedException.INVALID_CREDENTIALS);
         }
@@ -367,7 +387,7 @@ public class CustomerAccountService {
     }
 
     /** New session, cap of five, last login; null when the login changed while bcrypt ran. */
-    private AccountDtos.SessionResponse openSession(Credentials verified) {
+    private AccountDtos.SessionResponse openSession(Credentials verified, String device) {
         CustomerAccountEntity account = CustomerAccountEntity.findById(verified.accountId());
         if (account == null || !ACTIVE.equals(account.status)
                 || !verified.passwordHash().equals(account.passwordHash)) {
@@ -376,7 +396,8 @@ public class CustomerAccountService {
         Customer customer = customers.findById(account.customerId).orElse(null);
         if (customer == null) return null;
         Instant now = clock.instant();
-        String token = newSession(account, now);
+        OpenedSession opened = newSession(account, now);
+        String token = opened.token();
         List<CustomerSessionEntity> sessions = CustomerSessionEntity
                 .list("accountId = ?1 order by createdAt desc, id desc", account.id);
         for (CustomerSessionEntity old : sessions.subList(Math.min(MAX_SESSIONS, sessions.size()),
@@ -385,12 +406,17 @@ public class CustomerAccountService {
         }
         account.lastLoginAt = now;
         account.updatedAt = now;
+        CustomerLoginActivity.recordJoined(account.id, account.customerId, opened.session().id, now,
+                CustomerLoginActivity.Kind.LOGIN, device);
         LOG.infof("Websitelogin %d: ingelogd", account.id);
         return new AccountDtos.SessionResponse(token,
                 now.plus(Duration.ofDays(sessionTtlDays)), profile(account, customer));
     }
 
-    private String newSession(CustomerAccountEntity account, Instant now) {
+    /** A new session row and its raw token, which leaves only towards the customer. */
+    private record OpenedSession(CustomerSessionEntity session, String token) {}
+
+    private OpenedSession newSession(CustomerAccountEntity account, Instant now) {
         String token = AccountTokens.newSessionToken();
         CustomerSessionEntity session = new CustomerSessionEntity();
         session.accountId = account.id;
@@ -399,19 +425,20 @@ public class CustomerAccountService {
         session.lastSeenAt = now;
         session.expiresAt = now.plus(Duration.ofDays(sessionTtlDays));
         session.persist();
-        return token;
+        return new OpenedSession(session, token);
     }
 
     // ------------------------------------------------------------------ customer: sessions
 
     /**
      * The valid session behind this token: not expired, not idle, on an active login whose
-     * customer still exists. last_seen_at is written at most once per 15 minutes.
+     * customer still exists. last_seen_at is written at most once per 15 minutes. A valid
+     * session adds one activity row for the statistics, in a transaction of its own.
      */
-    Optional<CustomerSessionGuard.CustomerSession> resolveSession(String token) {
+    Optional<CustomerSessionGuard.CustomerSession> resolveSession(String token, CustomerLoginActivity.Touch touch) {
         if (!AccountTokens.isSessionToken(token)) return Optional.empty();
         String hash = AccountTokens.hash(token);
-        return Optional.ofNullable(inTransaction(() -> {
+        Optional<CustomerSessionGuard.CustomerSession> resolved = Optional.ofNullable(inTransaction(() -> {
             CustomerSessionEntity session = CustomerSessionEntity.find("tokenHash", hash).firstResult();
             if (session == null) return null;
             Instant now = clock.instant();
@@ -428,6 +455,10 @@ public class CustomerAccountService {
             return new CustomerSessionGuard.CustomerSession(session.id, account.id,
                     account.customerId, account.email);
         }));
+        resolved.ifPresent(session -> CustomerLoginActivity.recordSeparately(session.accountId(),
+                session.customerId(), session.sessionId(), clock.instant(),
+                touch == null ? CustomerLoginActivity.Touch.NONE : touch));
+        return resolved;
     }
 
     /** What the website restores on a page load: the end of the session and the profile. */
@@ -446,11 +477,23 @@ public class CustomerAccountService {
         return info;
     }
 
-    /** Logging out removes the one session of this token; an unknown token is not an error. */
-    public void endSession(String token) {
+    /**
+     * Logging out removes the one session of this token; an unknown token is not an error. The
+     * logout ends the visit in the statistics.
+     */
+    public void endSession(String token, String device) {
         if (!AccountTokens.isSessionToken(token)) return;
         String hash = AccountTokens.hash(token);
-        inTransaction(() -> CustomerSessionEntity.delete("tokenHash", hash));
+        inTransaction(() -> {
+            CustomerSessionEntity session = CustomerSessionEntity.find("tokenHash", hash).firstResult();
+            if (session == null) return 0L;
+            CustomerAccountEntity account = CustomerAccountEntity.findById(session.accountId);
+            if (account != null) {
+                CustomerLoginActivity.recordJoined(account.id, account.customerId, session.id,
+                        clock.instant(), CustomerLoginActivity.Kind.LOGOUT, device);
+            }
+            return CustomerSessionEntity.delete("tokenHash", hash);
+        });
     }
 
     // ------------------------------------------------------------------ customer: the one-time link
@@ -468,7 +511,7 @@ public class CustomerAccountService {
      * The customer chooses a password with a live link and is logged in at once. The password
      * policy is judged before the link is consumed, so a refused password leaves it usable.
      */
-    public AccountDtos.SessionResponse activate(String token, String password) {
+    public AccountDtos.SessionResponse activate(String token, String password, String device) {
         if (!AccountTokens.isInvitationToken(token)) throw invalidToken();
         String hash = AccountTokens.hash(token);
         LiveToken live = inTransaction(() -> liveToken(hash));
@@ -476,7 +519,7 @@ public class CustomerAccountService {
         String refused = passwordError(password, live.email());
         if (refused != null) throw new PublicFormValidationException(Map.of("password", refused));
         String passwordHash = hashing(() -> BcryptUtil.bcryptHash(password, BCRYPT_COST));
-        AccountDtos.SessionResponse session = inTransaction(() -> consume(hash, passwordHash));
+        AccountDtos.SessionResponse session = inTransaction(() -> consume(hash, passwordHash, device));
         if (session == null) throw invalidToken();
         return session;
     }
@@ -504,7 +547,7 @@ public class CustomerAccountService {
     }
 
     /** Null when the link is no longer live; nothing is written in that case. */
-    private AccountDtos.SessionResponse consume(String hash, String passwordHash) {
+    private AccountDtos.SessionResponse consume(String hash, String passwordHash, String device) {
         /* The login row is locked before its link and sessions are touched, exactly as a
            withdrawal and a new link do: whoever comes second waits and then sees the outcome,
            instead of each holding the rows the other needs. */
@@ -525,11 +568,17 @@ public class CustomerAccountService {
         Customer customer = customers.findById(account.customerId).orElseThrow();
         account.passwordHash = passwordHash;
         account.passwordSetAt = now;
+        /* Choosing the password logs the customer in at once: that is a login too (until
+           2026-11-15 it was not counted, and an active login read "Nog niet ingelogd"). */
+        account.lastLoginAt = now;
         account.status = ACTIVE;
         account.updatedAt = now;
         CustomerSessionEntity.delete("accountId", account.id);
         CustomerAccountTokenEntity.delete("accountId", account.id);
-        String token = newSession(account, now);
+        OpenedSession opened = newSession(account, now);
+        String token = opened.token();
+        CustomerLoginActivity.recordJoined(account.id, account.customerId, opened.session().id, now,
+                CustomerLoginActivity.Kind.ACTIVATION, device);
         activity.record(ActivityLogService.ACTION_UPDATED, ACTIVITY_ENTITY,
                 String.valueOf(account.customerId), customer.company(),
                 "Websitelogin geactiveerd: wachtwoord gekozen (" + account.email + ")");

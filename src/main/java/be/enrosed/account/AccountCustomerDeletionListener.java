@@ -7,7 +7,7 @@ import java.util.List;
 
 /**
  * The login tables carry no foreign keys, so a deleted customer takes its logins, their
- * sessions and links, and its login requests along here.
+ * sessions, links and activity rows, and its login requests along here.
  */
 @ApplicationScoped
 public class AccountCustomerDeletionListener implements CustomerDeletionListener {
@@ -17,8 +17,10 @@ public class AccountCustomerDeletionListener implements CustomerDeletionListener
         for (CustomerAccountEntity account : accounts) {
             CustomerSessionEntity.delete("accountId", account.id);
             CustomerAccountTokenEntity.delete("accountId", account.id);
+            CustomerLoginEventEntity.delete("accountId", account.id);
             account.delete();
         }
+        CustomerLoginEventEntity.delete("customerId", customerId);
         CustomerLoginRequestEntity.delete("customerId", customerId);
     }
 }

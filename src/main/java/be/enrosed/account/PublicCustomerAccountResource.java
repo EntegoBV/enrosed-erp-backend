@@ -77,7 +77,7 @@ public class PublicCustomerAccountResource {
            no account; it still costs one bcrypt and gets the same 401. */
         String email = AccountEmails.normalize(request.email());
         rateLimiter.checkKey(PublicFormAction.ACCOUNT_LOGIN, "EMAIL", email, LOGINS_PER_EMAIL);
-        AccountDtos.SessionResponse session = accounts.login(email, request.password());
+        AccountDtos.SessionResponse session = accounts.login(email, request.password(), device());
         housekeeping.purge();
         return noStore(Response.ok(session));
     }
@@ -95,7 +95,7 @@ public class PublicCustomerAccountResource {
     @PublicFormBodyLimited(maxBytes = MAX_LOGOUT_BODY_BYTES)
     public Response logout() {
         String token = CustomerSessionGuard.bearerToken(httpRequest);
-        if (token != null) accounts.endSession(token);
+        if (token != null) accounts.endSession(token, device());
         return noStore(Response.noContent());
     }
 
@@ -117,7 +117,12 @@ public class PublicCustomerAccountResource {
         rateLimiter.checkIp(PublicFormAction.ACCOUNT_ACTIVATE, identities.resolve(httpRequest));
         return noStore(Response.ok(accounts.activate(
                 request == null ? null : request.token(),
-                request == null ? null : request.password())));
+                request == null ? null : request.password(), device())));
+    }
+
+    /** Phone, tablet or computer, for the login statistics; never the User-Agent itself. */
+    private String device() {
+        return CustomerLoginActivity.device(httpRequest == null ? null : httpRequest.getHeader("User-Agent"));
     }
 
     private static void validate(AccountDtos.LoginSubmit request) {

@@ -175,4 +175,5 @@ exec psql \
     --file=/app/migrations/partner-portal-postgresql.sql \
     --file=/app/migrations/partner-portal-r2-postgresql.sql \
     --file=/app/migrations/stock-radar-removed-postgresql.sql \
-    --file=/app/migrations/purchase-order-arrivals-postgresql.sql
+    --file=/app/migrations/purchase-order-arrivals-postgresql.sql \
+    --file=/app/migrations/customer-login-activity-postgresql.sql

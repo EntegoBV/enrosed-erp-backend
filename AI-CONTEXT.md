@@ -1100,6 +1100,32 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   buckets are committed and shared by the whole run, so use unique
   e-mails and clear the notice buckets where a notice is expected.
 
+### Login activity of website customers (2026-11-15)
+- **Why**: choosing a password with the one-time link logs the customer in, but
+  only a password login wrote `last_login_at`, so an active login read "Nog niet
+  ingelogd" in the ERP. `consume()` now writes it too; the migration
+  `docs/migrations/2026-11-15/customer-login-activity-postgresql.sql` filled it from
+  `password_set_at` where it was empty.
+- **Table `customer_login_event`** (`CustomerLoginEventEntity`): one row per moment a
+  logged-in customer used the site: ACTIVATION, LOGIN, LOGOUT (written in their own
+  transaction) and, through `CustomerSessionGuard.require`, every call of a logged-in
+  page (PAGE, PRICES, ORDER_PAGE, ORDER, ORDER_CHANGE, ORDER_CANCEL, ORDERS, PDF; the
+  kind comes from the path, `CustomerLoginActivity.kindOf`). Device = MOBILE/TABLET/
+  DESKTOP from the User-Agent; no page, product, address or User-Agent is stored. The
+  guard's row is written with `QuarkusTransaction.requiringNew()` and a failure is
+  logged and swallowed: statistics never fail a customer's call. Kept 731 days
+  (`AccountHousekeeping`), deleted with the customer.
+- **History rows** (`history = true`, kinds ACTIVATION / LOGIN / SEEN) were made once
+  by the migration from the activity log, `last_login_at` and the sessions on record.
+  They are moments without a length. The insert only runs while the table is empty.
+- **Visits** are worked out at read time (`CustomerLoginActivity.visits`): a login's
+  rows with at most 30 minutes between them, a logout ends one, history rows never
+  join measured ones. Length = first to last row (the last page's time is not in it).
+- **Staff**: `GET /api/customer-logins/activity?days=1|7|30|90|365[&accountId=]`
+  (`CustomerLoginReport`, Belgian days, previous period of equal length, web orders
+  from `WebOrders.indexStates()`); `AccountView` gained `lastActiveAt` and
+  `recentVisits` (30 days).
+
 ### Website orders of logged-in customers (2026-10-08)
 - **What it is**: a logged-in customer places an ORDER on the website
   quote page; Enrosed confirms it. Anonymous visitors keep the quote

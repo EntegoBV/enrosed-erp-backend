@@ -18,6 +18,8 @@ public class AccountHousekeeping {
     private static final Duration TOKEN_GRACE = Duration.ofDays(30);
     private static final Duration UNDECIDED_OR_REJECTED = Duration.ofDays(180);
     private static final Duration APPROVED = Duration.ofDays(365);
+    /** The login statistics keep two years, like the website's own visits. */
+    private static final Duration ACTIVITY = Duration.ofDays(731);
 
     private Clock clock = Clock.systemUTC();
 
@@ -27,6 +29,7 @@ public class AccountHousekeeping {
             QuarkusTransaction.requiringNew().run(() -> {
                 Instant now = clock.instant();
                 CustomerSessionEntity.delete("expiresAt < ?1", now);
+                CustomerLoginEventEntity.delete("occurredAt < ?1", now.minus(ACTIVITY));
                 CustomerAccountTokenEntity.delete("expiresAt < ?1", now.minus(TOKEN_GRACE));
                 CustomerLoginRequestEntity.delete("status = 'REJECTED' and decidedAt < ?1",
                         now.minus(UNDECIDED_OR_REJECTED));

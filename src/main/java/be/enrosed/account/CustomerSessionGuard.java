@@ -19,10 +19,12 @@ public class CustomerSessionGuard {
         this.accounts = accounts;
     }
 
+    /** A valid session also counts as activity of the login (CustomerLoginActivity). */
     public CustomerSession require(HttpServerRequest request) {
         String token = bearerToken(request);
         if (token == null) throw invalid();
-        return accounts.resolveSession(token).orElseThrow(CustomerSessionGuard::invalid);
+        return accounts.resolveSession(token, CustomerLoginActivity.of(request))
+                .orElseThrow(CustomerSessionGuard::invalid);
     }
 
     /** The session token of the request, or null when the header is not a customer bearer. */

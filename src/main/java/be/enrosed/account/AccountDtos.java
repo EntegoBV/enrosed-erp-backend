@@ -50,7 +50,11 @@ public final class AccountDtos {
             String createdBy,
             Instant disabledAt,
             String disabledBy,
-            long activeSessions
+            long activeSessions,
+            /* The latest moment the login was in use (activity, login, session last-seen). */
+            Instant lastActiveAt,
+            /* Visits in the last 30 days (CustomerLoginActivity). */
+            int recentVisits
     ) {}
 
     /** Outcome of the invitation mail; expiresAt is the real end of the link. */

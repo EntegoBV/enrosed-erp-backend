@@ -24,9 +24,18 @@ import jakarta.ws.rs.core.Response;
 @Produces(MediaType.APPLICATION_JSON)
 public class CustomerLoginResource {
     private final CustomerAccountService accounts;
+    private final CustomerLoginReport report;
 
-    public CustomerLoginResource(CustomerAccountService accounts) {
+    public CustomerLoginResource(CustomerAccountService accounts, CustomerLoginReport report) {
         this.accounts = accounts;
+        this.report = report;
+    }
+
+    /** Analyses › Bezoekers › Klantlogins: days 1, 7, 30, 90 or 365 (else 30); accountId for one login. */
+    @GET
+    @Path("/activity")
+    public Response activity(@QueryParam("days") Integer days, @QueryParam("accountId") Long accountId) {
+        return noStore(Response.ok(report.report(days == null ? 30 : days, accountId)));
     }
 
     @GET
