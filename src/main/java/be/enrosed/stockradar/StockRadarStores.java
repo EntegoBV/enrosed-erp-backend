@@ -551,12 +551,12 @@ public final class StockRadarStores {
         String html = page.html() == null ? "" : page.html();
         String title = pageTitle(html);
         String shown = firstGroup(AMZ_ASIN, html);
-        if (shown == null || !containsAny(html, "iPhone Duo")) {
-            if (looksBlocked(html) || containsAny(title, "Server Busy") || title.isBlank()) {
-                throw new FetchFailure("Amazon weigert even (" + (title.isBlank() ? "Server Busy" : title) + ")", true);
-            }
-            throw new IllegalStateException("Pagina niet herkend: " + title);
+        if (shown == null) {
+            // No product page: Amazon's gate ("Server Busy", a captcha, or the interstitial titled just "Amazon.de" or
+            // "Amazon.nl" that Railway's address gets, seen 2026-11-15). A refusal: waited out, never worked around.
+            throw new FetchFailure("Amazon weigert even (" + (title.isBlank() ? "Server Busy" : title) + ")", true);
         }
+        if (!containsAny(html, "iPhone Duo")) throw new IllegalStateException("Pagina niet herkend: " + title);
         if (!shown.equals(asin)) {
             // Amazon hides sold-out variants from the list and shows another one under their address (verified Belgian
             // purchases of the blue 256 and 512 GB exist): sold out for now, not "never sold here".
