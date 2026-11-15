@@ -195,14 +195,25 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String ean, String priceLabel, String image, String gpCapacity, String displayPriceLabel, String cartonQuantityLabel,
             String perUnitLabel,
             /** Units on one europallet and in one 40' HC, worded like the 20ft figure; "-" when unknown. */
-            String palletCapacity, String hcCapacity) {
+            String palletCapacity, String hcCapacity,
+            /** Units on one Deense kar, worded the same; "-" when unknown. */
+            String karCapacity) {
+        public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
+                               String productSize, String cartonSize, int piecesPerCarton,
+                               String ean, String priceLabel, String image, String gpCapacity,
+                               String displayPriceLabel, String cartonQuantityLabel, String perUnitLabel,
+                               String palletCapacity, String hcCapacity) {
+            this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
+                    ean, priceLabel, image, gpCapacity, displayPriceLabel, cartonQuantityLabel, perUnitLabel,
+                    palletCapacity, hcCapacity, "-");
+        }
         public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
                                String productSize, String cartonSize, int piecesPerCarton,
                                String ean, String priceLabel, String image, String gpCapacity,
                                String displayPriceLabel, String cartonQuantityLabel, String perUnitLabel) {
             this(sku, name, colour, size, colourHex, productSize, cartonSize, piecesPerCarton,
                     ean, priceLabel, image, gpCapacity, displayPriceLabel, cartonQuantityLabel, perUnitLabel,
-                    "-", "-");
+                    "-", "-", "-");
         }
         public BrochureVariant(String sku, String name, String colour, String size, String colourHex,
                                String productSize, String cartonSize, int piecesPerCarton,
@@ -235,10 +246,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     /** One line of the specification block: a translated label and its value. */
     public record SpecRow(String label, String value) {}
 
-    /** Whether the variants differ in any of pallet, 20ft and 40ft, as their table cells word them. */
+    /** Whether the variants differ in any of pallet, kar, 20ft and 40ft, as their table cells word them. */
     static boolean capacitiesDiffer(List<BrochureVariant> variants) {
         return variants != null && variants.size() > 1
                 && (distinctCount(variants, BrochureVariant::palletCapacity) > 1
+                || distinctCount(variants, BrochureVariant::karCapacity) > 1
                 || distinctCount(variants, BrochureVariant::gpCapacity) > 1
                 || distinctCount(variants, BrochureVariant::hcCapacity) > 1);
     }
@@ -486,7 +498,16 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                              String productSize, String packaging, String carton, String cartonPieces,
                              String cbm, String hcCapacity, String ean, String gpCapacity,
                              /** Units on one europallet; printed with 20ft and 40ft, "-" when unknown. */
-                             String palletCapacity) {
+                             String palletCapacity,
+                             /** Units on one Deense kar, printed after the pallet; "-" when unknown. */
+                             String karCapacity) {
+        public RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
+                          String productSize, String packaging, String carton, String cartonPieces,
+                          String cbm, String hcCapacity, String ean, String gpCapacity, String palletCapacity) {
+            this(skuLabel, colours, colourLabel, sizeLabel, productSize, packaging, carton,
+                    cartonPieces, cbm, hcCapacity, ean, gpCapacity, palletCapacity, "-");
+        }
+
         public RangeFacts(String skuLabel, List<ColourDot> colours, String colourLabel, String sizeLabel,
                           String productSize, String packaging, String carton, String cartonPieces,
                           String cbm, String hcCapacity, String ean, String gpCapacity) {
@@ -743,6 +764,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("catalogContacts", staffContacts.catalogContacts())
                 .data("palletBasis", palletBasis(language, copy))
                 .data("karBasis", karBasis(language, copy))
+                .data("karBasis", karBasis(language, copy))
                 .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
                 /* The running header is one line: a long name is cut shorter there. */
                 .data("recipientShort", catalog.recipient() == null ? ""
@@ -885,6 +907,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 /* One named unit in the book turns the "per piece" column header and footnote neutral. */
                 .data("namedUnits", namedUnits)
                 .data("palletBasis", palletBasis(language, copy))
+                .data("karBasis", karBasis(language, copy))
                 .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
                 .data("validityLine", validityLine(catalog, language, copy))
                 .data("priceHeading", priceHeading)
@@ -1026,7 +1049,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         figures.add(cartonQuantity(product, language, copy, true));
         figures.add(product.carton() == null ? "" : compactDimensions(product.carton().dimensions()));
         figures.add(palletLabel(product, language, copy, true));
-        figures.add(karLabel(product, language, copy));
+        figures.add(karLabel(product, language, copy, true));
         figures.add(namedCapacity(product, product.carton() == null ? null : product.carton().gpCapacity(), language, copy));
         figures.add(namedCapacity(product, product.carton() == null ? null : product.carton().hcCapacity(), language, copy));
         figures.add(perUnitLabel(product, language, copy));
@@ -1173,7 +1196,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         cartonQuantity(product, language, copy, true),
                         perUnitLabel(product, language, copy),
                         palletCapacity(product, language, copy),
-                        capacity40Ft(product, language, copy)))
+                        capacity40Ft(product, language, copy),
+                        karCapacity(product, language, copy)))
                 .toList();
 
         String familySize = familyDimension(family, first);
@@ -1181,9 +1205,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         String referencePriceLabel = request.includePrices()
                 ? referencePriceLabel(group.variants(), language, copy, prices) : null;
         String number = twoDigits(index);
+        boolean capacitiesPerVariant = capacitiesDiffer(variants);
         List<SpecRow> specs = specRows(group.variants(), language, copy,
                 request.includePrices() ? prices : null, priceHeading,
-                capacitiesDiffer(variants) ? null : product -> palletLabel(product, language, copy, false));
+                capacitiesPerVariant ? null : product -> palletLabel(product, language, copy, false),
+                capacitiesPerVariant ? null : product -> karLabel(product, language, copy, false));
         ensureFamilyPageCapacity(name, summary, description, format, highlights,
                 categoryName, familySize, packageLine, referencePriceLabel,
                 variants, photoLayout.extras().size(), specs.size());
@@ -1195,7 +1221,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         photoLayout.extras().size(),
                         variants.stream().anyMatch(variant -> present(variant.image()))),
                 variants, specs, 0, rangeFacts(group.variants(), language, copy,
-                        product -> palletCapacity(product, language, copy)), "tone-1", largeDetail,
+                        product -> palletCapacity(product, language, copy),
+                        product -> karCapacity(product, language, copy)), "tone-1", largeDetail,
                 request.includePrices() ? familyDisplayPriceLabel(group.variants(), language, copy, prices) : null,
                 familyPerUnitLabel(group.variants(), language, copy));
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
@@ -1203,7 +1230,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
 
     /** The family's line in the range table, read off its variants. */
     private static RangeFacts rangeFacts(List<Product> variants, Language language, Map<String, String> copy,
-                                         java.util.function.Function<Product, String> pallet) {
+                                         java.util.function.Function<Product, String> pallet,
+                                         java.util.function.Function<Product, String> kar) {
         Product first = variants.getFirst();
         Map<String, String> words = DocumentText.of(language);
         List<ColourDot> colours = new ArrayList<>();
@@ -1243,7 +1271,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 sharedOrFirst(variants, product -> capacity40Ft(product, language, copy)),
                 variants.size() == 1 ? defaultText(first.canonicalBarcode(), "") : "",
                 sharedOrFirst(variants, product -> capacity20Ft(product, language, copy)),
-                sharedOrFirst(variants, pallet));
+                sharedOrFirst(variants, pallet),
+                sharedOrFirst(variants, kar));
     }
 
     /** One SKU, two SKUs, or the first and the last with a dash: enough to find the family in a price list. */
@@ -1379,8 +1408,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             List<Product> variants, Language language, Map<String, String> copy,
             /** Null without prices. */
             CatalogExportService.PriceBook prices, String priceHeading,
-            /** Null when the variants differ in pallet, 20ft or 40ft: the variant table then carries all three. */
-            java.util.function.Function<Product, String> pallet) {
+            /** Null when the variants differ in pallet, kar, 20ft or 40ft: the variant table then carries all four. */
+            java.util.function.Function<Product, String> pallet,
+            /** The kar figure, null exactly when {@code pallet} is. */
+            java.util.function.Function<Product, String> kar) {
         List<SpecRow> rows = new ArrayList<>();
         Product first = variants.getFirst();
         boolean single = variants.size() == 1;
@@ -1419,6 +1450,10 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         if (pallet != null) {
             addSpec(rows, copy(copy, ownWords
                     ? "catalog.spec.capacitypallet" : "catalog.spec.pallet"), variants, pallet);
+            if (kar != null) {
+                addSpec(rows, copy(copy, ownWords
+                        ? "catalog.spec.capacitykar" : "catalog.spec.kar"), variants, kar);
+            }
             addSpec(rows, copy(copy, ownWords
                     ? "catalog.spec.capacity20ft" : "catalog.spec.container20ft"), variants,
                     product -> capacity20Ft(product, language, copy));
@@ -1496,11 +1531,22 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return product.carton() == null ? 0 : pallets.cartonsPerKar(product.carton());
     }
 
-    /** The kar figure as the pallet's: "1.120 bowls (28 omdozen)", or "-". */
-    private String karLabel(Product product, Language language, Map<String, String> copy) {
+    /** Units on one Deense kar, worded like the pallet's: "480", "96 displays", "1.120 bowls". */
+    private String karCapacity(Product product, Language language, Map<String, String> copy) {
         int cartons = cartonsPerKar(product);
-        String units = loadUnits(product, cartons, language, copy);
-        return "-".equals(units) ? units : units + " " + loadCartons(product, cartons, language, copy);
+        return cartons <= 0 ? "-"
+                : capacityQuantity(product, (long) cartons * product.carton().piecesPerCarton(), language, copy);
+    }
+
+    /** The kar figure with its omdozen, exactly as {@link #palletLabel} words the pallet's. */
+    private String karLabel(Product product, Language language, Map<String, String> copy, boolean unitWord) {
+        int cartons = cartonsPerKar(product);
+        if (cartons <= 0) return "-";
+        long units = (long) cartons * product.carton().piecesPerCarton();
+        return copy(copy, "catalog.quantity.palletcartons")
+                .replace("{units}", unitWord ? namedCapacity(product, units, language, copy)
+                        : capacityQuantity(product, units, language, copy))
+                .replace("{cartons}", integer(cartons, language));
     }
 
     /** The units on a load of whole omdozen, always naming the unit: "3.360 bowls"; "-" when none fit. */
@@ -1660,6 +1706,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 + capacityText(variant.productSize(), 40)
                 + capacityText(variant.cartonSize(), 48)
                 + (capacitiesPerVariant ? capacityText(variant.palletCapacity(), 14)
+                        + capacityText(variant.karCapacity(), 14)
                         + capacityText(variant.gpCapacity(), 14)
                         + capacityText(variant.hcCapacity(), 14) : 0)
                 + capacityText(variant.ean(), 24)

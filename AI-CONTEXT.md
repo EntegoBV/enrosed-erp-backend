@@ -590,13 +590,20 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   the product names in this layout (unchanged, so no export starts failing). The old
   per-SKU `Item` rows are gone.
 - **Pallet, kar, 20ft and 40ft always together** (Emre, 2026-11-06; the Deense kar
-  joined the compact layout on 2026-11-15), in that order: the compact strip (Europallet
-  "864 st." with "(72 omdozen)" under it, Deense kar likewise, 20ft, 40ft HC), the
-  brochure range table (no kar there yet) (one line of three figures that
-  wraps between figures), the family specification list (the pallet with its
-  omdozen in brackets) when every variant shares all three, else one line
-  under each variant row of the variant table with all three (never split
-  between the two). An unknown figure prints "-", 40ft included, which used
+  joined both layouts on 2026-11-15, "Ja, ook brochure"), in that order: the compact strip
+  (Europallet "864 st." with "(72 omdozen)" under it, Deense kar likewise, 20ft, 40ft HC),
+  the brochure range table (`catalog.brochure.range.kar` between pallet and 20ft; the kar
+  basis line follows the pallet's in the overview footnote), the family specification list
+  (`catalog.spec.kar` / `catalog.spec.capacitykar` after the pallet row) and the variant
+  table's per-SKU line (`BrochureVariant.karCapacity`, also in `capacitiesDiffer`). So the
+  extra row costs no sheet its photos, compact and tight sheets set their specification
+  rows closer (.85 mm / .7 mm padding instead of 1.1 mm): on the local data copy every sheet
+  kept the compact/tight level it had before in EN, NL and DE (without that, sheets went
+  "bare"). The brochure range table puts the four figures on one line that
+  wraps between figures; the family specification list carries them (pallet
+  and kar with their omdozen in brackets) when every variant shares all four,
+  else one line under each variant row of the variant table carries all four
+  (never split between the two). An unknown figure prints "-", 40ft included, which used
   to disappear. Per pallet = whole omdozen from
   `PalletCalculator.fit` (the Palletberekening stacking) on
   `SalesSettings.pallet()` × pieces per carton, worded like the container
