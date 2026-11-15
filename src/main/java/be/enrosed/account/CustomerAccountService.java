@@ -338,16 +338,18 @@ public class CustomerAccountService {
                 account.lastLinkError, link == null ? null : link.expiresAt, account.createdAt,
                 account.createdBy, account.disabledAt, account.disabledBy, activeSessions,
                 lastActiveAt(account), CustomerLoginActivity.visits(CustomerLoginActivity.moments(
-                        now.minus(RECENT_VISITS), now.plusSeconds(1), account.id)).size());
+                        now.minus(RECENT_VISITS), now.plusSeconds(1), account.id, account.customerId)).size());
     }
 
     /**
-     * The latest moment the login was in use: its last activity row, its last login (choosing a
+     * The latest moment the login was in use: its last activity row for this customer (a login
+     * moved from another customer keeps that customer's rows there), its last login (choosing a
      * password with the link counts) or the last-seen of a session still on record.
      */
     private static Instant lastActiveAt(CustomerAccountEntity account) {
         Instant latest = account.lastLoginAt;
-        Instant event = CustomerLoginActivity.lastMoments(List.of(account.id)).get(account.id);
+        Instant event = CustomerLoginActivity.lastMoments(List.of(account.id))
+                .get(CustomerLoginActivity.key(account.id, account.customerId));
         if (event != null && (latest == null || event.isAfter(latest))) latest = event;
         CustomerSessionEntity seen = CustomerSessionEntity
                 .find("accountId = ?1 order by lastSeenAt desc", account.id).firstResult();

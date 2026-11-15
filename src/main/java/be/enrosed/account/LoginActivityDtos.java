@@ -54,7 +54,9 @@ public final class LoginActivityDtos {
 
     /**
      * One login with its use in the period. lastActiveAt is of any age. kinds: what the login
-     * did in the period (CustomerLoginActivity.Kind names); device: the one used most.
+     * did in the period (CustomerLoginActivity.Kind names); device: the one used most. moved: the
+     * row holds the visits of an earlier customer of a login that was withdrawn and given to
+     * another customer (status DISABLED, customerId and company of that earlier customer).
      */
     public record LoginRow(
             long accountId,
@@ -72,7 +74,8 @@ public final class LoginActivityDtos {
             int measuredVisits,
             List<Long> orderIds,
             List<String> kinds,
-            String device
+            String device,
+            boolean moved
     ) {}
 
     /**

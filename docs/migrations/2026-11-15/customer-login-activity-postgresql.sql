@@ -34,7 +34,9 @@ create index if not exists idx_customer_login_event_account on customer_login_ev
 insert into customer_login_event (account_id, customer_id, session_id, occurred_at, kind, device, history)
 select h.account_id, h.customer_id, h.session_id, h.occurred_at, h.kind, null, true
   from (
-        -- every password chosen with the link, from the activity log (its login by e-mail address)
+        -- every password chosen with the link, from the activity log (its login by e-mail address);
+        -- only for a customer that still exists (a deleted customer took its login along) and only
+        -- once the present login row existed (never an earlier, deleted login with the same address)
         select a.id as account_id, cast(l.entity_id as bigint) as customer_id, cast(null as bigint) as session_id,
                l.occurred_at as occurred_at, 'ACTIVATION' as kind
           from activity_log l
@@ -43,12 +45,18 @@ select h.account_id, h.customer_id, h.session_id, h.occurred_at, h.kind, null, t
          where l.entity_type = 'CUSTOMER'
            and l.summary like 'Websitelogin geactiveerd: wachtwoord gekozen (%)'
            and l.entity_id ~ '^[0-9]{1,18}$'
+           and exists (select 1 from customer c where c.id::text = l.entity_id)
+           and l.occurred_at >= a.created_at
         union all
-        -- the last login with e-mail and password
+        -- the last login with e-mail and password, unless the login moved to another customer since
         select a.id, a.customer_id, null, a.last_login_at, 'LOGIN'
           from customer_account a
          where a.last_login_at is not null
            and a.last_login_at is distinct from a.password_set_at
+           and not exists (select 1 from activity_log m
+                            where m.entity_type = 'CUSTOMER'
+                              and starts_with(m.summary, 'Websitelogin ' || a.email || ' verplaatst ')
+                              and m.occurred_at > a.last_login_at)
         union all
         -- earlier logins with e-mail and password whose session is still on record
         select s.account_id, a.customer_id, s.id, s.created_at, 'LOGIN'

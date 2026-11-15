@@ -165,11 +165,13 @@ public final class CustomerLoginActivity {
             if (!current.isEmpty()) {
                 Moment last = current.get(current.size() - 1);
                 boolean otherLogin = last.accountId() != moment.accountId();
+                /* A login moved to another customer (only after a withdrawal) starts a new visit there. */
+                boolean otherCustomer = last.customerId() != moment.customerId();
                 boolean silent = Duration.between(last.at(), moment.at()).compareTo(VISIT_GAP) > 0;
                 boolean afterLogout = last.kind() == Kind.LOGOUT;
                 /* A history moment never joins a measured visit: its length would be made up. */
                 boolean otherOrigin = last.history() != moment.history();
-                if (otherLogin || silent || afterLogout || otherOrigin) {
+                if (otherLogin || otherCustomer || silent || afterLogout || otherOrigin) {
                     visits.add(visit(current));
                     current = new ArrayList<>();
                 }
@@ -202,12 +204,19 @@ public final class CustomerLoginActivity {
 
     /** The moments of logins between two instants (from inclusive, to exclusive); null for every login. */
     static List<Moment> moments(Instant from, Instant to, Long accountId) {
+        return moments(from, to, accountId, null);
+    }
+
+    /** As above, and only those made while the login belonged to customerId (null: any customer). */
+    static List<Moment> moments(Instant from, Instant to, Long accountId, Long customerId) {
         String query = "select e.accountId, e.customerId, e.occurredAt, e.kind, e.device, e.history "
-                + "from CustomerLoginEventEntity e where e.occurredAt >= ?1 and e.occurredAt < ?2"
-                + (accountId == null ? "" : " and e.accountId = ?3");
+                + "from CustomerLoginEventEntity e where e.occurredAt >= :from and e.occurredAt < :to"
+                + (accountId == null ? "" : " and e.accountId = :account")
+                + (customerId == null ? "" : " and e.customerId = :customer");
         var typed = CustomerLoginEventEntity.getEntityManager().createQuery(query, Object[].class)
-                .setParameter(1, from).setParameter(2, to);
-        if (accountId != null) typed.setParameter(3, accountId);
+                .setParameter("from", from).setParameter("to", to);
+        if (accountId != null) typed.setParameter("account", accountId);
+        if (customerId != null) typed.setParameter("customer", customerId);
         List<Moment> moments = new ArrayList<>();
         for (Object[] row : typed.getResultList()) {
             moments.add(new Moment(((Number) row[0]).longValue(), ((Number) row[1]).longValue(),
@@ -216,15 +225,20 @@ public final class CustomerLoginActivity {
         return moments;
     }
 
-    /** The last row of each of these logins, any age. */
-    static Map<Long, Instant> lastMoments(List<Long> accountIds) {
-        Map<Long, Instant> last = new HashMap<>();
+    /** "accountId:customerId", the key of lastMoments. */
+    static String key(long accountId, long customerId) {
+        return accountId + ":" + customerId;
+    }
+
+    /** The last row of each of these logins per customer it belonged to (key), any age. */
+    static Map<String, Instant> lastMoments(List<Long> accountIds) {
+        Map<String, Instant> last = new HashMap<>();
         if (accountIds == null || accountIds.isEmpty()) return last;
         for (Object[] row : CustomerLoginEventEntity.getEntityManager().createQuery(
-                        "select e.accountId, max(e.occurredAt) from CustomerLoginEventEntity e "
-                                + "where e.accountId in ?1 group by e.accountId", Object[].class)
-                .setParameter(1, accountIds).getResultList()) {
-            last.put(((Number) row[0]).longValue(), (Instant) row[1]);
+                        "select e.accountId, e.customerId, max(e.occurredAt) from CustomerLoginEventEntity e "
+                                + "where e.accountId in :accounts group by e.accountId, e.customerId", Object[].class)
+                .setParameter("accounts", accountIds).getResultList()) {
+            last.put(key(((Number) row[0]).longValue(), ((Number) row[1]).longValue()), (Instant) row[2]);
         }
         return last;
     }

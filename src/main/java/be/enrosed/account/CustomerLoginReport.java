@@ -48,7 +48,7 @@ public class CustomerLoginReport {
 
     private final Clock clock = Clock.systemUTC();
 
-    private record PlacedOrder(long accountId, Instant at, long salesOrderId) {}
+    private record PlacedOrder(long accountId, Long customerId, Instant at, long salesOrderId) {}
 
     @Transactional
     public Report report(int requestedDays, Long accountId) {
@@ -58,6 +58,9 @@ public class CustomerLoginReport {
         LocalDate fromDay = today.minusDays(days - 1L);
         Instant from = fromDay.atStartOfDay(ZONE).toInstant();
         Instant previousFrom = fromDay.minusDays(days).atStartOfDay(ZONE).toInstant();
+        /* The period before ends at the same clock time (as Eigen meting compares): today until
+           10:00 against yesterday until 10:00, never against the whole of yesterday. */
+        Instant previousEnd = now.atZone(ZONE).minusDays(days).toInstant();
         Instant end = now.plusSeconds(1);
 
         List<CustomerAccountEntity> accounts = accountId == null
@@ -65,50 +68,67 @@ public class CustomerLoginReport {
                 : CustomerAccountEntity.list("id = ?1", accountId);
         List<Visit> all = CustomerLoginActivity.visits(CustomerLoginActivity.moments(previousFrom, end, accountId));
         List<Visit> current = all.stream().filter(visit -> !visit.start().isBefore(from)).toList();
-        List<Visit> before = all.stream().filter(visit -> visit.start().isBefore(from)).toList();
+        List<Visit> before = all.stream()
+                .filter(visit -> !visit.start().isBefore(previousFrom) && visit.start().isBefore(previousEnd)).toList();
 
         List<PlacedOrder> orders = new ArrayList<>();
         for (WebOrders.Row row : webOrders.indexStates().values()) {
             if (row.accountId() == null || row.placedAt() == null || row.placedAt().isBefore(previousFrom)) continue;
             if (accountId != null && !accountId.equals(row.accountId())) continue;
-            orders.add(new PlacedOrder(row.accountId(), row.placedAt(), row.salesOrderId()));
+            orders.add(new PlacedOrder(row.accountId(), row.customerId(), row.placedAt(), row.salesOrderId()));
         }
         List<PlacedOrder> ordersNow = orders.stream().filter(order -> !order.at().isBefore(from)).toList();
-        int ordersBefore = (int) orders.stream().filter(order -> order.at().isBefore(from)).count();
+        int ordersBefore = (int) orders.stream().filter(order -> order.at().isBefore(previousEnd)).count();
 
         Map<Long, String> companies = new HashMap<>();
         Map<Long, CustomerAccountEntity> byId = new LinkedHashMap<>();
         for (CustomerAccountEntity account : accounts) byId.put(account.id, account);
 
-        Map<Long, Instant> lastMoments = CustomerLoginActivity.lastMoments(new ArrayList<>(byId.keySet()));
+        Map<String, Instant> lastMoments = CustomerLoginActivity.lastMoments(new ArrayList<>(byId.keySet()));
         Map<Long, Instant> lastSessions = lastSessionSeen(byId.keySet());
         Map<Long, Instant> linkExpiry = openLinks(byId.keySet());
 
+        /* One row per login and customer: a login moved to another customer (only possible after
+           a withdrawal) keeps its earlier visits with the earlier customer, as a withdrawn row. */
         List<LoginRow> logins = new ArrayList<>();
         for (CustomerAccountEntity account : accounts) {
-            List<Visit> own = current.stream().filter(visit -> visit.accountId() == account.id).toList();
-            boolean withdrawn = CustomerAccountService.DISABLED.equals(account.status);
-            /* A withdrawn login without use in the period is history: it stays off the list. */
-            if (withdrawn && own.isEmpty() && accountId == null) continue;
-            Set<Kind> kinds = EnumSet.noneOf(Kind.class);
-            Map<String, Integer> devices = new HashMap<>();
-            long seconds = 0;
-            int measured = 0;
-            for (Visit visit : own) {
-                kinds.addAll(visit.kinds());
-                if (visit.device() != null) devices.merge(visit.device(), visit.actions(), Integer::sum);
-                if (visit.seconds() != null) {
-                    seconds += visit.seconds();
-                    measured++;
+            Map<Long, List<Visit>> byCustomer = new LinkedHashMap<>();
+            byCustomer.put(account.customerId, new ArrayList<>());
+            for (Visit visit : current) {
+                if (visit.accountId() == account.id) {
+                    byCustomer.computeIfAbsent(visit.customerId(), ignored -> new ArrayList<>()).add(visit);
                 }
             }
-            List<Long> orderIds = ordersNow.stream().filter(order -> order.accountId() == account.id)
-                    .sorted(Comparator.comparing(PlacedOrder::at)).map(PlacedOrder::salesOrderId).toList();
-            logins.add(new LoginRow(account.id, account.customerId, company(companies, account.customerId),
-                    account.email, account.status, account.createdAt, account.passwordSetAt,
-                    latest(account.lastLoginAt, lastMoments.get(account.id), lastSessions.get(account.id)),
-                    account.lastLinkSentAt, linkExpiry.get(account.id), own.size(), seconds, measured,
-                    orderIds, names(kinds), mostUsed(devices)));
+            for (Map.Entry<Long, List<Visit>> share : byCustomer.entrySet()) {
+                long customerId = share.getKey();
+                List<Visit> own = share.getValue();
+                boolean moved = customerId != account.customerId;
+                boolean withdrawn = moved || CustomerAccountService.DISABLED.equals(account.status);
+                /* A withdrawn login without use in the period is history: it stays off the list. */
+                if (withdrawn && own.isEmpty() && (accountId == null || moved)) continue;
+                Set<Kind> kinds = EnumSet.noneOf(Kind.class);
+                Map<String, Integer> devices = new HashMap<>();
+                long seconds = 0;
+                int measured = 0;
+                for (Visit visit : own) {
+                    kinds.addAll(visit.kinds());
+                    if (visit.device() != null) devices.merge(visit.device(), visit.actions(), Integer::sum);
+                    if (visit.seconds() != null) {
+                        seconds += visit.seconds();
+                        measured++;
+                    }
+                }
+                List<Long> orderIds = ordersNow.stream()
+                        .filter(order -> order.accountId() == account.id && Objects.equals(order.customerId(), customerId))
+                        .sorted(Comparator.comparing(PlacedOrder::at)).map(PlacedOrder::salesOrderId).toList();
+                Instant lastEvent = lastMoments.get(CustomerLoginActivity.key(account.id, customerId));
+                logins.add(new LoginRow(account.id, customerId, company(companies, customerId),
+                        account.email, moved ? CustomerAccountService.DISABLED : account.status, account.createdAt,
+                        moved ? null : account.passwordSetAt,
+                        moved ? lastEvent : latest(account.lastLoginAt, lastEvent, lastSessions.get(account.id)),
+                        moved ? null : account.lastLinkSentAt, moved ? null : linkExpiry.get(account.id),
+                        own.size(), seconds, measured, orderIds, names(kinds), mostUsed(devices), moved));
+            }
         }
         logins.sort(Comparator.comparing(LoginRow::lastActiveAt, Comparator.nullsLast(Comparator.reverseOrder()))
                 .thenComparing(LoginRow::createdAt, Comparator.nullsLast(Comparator.reverseOrder())));
@@ -120,6 +140,7 @@ public class CustomerLoginReport {
             CustomerAccountEntity account = byId.get(visit.accountId());
             List<Long> placed = ordersNow.stream()
                     .filter(order -> order.accountId() == visit.accountId()
+                            && Objects.equals(order.customerId(), visit.customerId())
                             && !order.at().isBefore(visit.start())
                             && !order.at().isAfter(visit.end().plus(Duration.ofMinutes(1))))
                     .map(PlacedOrder::salesOrderId).toList();
@@ -145,8 +166,14 @@ public class CustomerLoginReport {
                 ordersNow.size(), activeNow(accountId, now),
                 count(accounts, CustomerAccountService.ACTIVE), count(accounts, CustomerAccountService.INVITED),
                 count(accounts, CustomerAccountService.DISABLED));
-        Previous previous = new Previous(distinctCustomers(before), before.size(), seconds(before), ordersBefore);
-        return new Report(days, fromDay, today, now, accountId, measuredSince(), totals, previous, perDay,
+        /* Only a fully measured period before compares: one made of history moments, or reaching back
+           before the measuring began, would read as growth. No comparison then ("geen vergelijking"). */
+        Instant measuredSince = measuredSince();
+        boolean comparable = measuredSince != null && !measuredSince.isAfter(previousFrom);
+        Previous previous = comparable
+                ? new Previous(distinctCustomers(before), before.size(), seconds(before), ordersBefore)
+                : new Previous(0, 0, 0, 0);
+        return new Report(days, fromDay, today, now, accountId, measuredSince, totals, previous, perDay,
                 logins, visitRows, newestFirst.size() > MAX_VISITS);
     }
 
