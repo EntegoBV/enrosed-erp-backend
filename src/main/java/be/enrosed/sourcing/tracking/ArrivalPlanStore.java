@@ -114,7 +114,13 @@ public class ArrivalPlanStore {
         /* By hand only means something while track & trace could move the day, and only with a day to keep. */
         boolean byHand = tracked && containerOn != null && Boolean.TRUE.equals(request.containerByHand());
         boolean follow = tracked && !byHand;
-        if (follow) containerAt = null;
+        if (follow) {
+            /* The day stays with (or goes back to) tracking: the stored day counts, not the screen's copy of it, which
+               may be from before tracking moved it (a page left open). The sheet never lets that day be typed. The
+               hour goes, as sources name a day; a hand day given back is replaced by adoptStoredDates. */
+            containerOn = order.expectedArrival;
+            containerAt = null;
+        }
         boolean dayMoved = !Objects.equals(order.expectedArrival, containerOn);
 
         String place = placeName(order.receivingLocationId);
