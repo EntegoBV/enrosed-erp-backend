@@ -73,9 +73,15 @@ select h.account_id, h.customer_id, h.session_id, h.occurred_at, h.kind, null, t
        ) h
  where not exists (select 1 from customer_login_event);
 
-update customer_account
-   set last_login_at = password_set_at
- where last_login_at is null
-   and password_set_at is not null;
+-- Not for a login that moved to another customer after its password was chosen: that moment
+-- belongs to the earlier customer (a move clears both fields from now on).
+update customer_account a
+   set last_login_at = a.password_set_at
+ where a.last_login_at is null
+   and a.password_set_at is not null
+   and not exists (select 1 from activity_log m
+                    where m.entity_type = 'CUSTOMER'
+                      and starts_with(m.summary, 'Websitelogin ' || a.email || ' verplaatst ')
+                      and m.occurred_at > a.password_set_at);
 
 commit;

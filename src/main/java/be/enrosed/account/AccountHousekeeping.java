@@ -18,8 +18,11 @@ public class AccountHousekeeping {
     private static final Duration TOKEN_GRACE = Duration.ofDays(30);
     private static final Duration UNDECIDED_OR_REJECTED = Duration.ofDays(180);
     private static final Duration APPROVED = Duration.ofDays(365);
-    /** The login statistics keep two years, like the website's own visits. */
-    private static final Duration ACTIVITY = Duration.ofDays(731);
+    /**
+     * The login statistics keep two years and a margin: the Jaar view compares with the year
+     * before (730 days back) and needs the start of the measuring to stay on record beyond that.
+     */
+    private static final Duration ACTIVITY = Duration.ofDays(800);
 
     private Clock clock = Clock.systemUTC();
 

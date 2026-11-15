@@ -623,6 +623,10 @@ public class CustomerAccountService {
         account.customerId = target.id();
         account.contactName = contactName(contactName);
         account.language = (language == null ? target.language() : language).name();
+        /* The last login and password belonged to the earlier customer; their visits stay with
+           that customer in customer_login_event. The new customer starts without either. */
+        account.lastLoginAt = null;
+        account.passwordSetAt = null;
     }
 
     /** One live link per login: earlier ones stop working the moment a new one is made. */

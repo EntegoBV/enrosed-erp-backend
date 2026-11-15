@@ -66,7 +66,11 @@ public class CustomerLoginReport {
         List<CustomerAccountEntity> accounts = accountId == null
                 ? CustomerAccountEntity.list("order by id")
                 : CustomerAccountEntity.list("id = ?1", accountId);
-        List<Visit> all = CustomerLoginActivity.visits(CustomerLoginActivity.moments(previousFrom, end, accountId));
+        /* One login (from a customer sheet) is shown for its present customer only: visits it made
+           for an earlier customer, before it was withdrawn and moved, belong to that customer. */
+        Long presentCustomer = accountId == null || accounts.isEmpty() ? null : accounts.get(0).customerId;
+        List<Visit> all = CustomerLoginActivity.visits(
+                CustomerLoginActivity.moments(previousFrom, end, accountId, presentCustomer));
         List<Visit> current = all.stream().filter(visit -> !visit.start().isBefore(from)).toList();
         List<Visit> before = all.stream()
                 .filter(visit -> !visit.start().isBefore(previousFrom) && visit.start().isBefore(previousEnd)).toList();
