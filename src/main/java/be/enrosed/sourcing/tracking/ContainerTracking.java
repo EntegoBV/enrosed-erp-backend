@@ -82,7 +82,10 @@ public final class ContainerTracking {
                       /** From when a manual check does something again; null = now, or nothing to check. */
                       Instant manualCheckAt,
                       /** Only on the answer of a manual check: CHECKED, COOLDOWN, BUSY, OFF or NO_SOURCE. */
-                      String refreshOutcome) {}
+                      String refreshOutcome,
+                      /** Since 2026-11-15. The arrival was set by hand (ArrivalPlanStore), so tracking leaves it alone;
+                          sourceArrival: the date the source gives now, when it is usable and differs from the order's. */
+                      boolean arrivalByHand, java.time.LocalDate sourceArrival) {}
     public record Feed(String provider, boolean configured, int intervalHours, List<Row> containers, boolean shipsGoConfigured) {}
 
     /**

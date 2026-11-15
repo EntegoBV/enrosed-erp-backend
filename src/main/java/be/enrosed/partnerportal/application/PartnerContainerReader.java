@@ -17,6 +17,7 @@ import be.enrosed.sourcing.domain.PurchaseOrderLine;
 import be.enrosed.sourcing.domain.PurchaseOrderName;
 import be.enrosed.sourcing.domain.PurchaseOrderStatus;
 import be.enrosed.sourcing.tracking.ArrivalMoveStore;
+import be.enrosed.sourcing.tracking.ArrivalPlanStore;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.transaction.Transactional;
 
@@ -68,16 +69,18 @@ public class PartnerContainerReader {
     private final CataloguePallet pallet;
     private final ArrivalMoveStore moves;
     private final PartnerContainerQueries queries;
+    private final ArrivalPlanStore plans;
 
     public PartnerContainerReader(PurchaseOrderService purchaseOrders, PartnerProductTiles tiles,
                                   StockService stock, CataloguePallet pallet,
-                                  ArrivalMoveStore moves, PartnerContainerQueries queries) {
+                                  ArrivalMoveStore moves, PartnerContainerQueries queries, ArrivalPlanStore plans) {
         this.purchaseOrders = purchaseOrders;
         this.tiles = tiles;
         this.stock = stock;
         this.pallet = pallet;
         this.moves = moves;
         this.queries = queries;
+        this.plans = plans;
     }
 
     /** Whether a partner may see this order (see {@link #VISIBLE}). */
@@ -97,13 +100,14 @@ public class PartnerContainerReader {
         PartnerProductTiles.Catalog catalog = tiles.load(customerId);
         Places places = places();
         Map<Long, ArrivalMoveStore.Move> moved = moves.all();
+        Map<Long, ArrivalPlanStore.Plan> planned = plans.all();
         Map<Long, Integer> perPallet = new HashMap<>();
         Set<Long> productIds = new LinkedHashSet<>();
         List<PartnerContainerViews.Container> containers = new ArrayList<>();
         for (PurchaseOrder order : purchaseOrders.list()) {
             if (!visible(order)) continue;
             PartnerContainerViews.Container container = container(order, customerId, today, catalog, places,
-                    moved.get(order.id()), perPallet);
+                    moved.get(order.id()), planned.getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE), perPallet);
             container.lines().forEach(line -> productIds.add(line.productId()));
             containers.add(container);
         }
@@ -121,7 +125,8 @@ public class PartnerContainerReader {
 
     private PartnerContainerViews.Container container(PurchaseOrder order, long customerId, LocalDate today,
                                                       PartnerProductTiles.Catalog catalog, Places places,
-                                                      ArrivalMoveStore.Move move, Map<Long, Integer> perPallet) {
+                                                      ArrivalMoveStore.Move move, ArrivalPlanStore.Plan plan,
+                                                      Map<Long, Integer> perPallet) {
         boolean received = order.status() == PurchaseOrderStatus.ONTVANGEN;
         boolean own = Objects.equals(order.partnerCustomerId(), customerId);
         String state = state(order, today);
@@ -196,7 +201,11 @@ public class PartnerContainerReader {
                 type == null ? null : type.code(), type == null ? null : type.label(), order.orderDate(),
                 order.shippedOn(), order.expectedArrival(), due, order.receivedOn(), movedFrom,
                 order.isStockBooked(), old, order.departurePort(), order.destinationPort(),
-                places.nameFor(order.receivingLocationId(), own), totals, List.copyOf(lines));
+                places.nameFor(order.receivingLocationId(), own), totals, List.copyOf(lines),
+                /* What the ERP set by hand: the hour at the port with its day, the day and hour at the warehouse. */
+                received || order.expectedArrival() == null ? null : ArrivalPlanStore.View.of(plan).containerAt(),
+                received ? null : plan.warehouseOn(),
+                received || plan.warehouseOn() == null ? null : ArrivalPlanStore.View.of(plan).warehouseAt());
     }
 
     /** Each product on pallets of its own (what the warehouse does after unloading); null without a fit. */

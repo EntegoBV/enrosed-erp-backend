@@ -79,12 +79,18 @@ public class TrackingDateSync {
 
     private void apply(PurchaseOrderEntity current, Plan plan, String source) {
         LocalDate departure = plan.shippedOn() == null ? current.shippedOn : plan.shippedOn();
-        LocalDate arrival = plan.expectedArrival() == null ? current.expectedArrival : plan.expectedArrival();
+        /* An arrival set by hand stays until "Volg track & trace" (ArrivalPlanStore); the departure still follows. */
+        boolean byHand = Boolean.TRUE.equals(current.arrivalByHand);
+        LocalDate arrival = byHand || plan.expectedArrival() == null ? current.expectedArrival : plan.expectedArrival();
         var changes = ActivityChangeSet.create()
                 .add("shippedOn", "Vertrekdatum", current.shippedOn, departure)
                 .add("expectedArrival", "Verwachte aankomst", current.expectedArrival, arrival).build();
         if (changes.isEmpty()) return;
-        if (!Objects.equals(current.expectedArrival, arrival)) noteArrivalMove(current, arrival, Instant.now());
+        if (!Objects.equals(current.expectedArrival, arrival)) {
+            noteArrivalMove(current, arrival, Instant.now());
+            /* Sources name a day; an hour typed for the day before does not move along with it. */
+            current.expectedArrivalTime = null;
+        }
         current.shippedOn = departure;
         current.expectedArrival = arrival;
         activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,

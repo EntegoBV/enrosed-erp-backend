@@ -637,6 +637,14 @@ public final class PanacheSourcingRepositories {
                 entity.arrivalMovedAt = null;
                 entity.arrivalNoticeDate = null;
                 entity.arrivalNoticeAt = null;
+                /* The arrival sheet (ArrivalPlanStore) owns the hour and "by hand"; the order form names the day only.
+                   A day that reaches the form save is planning tracking may replace, as it always was (an older
+                   screen, or a draft from before the sheet saved), so the hour of the day before and the hand mark
+                   go with it. A new order has neither. */
+                if (entity.id != null) {
+                    entity.expectedArrivalTime = null;
+                    entity.arrivalByHand = null;
+                }
             }
             entity.expectedArrival = order.expectedArrival();
             entity.receivedOn = order.receivedOn();

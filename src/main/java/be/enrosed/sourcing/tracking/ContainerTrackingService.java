@@ -22,6 +22,7 @@ public class ContainerTrackingService {
     @Inject BexyClient bexy;
     @Inject TrackingDateSync dateSync;
     @Inject ArrivalMoveStore moves;
+    @Inject ArrivalPlanStore plans;
     @ConfigProperty(name = "enrosed.tracking.enabled", defaultValue = "true") boolean enabled = true;
     /** The date lookup answered without data for a bill it had data for: its dates are no longer followed. */
     static final String DATES_GONE = "De datumbron gaf bij de laatste controle geen gegevens.";
@@ -30,13 +31,14 @@ public class ContainerTrackingService {
         Map<String, TrackingStore.Snapshot> snapshots = store.all();
         Map<Long, VesselLinkStore.Link> linked = links.all();
         Map<Long, ArrivalMoveStore.Move> moved = moves.all();
+        Map<Long, ArrivalPlanStore.Plan> planned = plans.all();
         return new Feed("Voydar / ShipsGo", enabled, INTERVAL_HOURS, trackedOrders().stream()
                 .map(order -> {
                     VesselLinkStore.Link link = VesselLinkStore.matching(order, linked.get(order.id()));
                     Reference reference = trackingReference(order, link);
                     Reference dates = dateReference(order);
                     return row(order, link, reference == null ? null : snapshots.get(reference.key()), dates == null ? null : snapshots.get(dates.key()),
-                            moved.get(order.id()), null);
+                            moved.get(order.id()), planned.getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE).byHand(), null);
                 }).toList(), provider.configured());
     }
 
@@ -104,7 +106,7 @@ public class ContainerTrackingService {
         VesselLinkStore.Link link = links.find(order);
         Reference reference = trackingReference(order, link), dates = dateReference(order);
         return row(order, link, reference == null ? null : store.find(reference.key()),
-                dates == null ? null : store.find(dates.key()), moves.find(order.id()), refreshOutcome);
+                dates == null ? null : store.find(dates.key()), moves.find(order.id()), plans.find(order.id()).byHand(), refreshOutcome);
     }
 
     public void syncDue() {
@@ -209,7 +211,7 @@ public class ContainerTrackingService {
     }
 
     private Row row(PurchaseOrder order, VesselLinkStore.Link link, TrackingStore.Snapshot snapshot, TrackingStore.Snapshot dateSnapshot,
-                    ArrivalMoveStore.Move move, String refreshOutcome) {
+                    ArrivalMoveStore.Move move, boolean arrivalByHand, String refreshOutcome) {
         Reference reference = trackingReference(order, link);
         Observation data = snapshot == null ? null : snapshot.observation();
         if (link != null && data != null) data = VoydarClient.since(data, cutoff(order, link));
@@ -232,11 +234,15 @@ public class ContainerTrackingService {
         String dateSource = dateData != null ? "Evergreen via bexy" : data != null && data.dateEvidence() != null ? "ShipsGo" : null;
         Observation evidence = dateData != null ? dateData : data != null && data.dateEvidence() != null ? data : null;
         String dateError = dateSnapshot == null ? null : dateSnapshot.error();
+        java.time.LocalDate sourceArrival = null;
         if (dateError == null && evidence != null) {
             TrackingDateSync.Plan plan = TrackingDateSync.shipmentPlan(order, evidence, Instant.now());
             dateError = plan.error();
-            if (dateError == null && plan.expectedArrival() != null && !Objects.equals(plan.expectedArrival(), order.expectedArrival()))
-                dateError = "De bronplanning wijkt af van de opgeslagen aankomstdatum. De opgeslagen datum is nog niet aangepast.";
+            if (dateError == null && plan.expectedArrival() != null && !Objects.equals(plan.expectedArrival(), order.expectedArrival())) {
+                /* By hand the difference is no failure: the panel names the source's date beside the one kept. */
+                if (arrivalByHand) sourceArrival = plan.expectedArrival();
+                else dateError = "De bronplanning wijkt af van de opgeslagen aankomstdatum. De opgeslagen datum is nog niet aangepast.";
+            }
         }
         /* The last attempt failed, also when no source answered yet (the row's error then holds guidance, not the
            failure). "No record yet" from the date lookup is waiting while it never answered (a fresh bill): it stays
@@ -274,7 +280,29 @@ public class ContainerTrackingService {
                 source, link == null ? null : link.imo(), automatic, order.expectedArrival(), order.shippedOn(),
                 dateSource, evidence == null ? null : evidence.providerCheckedAt(), dateError,
                 recognise(order.trackingReference()), failure, failed == null ? null : failed.checkedAt(), failed == null ? null : failed.updatedAt(),
-                movedDays == null ? null : move.from(), movedDays == null ? null : move.at(), movedDays, manual, refreshOutcome);
+                movedDays == null ? null : move.from(), movedDays == null ? null : move.at(), movedDays, manual, refreshOutcome,
+                arrivalByHand && !received, received ? null : sourceArrival);
+    }
+
+    /**
+     * "Volg track & trace" just gave the arrival back: the date the source gave last is applied now when it is still
+     * fresh (TrackingDateSync checks that, as every check does); otherwise the next check applies it. No source is asked.
+     */
+    public void adoptStoredDates(long orderId) {
+        PurchaseOrder order = dateSync.reread(orderId).orElse(null);
+        if (order == null || !tracked(order) || order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null) return;
+        VesselLinkStore.Link link = links.find(order);
+        Reference reference = trackingReference(order, link), dates = dateReference(order);
+        TrackingStore.Snapshot snapshot = reference == null ? null : store.find(reference.key());
+        TrackingStore.Snapshot dateSnapshot = dates == null ? null : store.find(dates.key());
+        Observation data = snapshot == null ? null : snapshot.observation();
+        Observation dateData = dateSnapshot == null ? null : dateSnapshot.observation();
+        try {
+            if (dateData != null) dateSync.shipment(order, dateData, Instant.now(), "Evergreen via bexy");
+            else if (data != null && data.dateEvidence() != null) dateSync.shipment(order, data, Instant.now(), "ShipsGo");
+        } catch (RuntimeException ignored) {
+            /* The hand mark is gone already; the scheduled check applies the date. */
+        }
     }
 
     static Reference dateReference(PurchaseOrder order) {

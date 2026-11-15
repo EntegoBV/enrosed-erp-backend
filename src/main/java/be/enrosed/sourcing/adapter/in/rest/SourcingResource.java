@@ -15,6 +15,8 @@ import be.enrosed.sourcing.domain.PurchasePayment;
 import be.enrosed.sourcing.domain.PurchaseReconciliation;
 import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
+import be.enrosed.sourcing.tracking.ArrivalPlanStore;
+import be.enrosed.sourcing.tracking.ContainerTrackingService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.security.ActorRef;
 import jakarta.annotation.security.RolesAllowed;
@@ -39,6 +41,8 @@ public class SourcingResource {
     @jakarta.inject.Inject be.enrosed.sourcing.adapter.out.document.PdfPurchaseInspectionRenderer inspectionPdf;
     @jakarta.inject.Inject PurchaseSupplierCreditService supplierCredits;
     @jakarta.inject.Inject PurchaseInvoiceService invoices;
+    @jakarta.inject.Inject ArrivalPlanStore arrivals;
+    @jakarta.inject.Inject ContainerTrackingService tracking;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -87,12 +91,30 @@ public class SourcingResource {
                                     /** The container's invoices with the payments that belong to them; never null. */
                                     List<PurchaseInvoiceService.PurchaseInvoiceView> invoices,
                                     /** Invoice files no invoice holds yet ("Gegevens invullen"); never null. */
-                                    List<PurchaseInvoiceService.InvoiceFileView> invoiceFiles) {
+                                    List<PurchaseInvoiceService.InvoiceFileView> invoiceFiles,
+                                    /** The arrival set by hand: the container's hour, by hand or not, the warehouse day and hour; never null. */
+                                    ArrivalPlanStore.View arrival) {
         public PurchaseOrderView {
             supplierCredits = supplierCredits == null ? List.of() : supplierCredits;
             creditOffsets = creditOffsets == null ? List.of() : creditOffsets;
             invoices = invoices == null ? List.of() : invoices;
             invoiceFiles = invoiceFiles == null ? List.of() : invoiceFiles;
+            arrival = arrival == null ? ArrivalPlanStore.View.of(null) : arrival;
+        }
+        /** Compatibility for callers written before the arrival by hand. */
+        public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
+                                 List<PurchaseOrderService.CartonAdjustment> adjustments,
+                                 PurchaseCostLabels costLabels, PurchaseOrderService.Payable payable,
+                                 List<String> attention, PurchaseOrderService.ReceiptVarianceTotals receiptVariance,
+                                 ActorRef createdBy, java.time.Instant createdAt,
+                                 List<PurchaseOrderService.ReceiptReport> receiptReports,
+                                 PurchaseReconciliation reconciliation,
+                                 List<PurchaseSupplierCreditService.CreditView> supplierCredits,
+                                 List<PurchaseSupplierCreditService.CreditOffsetView> creditOffsets,
+                                 List<PurchaseInvoiceService.PurchaseInvoiceView> invoices,
+                                 List<PurchaseInvoiceService.InvoiceFileView> invoiceFiles) {
+            this(order, costing, adjustments, costLabels, payable, attention, receiptVariance, createdBy, createdAt,
+                    receiptReports, reconciliation, supplierCredits, creditOffsets, invoices, invoiceFiles, null);
         }
         /** Compatibility for callers written before containers had invoices. */
         public PurchaseOrderView(PurchaseOrder order, LandedCost costing,
@@ -189,10 +211,12 @@ public class SourcingResource {
         Map<Long, List<PurchaseDocument>> invoiceDocsByOrder = invoices == null ? Map.of()
                 : invoices.invoiceDocuments(allInvoices).stream().collect(java.util.stream.Collectors.groupingBy(
                         PurchaseDocument::orderId));
+        Map<Long, ArrivalPlanStore.Plan> plans = arrivals == null ? Map.of() : arrivals.all();
         return purchaseOrders.list().stream()
                 .map(order -> view(order, purchaseOrders.calculate(order, products), List.of(),
                         invoicesByOrder.getOrDefault(order.id(), List.of()),
-                        invoiceDocsByOrder.getOrDefault(order.id(), List.of()), products))
+                        invoiceDocsByOrder.getOrDefault(order.id(), List.of()), products,
+                        plans.getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE)))
                 .toList();
     }
 
@@ -268,6 +292,20 @@ public class SourcingResource {
                                                  PurchaseOrder order) {
         PurchaseOrderService.UpdateResult result = purchaseOrders.update(id, order, stepBack);
         return view(result.order(), purchaseOrders.calculate(result.order()), result.adjustments());
+    }
+
+    /**
+     * The arrival by hand: the container's day and hour at the port (the order's expected arrival), and the day and
+     * hour at the place it is unloaded at. followTracking gives the container's day back to track & trace, which
+     * applies the date it gave last when that is still fresh. Answers the order as it stands.
+     */
+    @PUT
+    @Path("/purchase-orders/{id}/arrival")
+    public PurchaseOrderView setArrival(@PathParam("id") long id, ArrivalPlanStore.Request request) {
+        purchaseOrders.get(id);
+        ArrivalPlanStore.Result result = arrivals.set(id, request);
+        if (result.followed()) tracking.adoptStoredDates(id);
+        return currentView(id);
     }
 
     /** A partner comes in, the deal changes, or the partner leaves; the container carries the settings itself. */
@@ -863,7 +901,8 @@ public class SourcingResource {
         boolean saved = order.id() != null && invoices != null;
         List<PurchaseDocument> documents = saved ? purchaseOrders.documents(order.id()) : List.of();
         return view(order, costing, adjustments, saved ? purchaseOrders.invoices(order.id()) : List.of(),
-                documents, purchaseOrders.productsById());
+                documents, purchaseOrders.productsById(),
+                order.id() == null || arrivals == null ? ArrivalPlanStore.Plan.NONE : arrivals.find(order.id()));
     }
 
     /**
@@ -875,7 +914,8 @@ public class SourcingResource {
                                    List<PurchaseOrderService.CartonAdjustment> adjustments,
                                    List<be.enrosed.sourcing.domain.PurchaseInvoice> invoicesOfOrder,
                                    List<PurchaseDocument> invoiceDocsOfOrder,
-                                   Map<Long, be.enrosed.catalog.domain.Product> productsById) {
+                                   Map<Long, be.enrosed.catalog.domain.Product> productsById,
+                                   ArrivalPlanStore.Plan arrivalPlan) {
         Supplier supplier = order.supplierId() == null ? null : suppliers.find(order.supplierId());
         PurchaseOrderService.Payable payable = purchaseOrders.payable(order, costing,
                 supplier == null ? null : supplier.incoterm());
@@ -891,7 +931,8 @@ public class SourcingResource {
                 credits ? supplierCredits.views(order.id()) : List.of(),
                 credits ? supplierCredits.offsetsOnto(order.id()) : List.of(),
                 PurchaseInvoiceService.views(order, invoicesOfOrder, recorded, invoiceDocsOfOrder),
-                PurchaseInvoiceService.files(invoicesOfOrder, recorded, invoiceDocsOfOrder));
+                PurchaseInvoiceService.files(invoicesOfOrder, recorded, invoiceDocsOfOrder),
+                ArrivalPlanStore.View.of(arrivalPlan));
     }
 
     private PurchaseOrderView currentView(long id) {

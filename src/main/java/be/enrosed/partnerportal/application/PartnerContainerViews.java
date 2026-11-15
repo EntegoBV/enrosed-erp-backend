@@ -59,7 +59,11 @@ public final class PartnerContainerViews {
                             String containerType, String containerLabel, LocalDate orderDate, LocalDate shippedOn,
                             LocalDate expectedArrival, LocalDate due, LocalDate receivedOn, LocalDate arrivalMovedFrom,
                             boolean stockBooked, boolean old, String departurePort, String destinationPort,
-                            String locationName, ContainerTotals totals, List<ContainerLine> lines) {}
+                            String locationName, ContainerTotals totals, List<ContainerLine> lines,
+                            /* Since 2026-11-15, set by hand in the ERP; null once received or when not planned. The hour
+                               the container is expected at the port ("08:30"), and the day and hour it is expected at
+                               the place it is unloaded at (Zaltbommel; locationName names it when it may be named). */
+                            String expectedArrivalTime, LocalDate warehouseArrivalOn, String warehouseArrivalTime) {}
 
     /**
      * ProductTile (unwrapped, so it reads as the same flat tile the rest of the portal gets; it carries the category:

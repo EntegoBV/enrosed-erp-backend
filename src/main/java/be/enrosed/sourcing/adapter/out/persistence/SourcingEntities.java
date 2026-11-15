@@ -135,6 +135,14 @@ public final class SourcingEntities {
         @Column(name = "arrival_notice_date") public LocalDate arrivalNoticeDate;
         /** When the bell named that date: the row's time and the start of its 14 days; null together with it. */
         @Column(name = "arrival_notice_at") public Instant arrivalNoticeAt;
+        /** The hour the container is expected at the port, set by hand; null = no hour. ArrivalPlanStore writes it. */
+        @Column(name = "expected_arrival_time") public java.time.LocalTime expectedArrivalTime;
+        /** expectedArrival was set by hand while the order had track & trace: tracking leaves it alone; null reads as no. */
+        @Column(name = "arrival_by_hand") public Boolean arrivalByHand;
+        /** When the container is expected at the place it is unloaded at (Zaltbommel), set by hand; null = not planned. */
+        @Column(name = "warehouse_arrival_on") public LocalDate warehouseArrivalOn;
+        /** The hour of that arrival; null = the day only. */
+        @Column(name = "warehouse_arrival_time") public java.time.LocalTime warehouseArrivalTime;
 
         /** Immutable server-side creator snapshot; null only on historical rows. */
         @Column(name = "created_by", length = 64)
