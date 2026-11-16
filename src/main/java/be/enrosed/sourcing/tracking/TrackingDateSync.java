@@ -81,17 +81,11 @@ public class TrackingDateSync {
         if (link == null || !Objects.equals(link.referenceHash, expectedLink.referenceHash())
                 || !Objects.equals(link.imo, expectedLink.imo()) || !Objects.equals(link.linkedAt, expectedLink.linkedAt())) return;
         if (departed != null) apply(current, new Plan(departed, null, null), "Voydar · werkelijk vertrek uit vertrekhaven");
-        if (arrived == null) return;
-        if (VesselDirectory.differs(current.billVessel, observation.vessel())) {
-            /* The final bill of lading names another ship than this feed (a mistyped IMO, a ship linked for a later
-               leg): its call must not write "schip aangekomen" on this container, and an arrival of that ship
-               written before the bill was taken over goes too. */
-            List<ActivityChangeDto> changes = forgetPortArrival(current);
-            if (!changes.isEmpty())
-                activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
-                        Long.toString(current.id), current.number, "Scheepsaankomst gewist: de B/L noemt een ander schip", changes);
-            return;
-        }
+        /* Not while the final bill of lading names another ship than this feed: a mistyped IMO, or a ship linked
+           for a later leg, must not write "schip aangekomen" on this container. Such a call is treated as not
+           found, no more: an arrival stored earlier is left alone, so a bill whose ship was read wrong can never
+           take back a day that was right. Unlinking or relinking the ship is what clears it. */
+        if (arrived == null || VesselDirectory.differs(current.billVessel, observation.vessel())) return;
         /* By hand the hand date stays and only the fact is stored. */
         LocalDate arrival = Boolean.TRUE.equals(current.arrivalByHand) ? current.expectedArrival : arrived.day();
         write(current, current.shippedOn, arrival, arrived.day(), "Voydar · schip aangekomen in " + arrived.place());
