@@ -143,6 +143,21 @@ public final class SourcingEntities {
         @Column(name = "warehouse_arrival_on") public LocalDate warehouseArrivalOn;
         /** The hour of that arrival; null = the day only. */
         @Column(name = "warehouse_arrival_time") public java.time.LocalTime warehouseArrivalTime;
+        /**
+         * The day the linked ship arrived at the port of destination, read from its port calls ("schip aangekomen",
+         * never "container gelost"); null = not in, or no ship linked. Only TrackingDateSync writes it; it is cleared
+         * when the ship or the shipment changes and when the order is no longer under way. Like the columns above it
+         * is not on the PurchaseOrder record, so a form save cannot set or undo it.
+         */
+        @Column(name = "port_arrived_on") public LocalDate portArrivedOn;
+        /**
+         * The ship and voyage the final bill of lading named when it was taken over; null = no final bill was taken
+         * over (a draft's ship can still change, so it guards nothing and is not kept). While the linked ship's feed
+         * names another ship, that ship's arrival is not written. Cleared with port_arrived_on when the reference is
+         * emptied or names another shipment (VesselLinkStore.rebind); unlinking the ship keeps them.
+         */
+        @Column(name = "bill_vessel", length = 80) public String billVessel;
+        @Column(name = "bill_voyage", length = 40) public String billVoyage;
 
         /** Immutable server-side creator snapshot; null only on historical rows. */
         @Column(name = "created_by", length = 64)
