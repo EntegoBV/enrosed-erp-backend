@@ -38,11 +38,15 @@ public final class StockRadar {
 
     /**
      * One watched page: a shop for one item. Items may share a page: Apple
-     * answers for all four iPhones in one request, and that request is made once.
-     * Watches with a {@code group} take turns: one page of the group a minute
-     * (Coolblue's robot check comes quickly when a shop is asked faster).
+     * answers for all four iPhones in one request, and Coolblue's list of the
+     * iPhone Duo holds all four too; such a page is asked once. Watches with a
+     * {@code group} take turns: one page of the group a minute (Amazon). A
+     * {@code detailUrl} is the item's own page, read only when the shared page
+     * hints at more than it says (Coolblue's list counts stores with stock, its
+     * product page names them).
      */
-    public record Watch(String key, Shop shop, Item item, String url, String orderUrl, Checker checker, String group) {
+    public record Watch(String key, Shop shop, Item item, String url, String orderUrl, Checker checker, String group,
+                        String detailUrl, Checker detailChecker) {
         /** What the rhythm counts: the group, or the page itself. */
         public String slot() { return group != null ? group : url; }
     }
@@ -51,12 +55,18 @@ public final class StockRadar {
      * What one page read said. A missing delivery date means "no date was
      * promised". {@code places} names the physical stores that have it now; a
      * store that joins them is news of its own, even when the shop already counted.
+     * {@code listedStores}: a list page's count of stores with stock, which it
+     * cannot name (negative: the list did not show it); null on any other page.
      */
-    public record Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, List<String> places, boolean dateUnknown) {
+    public record Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, List<String> places, boolean dateUnknown,
+                              Integer listedStores) {
         public Observation {
             if (statusText == null || statusText.isBlank()) statusText = inStock ? "Op voorraad" : "Niet beschikbaar";
             if (statusText.length() > 280) statusText = statusText.substring(0, 277) + "…";
             places = places == null ? List.of() : List.copyOf(places);
+        }
+        public Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, List<String> places, boolean dateUnknown) {
+            this(inStock, deliveryBy, statusText, priceEur, places, dateUnknown, null);
         }
         public Observation(boolean inStock, LocalDate deliveryBy, String statusText, BigDecimal priceEur, List<String> places) {
             this(inStock, deliveryBy, statusText, priceEur, places, false);

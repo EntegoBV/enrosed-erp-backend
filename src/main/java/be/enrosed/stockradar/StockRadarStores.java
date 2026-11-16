@@ -87,6 +87,9 @@ public final class StockRadarStores {
     private static final String PS5_PRO_SKU = "PSD001-PSDE01942_39-PS5PROCHASASIRSE-E000K3A7V";
     /** Coolblue's PS5 Pro (Digital Edition, the console itself), the same number in Belgium and the Netherlands. */
     private static final String PS5_PRO_COOLBLUE = "954519";
+    /** Coolblue's list of every iPhone Duo (eight colours and sizes on one page, 2026-11-16). */
+    static final String COOLBLUE_BE_DUO_LIST = "https://www.coolblue.be/nl/mobiele-telefoons/smartphones/apple/apple-iphone-duo";
+    static final String COOLBLUE_NL_DUO_LIST = "https://www.coolblue.nl/mobiele-telefoons/smartphones/apple/apple-iphone-duo";
     /** Vanden Borre has no PS5 Pro page while it has none; this listing fills itself when stock arrives (2026-11-15). */
     private static final String PS5_PRO_VANDEN_BORRE = "https://www.vandenborre.be/gaming/spelconsole/sony-playstation-5-pro";
 
@@ -138,17 +141,23 @@ public final class StockRadarStores {
         String delivery = "https://www.apple.com/be-nl/shop/delivery-message?" + APPLE_PARTS + "&mt=regular";
         for (Item item : DUO) list.add(watch(APPLE_ONLINE, item, delivery, APPLE_ORDER, (page, today) -> appleDelivery(page, today, item), null));
         for (Item item : DUO) list.add(watch(APPLE_BRUSSELS, item, pickup, APPLE_ORDER, (page, today) -> applePickup(page, today, item), null));
-        // Coolblue's pages take turns, one page a minute per country (the four iPhones and the PS5 Pro):
-        // four pages a minute brought its robot check within minutes.
+        // Coolblue, two pages a minute per country, the rate the first radar kept up for days: the iPhone Duo list, which
+        // holds all four iPhones (state, delivery promise, a count of stores with stock), and the PS5 Pro page. Every
+        // product page a minute (five per country) brought its robot check within minutes (2026-11-15). The list
+        // cannot name the stores: when it counts some, the iPhone's own page is read for their names.
         for (Item item : DUO) {
             Articles articles = ARTICLES.get(item);
-            String url = "https://www.coolblue.be/nl/product/" + articles.coolblue() + "/" + articles.coolblueSlug() + ".html";
-            list.add(watch(COOLBLUE_BE, item, url, url, (page, today) -> coolblue(page, today, item, articles.coolblue()), COOLBLUE_BE.key()));
+            String page = "https://www.coolblue.be/nl/product/" + articles.coolblue() + "/" + articles.coolblueSlug() + ".html";
+            list.add(new Watch(COOLBLUE_BE.key() + ":" + item.key(), COOLBLUE_BE, item, COOLBLUE_BE_DUO_LIST, page,
+                    (shared, today) -> coolblueList(shared, today, item, articles.coolblue()), null,
+                    page, (detail, today) -> coolblue(detail, today, item, articles.coolblue())));
         }
         for (Item item : DUO) {
             Articles articles = ARTICLES.get(item);
-            String url = "https://www.coolblue.nl/product/" + articles.coolblue() + "/" + articles.coolblueSlug() + ".html";
-            list.add(watch(COOLBLUE_NL, item, url, url, (page, today) -> coolblue(page, today, item, articles.coolblue()), COOLBLUE_NL.key()));
+            String page = "https://www.coolblue.nl/product/" + articles.coolblue() + "/" + articles.coolblueSlug() + ".html";
+            list.add(new Watch(COOLBLUE_NL.key() + ":" + item.key(), COOLBLUE_NL, item, COOLBLUE_NL_DUO_LIST, page,
+                    (shared, today) -> coolblueList(shared, today, item, articles.coolblue()), null,
+                    page, (detail, today) -> coolblue(detail, today, item, articles.coolblue())));
         }
         for (Item item : DUO) {
             Articles articles = ARTICLES.get(item);
@@ -176,31 +185,14 @@ public final class StockRadarStores {
         list.add(watch(PS_DIRECT, PS5_PRO, PS5_PRO_PAGE, PS5_PRO_PAGE, (page, today) -> playStation(page, PS5_PRO, PS5_PRO_SKU), null));
         String ps5BE = "https://www.coolblue.be/nl/product/" + PS5_PRO_COOLBLUE + "/playstation-5-pro-digital-edition.html";
         String ps5NL = "https://www.coolblue.nl/product/" + PS5_PRO_COOLBLUE + "/playstation-5-pro-digital-edition.html";
-        list.add(watch(COOLBLUE_BE, PS5_PRO, ps5BE, ps5BE, (page, today) -> coolblue(page, today, PS5_PRO, PS5_PRO_COOLBLUE), COOLBLUE_BE.key()));
-        list.add(watch(COOLBLUE_NL, PS5_PRO, ps5NL, ps5NL, (page, today) -> coolblue(page, today, PS5_PRO, PS5_PRO_COOLBLUE), COOLBLUE_NL.key()));
+        list.add(watch(COOLBLUE_BE, PS5_PRO, ps5BE, ps5BE, (page, today) -> coolblue(page, today, PS5_PRO, PS5_PRO_COOLBLUE), null));
+        list.add(watch(COOLBLUE_NL, PS5_PRO, ps5NL, ps5NL, (page, today) -> coolblue(page, today, PS5_PRO, PS5_PRO_COOLBLUE), null));
         list.add(watch(VANDEN_BORRE, PS5_PRO, PS5_PRO_VANDEN_BORRE, PS5_PRO_VANDEN_BORRE, (page, today) -> vandenBorreListing(page, PS5_PRO), null));
         return List.copyOf(list);
     }
 
     private static Watch watch(Shop shop, Item item, String url, String orderUrl, StockRadar.Checker checker, String group) {
-        return new Watch(shop.key() + ":" + item.key(), shop, item, url, orderUrl, checker, group);
-    }
-
-    /**
-     * The online state Coolblue gives every colour and size on any of the
-     * iPhone's pages ("InStock", "BackOrder", "TemporaryOutOfStock"), by item
-     * key. No date and no store stock: an iPhone that turns InStock here gets
-     * its own page read at once.
-     */
-    public static Map<String, String> coolblueVariants(String html) {
-        Map<String, String> states = new java.util.HashMap<>();
-        if (html == null) return states;
-        String text = html.replace("\\\"", "\"");
-        for (Map.Entry<Item, Articles> entry : ARTICLES.entrySet()) {
-            String state = firstGroup(Pattern.compile("\"id\":" + entry.getValue().coolblue() + ",\"name\":\"[^\"]{0,120}\",\"availabilityState\":\"(\\w+)\""), text);
-            if (state != null) states.put(entry.getKey().key(), state);
-        }
-        return states;
+        return new Watch(shop.key() + ":" + item.key(), shop, item, url, orderUrl, checker, group, null, null);
     }
 
     /** The shops of one family's table, in order. */
@@ -307,17 +299,35 @@ public final class StockRadarStores {
             // Without JSON-LD: the product's own object in the page data; other keys may sit between its name and state.
             String state = firstGroup(Pattern.compile("\"id\":" + article + ",\"name\":\"[^\"]{0,160}\"(?:,\"[A-Za-z]+\":(?:\"[^\"]{0,200}\"|true|false|null|-?\\d+))*?,\"availabilityState\":\"(\\w+)\""), text);
             if (state == null) {
-                if (looksBlocked(html)) throw new FetchFailure("Coolblue weigert de controle: " + pageTitle(html), true);
+                if (looksBlocked(html) || robotCheck(html)) throw new FetchFailure("Coolblue weigert de controle: " + pageTitle(html), true);
                 String title = pageTitle(html);
                 throw new IllegalStateException("Pagina niet herkend (geen aanbod)" + (title.isBlank() ? "" : ": " + title));
             }
-            availability = switch (state) {
-                case "OnStock", "InStock" -> "InStock";
-                case "TemporaryOutOfStock" -> "OutOfStock";
-                default -> state;
-            };
+            availability = coolblueState(state);
         }
-        String promise = firstGroup(CB_PROMISE, text);
+        Observation online = coolblueOnline(availability, firstGroup(CB_PROMISE, text), today, null);
+        BigDecimal price = euro(firstGroup(CB_OFFER_PRICE, html));
+        online = new Observation(online.inStock(), online.deliveryBy(), online.statusText(), price == null ? item.listPrice() : price);
+        String storeRows = firstGroup(CB_STORES, text);
+        if (storeRows == null) return online;
+        return withStores(online, coolblueStores(storeRows, firstGroup(CB_PICKUP, text), today), today);
+    }
+
+    /** The page data's own words for the JSON-LD's: "OnStock" is InStock, "TemporaryOutOfStock" is OutOfStock. */
+    private static String coolblueState(String state) {
+        return switch (state) {
+            case "OnStock", "InStock" -> "InStock";
+            case "TemporaryOutOfStock" -> "OutOfStock";
+            default -> state;
+        };
+    }
+
+    /**
+     * The online verdict, the same on a product page and in a list: InStock
+     * counts; BackOrder, PreOrder and LimitedAvailability only with a dated
+     * promise ("Geleverd vanaf 7 december", "Morgen in huis").
+     */
+    private static Observation coolblueOnline(String availability, String promise, LocalDate today, Integer listedStores) {
         LocalDate by = promise == null ? null : dayMonth(firstGroup(CB_FROM, promise), today);
         if (by == null) by = relative(promise, today);
         boolean in = switch (availability) {
@@ -333,14 +343,65 @@ public final class StockRadarStores {
             case "Discontinued" -> "Niet meer leverbaar";
             default -> availability + (by == null ? "" : " · " + day(by));
         };
-        BigDecimal price = euro(firstGroup(CB_OFFER_PRICE, html));
-        if (price == null) price = item.listPrice();
-        String storeRows = firstGroup(CB_STORES, text);
-        if (storeRows == null) return new Observation(in, by, label, price);
-        List<String> stocked = coolblueStores(storeRows, firstGroup(CB_PICKUP, text), today);
-        if (stocked.isEmpty()) return new Observation(in, by, label, price);
+        return new Observation(in, by, label, null, List.of(), false, listedStores);
+    }
+
+    /** The online verdict with the stores that have it now: stock in a store counts on its own, today. */
+    static Observation withStores(Observation online, List<String> stocked, LocalDate today) {
+        if (stocked == null || stocked.isEmpty()) return online;
         String where = "In " + stocked.size() + (stocked.size() == 1 ? " winkel" : " winkels") + " op voorraad: " + String.join(", ", stocked);
-        return new Observation(true, today, where + " · online: " + label, price, stocked);
+        return new Observation(true, today, where + " · online: " + online.statusText(), online.priceEur(), stocked, false, online.listedStores());
+    }
+
+    /** A product's offer in the list's JSON-LD ItemList, by its sku: {"@type":"Offer","price":2339,…,"availability":"https://schema.org/BackOrder"}. */
+    private static Pattern listOffer(String article) {
+        return Pattern.compile("\"sku\":\"?" + article + "\"?,[^{}]{0,2000}?\"offers\":(\\{[^{}]{0,400}})");
+    }
+    private static final Pattern LD_OFFER_AVAILABILITY = Pattern.compile("\"availability\":\"https?://schema.org/(\\w+)\"");
+    private static final Pattern LD_OFFER_PRICE = Pattern.compile("\"price\":\"?([0-9]+(?:\\.[0-9]+)?)");
+    /** The store-stock line of a list card: "Nog sneller op te halen in {n} Coolblue-winkel(s)", n as the component's children. */
+    private static Pattern listStores(String article) {
+        return Pattern.compile("\"stockStatus-" + article + "-\\d+\",\\{(?:[^{}]|\\{[^{}]*})*?\"children\":(\\d+)");
+    }
+
+    /**
+     * Coolblue's list of every iPhone Duo: per product its state (JSON-LD
+     * offer, else availabilityState), its delivery promise ("promiseData") and,
+     * on its card, how many stores have it ("Nog sneller op te halen in 1
+     * Coolblue-winkel"; {@code "storeStockStatus":false} when none). The list
+     * cannot name those stores nor say whether they are open (Apeldoorn counted
+     * the day before it opened), so stock in a store only counts once the
+     * product's own page names it: the count is passed on in {@code listedStores}.
+     */
+    static Observation coolblueList(Page page, LocalDate today, Item item, String article) {
+        String html = page.html() == null ? "" : page.html();
+        String text = html.replace("\\\"", "\"");
+        String offer = firstGroup(listOffer(article), html);
+        String availability = offer == null ? null : firstGroup(LD_OFFER_AVAILABILITY, offer);
+        if (availability == null) {
+            String state = firstGroup(Pattern.compile("\"id\":" + article + ",\"name\":\"[^\"]{0,160}\"(?:,\"[A-Za-z]+\":(?:\"[^\"]{0,200}\"|true|false|null|-?\\d+))*?,\"availabilityState\":\"(\\w+)\""), text);
+            if (state == null) {
+                if (looksBlocked(html) || robotCheck(html)) throw new FetchFailure("Coolblue weigert de controle: " + pageTitle(html), true);
+                String title = pageTitle(html);
+                throw new IllegalStateException("Pagina niet herkend: artikel " + article + " staat niet in de lijst" + (title.isBlank() ? "" : " (" + title + ")"));
+            }
+            availability = coolblueState(state);
+        }
+        String promise = firstGroup(Pattern.compile("\"productId\":\"" + article + "\",\"promise\":\"([^\"$][^\"]{2,80})\""), text);
+        // The card runs from its add-to-cart button to the next card's.
+        int start = text.indexOf("\"atc-button-" + article + "\"");
+        int stores = -1;
+        if (start >= 0) {
+            int end = text.indexOf("\"atc-button-", start + 20);
+            String card = text.substring(start, end > start ? end : Math.min(text.length(), start + 60_000));
+            String count = firstGroup(listStores(article), card);
+            if (count != null) stores = Integer.parseInt(count);
+            else if (card.contains("\"storeStockStatus\":false")) stores = 0;
+        }
+        BigDecimal price = offer == null ? null : euro(firstGroup(LD_OFFER_PRICE, offer));
+        Observation online = coolblueOnline(availability, promise, today, stores);
+        return new Observation(online.inStock(), online.deliveryBy(), online.statusText(), price == null ? item.listPrice() : price,
+                List.of(), false, stores);
     }
 
     /**

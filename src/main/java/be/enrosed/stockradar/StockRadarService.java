@@ -47,10 +47,12 @@ import java.util.concurrent.atomic.AtomicLong;
  *
  * Every shop is read once a minute (Emre, 2026-11-15: "doe per minuut"), up
  * to 10 % later and never earlier. Apple's one request answers for all four
- * items; Vanden Borre's four pages are read every minute; Coolblue's four
- * items take turns, one page per country a minute, because four a minute
- * brings its robot check within minutes. Every Coolblue page also names the
- * online state of all four: a item that turns InStock there is read at once.
+ * iPhones; Vanden Borre's pages are read every minute; Coolblue gets two pages
+ * a minute per country, its iPhone Duo list (all four iPhones) and the PS5 Pro
+ * page: five product pages a minute brought its robot check within minutes.
+ * When the list counts stores with stock for an iPhone, that iPhone's own page
+ * names them (read on a change, else every five minutes while it stays).
+ * Amazon's pages take turns, one a minute per store.
  * A round runs on one background thread: the shops are asked in parallel, the
  * pages of one shop one after the other with a short pause. There is no
  * browser and no child process: the first radar launched Chromium twice a
@@ -76,6 +78,12 @@ public class StockRadarService {
     /** Two reads of "not available" in a row before "weer weg": one odd page does not ring twice. */
     private static final int GONE_READS = 2;
     private static final long SAME_HOST_PAUSE_MS = 1_500;
+    /** A list's store count is looked up on the product page when it changes, and again after this long while it stays. */
+    static final int DETAIL_REFRESH_SECONDS = 300;
+    /** Without a fresh look (the shop refused, too many at once), the stores last named still count this long. */
+    static final int DETAIL_KEEP_SECONDS = 900;
+    /** Product pages per shop and round, on top of its list. */
+    static final int MAX_DETAILS_PER_HOST = 2;
     /** Extra mail addresses next to the configured one (Emre, 2026-11-15: "een extra mail naar kunnen zetten"). */
     static final int MAX_EXTRA_RECIPIENTS = 5;
     private static final java.util.regex.Pattern EMAIL = java.util.regex.Pattern.compile(
@@ -104,15 +112,19 @@ public class StockRadarService {
     private final Map<String, Integer> slotErrors = new ConcurrentHashMap<>();
     /** Per watch: when its page was last asked, for the turns of a group. */
     private final Map<String, Instant> lastAsked = new ConcurrentHashMap<>();
-    /** Per group: the watches that go next, in order (a page asked for again, an iPhone Coolblue showed in stock). */
+    /** Per group: the watches that go next, in order (a page asked for again with "Nu opnieuw proberen"). */
     private final Map<String, java.util.Deque<String>> promoted = new ConcurrentHashMap<>();
     /** Per host: no page before this moment, after the shop refused (one refusal holds back all its pages). */
     private final Map<String, Instant> hostNotBefore = new ConcurrentHashMap<>();
     /** Per watch: an undelivered alert is tried again from this moment on, every time a little later. */
     private final Map<String, Instant> retryNotBefore = new ConcurrentHashMap<>();
     private final Map<String, Integer> retryCount = new ConcurrentHashMap<>();
-    /** Per watch: Coolblue's online state as last seen on any of the group's pages. */
-    private final Map<String, String> variantState = new ConcurrentHashMap<>();
+    /** A product page read for the stores its list counted: what it said, when, and the list's count then. */
+    private record Detail(Observation seen, Instant at, int listed) {}
+    /** Per watch with a list: the last product page read for the stores. */
+    private final Map<String, Detail> details = new ConcurrentHashMap<>();
+    /** Per watch with a list: when its product page last failed; it is not asked again within five minutes. */
+    private final Map<String, Instant> detailFailedAt = new ConcurrentHashMap<>();
     private final AtomicBoolean roundBusy = new AtomicBoolean();
     private final AtomicBoolean greeted = new AtomicBoolean();
     private final AtomicLong rounds = new AtomicLong();
@@ -321,11 +333,11 @@ public class StockRadarService {
         Map<String, Object> pages = fetchAll(round.stream().map(Watch::url).distinct().toList());
         Instant now = Instant.now();
         LocalDate today = LocalDate.now(BRUSSELS);
-        List<Read> reads = new ArrayList<>();
-        for (Watch watch : round) reads.add(new Read(watch, check(watch, pages.get(watch.url()), today)));
+        List<Read> pageReads = new ArrayList<>();
+        for (Watch watch : round) pageReads.add(new Read(watch, check(watch.checker(), pages.get(watch.url()), today)));
         // The wait after a refusal holds whatever the database does.
-        pace(reads, now);
-        followCoolblue(round, pages);
+        pace(pageReads, now);
+        List<Read> reads = withStores(pageReads, now, today);
         List<Alert> alerts = QuarkusTransaction.requiringNew().call(() -> persist(reads, now, today));
         for (Alert alert : alerts) notify(alert, now);
         lastRoundAt = now;
@@ -379,12 +391,80 @@ public class StockRadarService {
         return results;
     }
 
+    /**
+     * A list that counts stores with stock (Coolblue's) cannot name them, nor
+     * say whether they are open: the product's own page can. It is read when
+     * the count first shows or changes, and every five minutes while it stays,
+     * at most two per shop and round; in between, the stores it named go with
+     * the list's fresher online state. A product page that cannot be read
+     * changes nothing and is not asked again within five minutes; one that is
+     * refused also makes its shop wait, like any refusal.
+     */
+    private List<Read> withStores(List<Read> reads, Instant now, LocalDate today) {
+        Map<String, List<String>> wanted = new LinkedHashMap<>();
+        for (Read read : reads) {
+            Watch watch = read.watch();
+            if (watch.detailUrl() == null || !(read.result() instanceof Observation seen) || seen.listedStores() == null) continue;
+            if (seen.listedStores() == 0) {
+                details.remove(watch.key());
+                detailFailedAt.remove(watch.key());
+                continue;
+            }
+            Detail last = details.get(watch.key());
+            if (last != null && last.listed() == seen.listedStores() && last.at().isAfter(now.minusSeconds(DETAIL_REFRESH_SECONDS))) continue;
+            Instant failedAt = detailFailedAt.get(watch.key());
+            if (failedAt != null && failedAt.isAfter(now.minusSeconds(DETAIL_REFRESH_SECONDS))) continue;
+            String host = hostOf(watch.detailUrl());
+            Instant notBefore = hostNotBefore.get(host);
+            if (notBefore != null && notBefore.isAfter(now)) continue;
+            List<String> urls = wanted.computeIfAbsent(host, ignored -> new ArrayList<>());
+            if (urls.size() < MAX_DETAILS_PER_HOST) urls.add(watch.detailUrl());
+        }
+        Map<String, Object> pages = Map.of();
+        if (!wanted.isEmpty()) {
+            try {
+                // The shop was asked a moment ago: the usual pause first.
+                Thread.sleep(SAME_HOST_PAUSE_MS);
+                pages = fetchAll(wanted.values().stream().flatMap(List::stream).toList());
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+            }
+        }
+        List<Read> out = new ArrayList<>();
+        for (Read read : reads) {
+            Watch watch = read.watch();
+            if (watch.detailUrl() == null || !(read.result() instanceof Observation seen) || seen.listedStores() == null || seen.listedStores() == 0) {
+                out.add(read);
+                continue;
+            }
+            Object fetched = pages.get(watch.detailUrl());
+            if (fetched != null) {
+                Object checked = check(watch.detailChecker(), fetched, today);
+                if (checked instanceof Observation detail) {
+                    details.put(watch.key(), new Detail(detail, now, seen.listedStores()));
+                    detailFailedAt.remove(watch.key());
+                } else {
+                    RuntimeException failure = (RuntimeException) checked;
+                    detailFailedAt.put(watch.key(), now);
+                    if (failure instanceof FetchFailure fetch && fetch.refused()) {
+                        hostNotBefore.merge(hostOf(watch.detailUrl()), now.plusSeconds(2L * interval()), (a, b) -> a.isAfter(b) ? a : b);
+                    }
+                    LOG.infof("Voorraadradar %s: de winkels niet gelezen op de productpagina (%s)", watch.key(), failure.getMessage());
+                }
+            }
+            Detail last = details.get(watch.key());
+            boolean usable = last != null && last.at().isAfter(now.minusSeconds(DETAIL_KEEP_SECONDS));
+            out.add(usable ? new Read(watch, StockRadarStores.withStores(seen, last.seen().places(), today)) : read);
+        }
+        return out;
+    }
+
     /** The parser's verdict, or the failure that stands in for it. */
-    private static Object check(Watch watch, Object fetched, LocalDate today) {
+    private static Object check(StockRadar.Checker checker, Object fetched, LocalDate today) {
         try {
             if (fetched instanceof RuntimeException failure) throw failure;
             if (!(fetched instanceof Page page)) throw new FetchFailure("Geen antwoord");
-            return watch.checker().check(page, today);
+            return checker.check(page, today);
         } catch (FetchFailure failure) {
             return failure;
         } catch (RuntimeException failure) {
@@ -520,37 +600,6 @@ public class StockRadarService {
                         failure == null ? "Controle mislukt" : failure.getMessage(), errors, wait);
             }
         }
-    }
-
-    /**
-     * Every Coolblue page names the online state of all four items. A item
-     * that turns InStock there goes next in its group, at once: one extra page,
-     * only on the change.
-     */
-    private void followCoolblue(List<Watch> round, Map<String, Object> pages) {
-        for (Watch read : round) {
-            if (read.group() == null || !(pages.get(read.url()) instanceof Page page)) continue;
-            Map<String, String> states = StockRadarStores.coolblueVariants(page.html());
-            for (Watch sibling : StockRadarStores.WATCHES) {
-                if (!read.group().equals(sibling.group())) continue;
-                String state = states.get(sibling.item().key());
-                if (state == null) continue;
-                String before = variantState.put(sibling.key(), state);
-                if (sibling.key().equals(read.key())) continue;
-                if (inStock(state) && !inStock(before)) {
-                    java.util.Deque<String> queue = promoted.get(read.group());
-                    boolean first = queue == null || queue.isEmpty();
-                    promote(read.group(), sibling.key());
-                    // The first one at once; more of them follow at the shop's own pace, ahead of the usual turns.
-                    if (first) nextCheck.put(read.group(), Instant.now());
-                    LOG.infof("Voorraadradar %s: Coolblue meldt %s, de pagina volgt %s", sibling.key(), state, first ? "meteen" : "als volgende");
-                }
-            }
-        }
-    }
-
-    private static boolean inStock(String state) {
-        return "InStock".equals(state) || "OnStock".equals(state);
     }
 
     /** At most 2000 characters, whole names only. */

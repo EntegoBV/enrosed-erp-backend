@@ -2281,12 +2281,24 @@ which also drops the first radar's `stock_radar_store`).
 - **iPhone Duo shops read** (`StockRadarStores`): Apple online
   (`/be-nl/shop/delivery-message`) and Apple Store Brussel R486
   (`/be-nl/shop/retail/pickup-message`), one request each for all four parts;
-  Coolblue BE/NL 986123 / 986125 / 986124 / 986126 (JSON-LD `availability` + the
-  product's `"promise"`; store stock from `storeAvailabilities`, a store counting
-  only when it is on the product's `availableForPickup` list and its
-  `orderStartDate` has come: new stores show stock before they open, and some
-  locations are no shops; without JSON-LD the product's own `availabilityState`
-  in the page data);
+  Coolblue BE/NL 986123 / 986125 / 986124 / 986126, read from Coolblue's **iPhone
+  Duo list** (`/mobiele-telefoons/smartphones/apple/apple-iphone-duo`, all eight
+  variants on one page; `coolblueList`): per product the ItemList JSON-LD offer
+  (else `availabilityState`), its `promiseData` promise, and on its card the store
+  line "Nog sneller op te halen in n Coolblue-winkel(s)" (`stockStatus-<id>-<i>`
+  with `"children":n`, or `"storeStockStatus":false`), passed on as
+  `Observation.listedStores`. The list cannot name the stores nor say whether they
+  are open (it counted Apeldoorn the evening before it opened), so when it counts
+  some, the product page (`Watch.detailUrl`, the `coolblue` reader) names them:
+  read when the count first shows or changes, else every 5 min while it stays, at
+  most two per shop and round; the stores it named count up to 15 min with the
+  list's fresher online state (`StockRadarService.withStores`). A count the list
+  does not show (`listedStores` < 0) gets the product page every 5 min. The product
+  page reader: JSON-LD `availability` + the product's `"promise"`; store stock from
+  `storeAvailabilities`, a store counting only when it is on the product's
+  `availableForPickup` list and its `orderStartDate` has come: new stores show
+  stock before they open, and some locations are no shops; without JSON-LD the
+  product's own `availabilityState` in the page data;
   Vanden Borre `iphone-duo-{256,512}gb-{sw,ns}` (sku 7592493 / 7592418 / 7592558 /
   7592442; the server-rendered `id="availability"` section + the JSON-LD offer with
   the page's own sku; never the rest of the page, accessories use the same words).
@@ -2330,13 +2342,15 @@ which also drops the first radar's `stock_radar_store`).
   proxy, no solving of robot checks.
 - **Rhythm** (Emre, 2026-11-15: "doe per minuut"): a 10 s `@Scheduled` tick looks
   what is due per *slot* (a page, or a group that takes turns), every slot once a
-  minute, up to 10 % later. **Coolblue's pages take turns per country, one page a
-  minute** (four iPhones + the PS5 Pro, so each every 5 min): four pages a minute
-  brought Coolblue's AWS WAF robot check within minutes (seen 2026-11-15). Every
-  Coolblue iPhone page names the online `availabilityState` of all four iPhones; one
-  that turns InStock there is read next, at once (`followCoolblue`). Pages of one
-  shop are asked one after the other, 1.5 s apart; shops in parallel on virtual
-  threads; rounds on one background thread.
+  minute, up to 10 % later. **Coolblue: two pages a minute per country**, the iPhone
+  Duo list (all four iPhones) and the PS5 Pro page, so every product every minute
+  (Emre, 2026-11-16: "Coolblue should work somehow"). That is the rate the first
+  radar kept up from Railway for four days (two pages a minute per country, an AWS
+  WAF challenge on coolblue.nl now and then); five product pages a minute per
+  country brought the robot check within minutes from the Mac (2026-11-15), and
+  the one-page-a-minute turns of 2026-11-15 left each page at 5 min. Amazon's pages
+  still take turns per store. Pages of one shop are asked one after the other,
+  1.5 s apart; shops in parallel on virtual threads; rounds on one background thread.
 - **Failures:** a refusal (403, 429, 503, Apple's 541, Amazon's Server Busy, an AWS
   WAF challenge page, `StockRadar.robotCheck`) waits 2, 4, 8, then 15 min, and
   holds back every page of that host (`hostNotBefore`), not only the refused one;
@@ -2382,7 +2396,8 @@ which also drops the first radar's `stock_radar_store`).
   `STOCK_RADAR_MAIL_ENABLED`, `STOCK_RADAR_SPEED` (2 = half the traffic),
   `STOCK_RADAR_MAX_DELIVERY_DAYS`.
 - **CLI check without the app**: `java -cp 'target/quarkus-app/lib/main/*:target/quarkus-app/lib/boot/*:target/quarkus-app/app/*' be.enrosed.stockradar.StockRadarProbe [watch-or-shop-keys]`
-  (one read per page; keep it rare, Coolblue's robot check comes quickly).
+  (one read per page, plus the product page where a Coolblue list counts stores;
+  keep it rare, Coolblue's robot check comes quickly).
 
 ## Klantprijzen and the priced catalogue (2026-11-06)
 
