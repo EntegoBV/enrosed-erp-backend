@@ -374,7 +374,8 @@ public class BillOfLadingService {
 
     /**
      * Takes one bill over: the reference and the departure day, what the bill names as ship and voyage, and the
-     * ship link. Refused in Dutch (409) when the order can no longer change, the document holds no readable bill,
+     * ship link. A stored arrival of a linked ship that the final bill does not name is taken back with it.
+     * Refused in Dutch (409) when the order can no longer change, the document holds no readable bill,
      * the reference was changed since the screen read it, or the IMO number is not one or belongs to another ship.
      * No source is asked inside this transaction.
      */
@@ -427,15 +428,30 @@ public class BillOfLadingService {
             links.save(orderId, imo, now.trackingReference());
             link = links.find(now);
         }
+        /*    The final bill names another ship than the one that is still linked now (no IMO number is known for
+              the bill's ship, so the link could not follow it): a day that linked ship came in is not this
+              container's arrival. The ship check refuses that ship's calls from here on, but it never takes back
+              a day it stored, because it runs with nobody looking. Here the user is taking the bill over, with
+              the sheet's warning that the two ships differ on screen, so the day goes now, as it does when the
+              ship is unlinked. Left in place, the order, the bell and the partner's portal would keep "schip
+              aangekomen" for a ship the container is not on, and no carrier date could move the arrival any
+              more. Never for a draft (it stores no bill ship) and not while no feed named the linked ship, the
+              same test the ship check uses; after a relink just above there is nothing left to take back. */
+        boolean otherShipStays = link != null
+                && VesselDirectory.differs(named.vessel(), directory.nameOf(link.imo()).orElse(null));
+        List<ActivityChangeDto> lapsed = otherShipStays ? links.forgetArrivalOfOtherShip(orderId) : List.of();
         /* 4. One line in the order's history, with what step 1 did not already write there. It is also written
               when only step 1 changed something: its own line reads "Inkooporder bijgewerkt", as a form save
               does, and this one says the bill of lading was where it came from. Each value is compared with how
-              the order stood before the apply, so a ship link that step 1 let go is told here too. */
-        List<ActivityChangeDto> changes = ActivityChangeSet.create()
+              the order stood before the apply, so a ship link that step 1 let go is told here too. An arrival
+              taken back above is told here as well ("Schip aangekomen", and "Verwachte aankomst" when the day
+              went back with it): the reader sees in one line that the bill was why. */
+        List<ActivityChangeDto> changes = new ArrayList<>(ActivityChangeSet.create()
                 .add("billVessel", "B/L-schip", before.bill().vessel(), named.vessel())
                 .add("billVoyage", "B/L-reis", before.bill().voyage(), named.voyage())
                 .add("vesselImo", "Schip (IMO)", before.imo(), link == null ? null : link.imo())
-                .build();
+                .build());
+        changes.addAll(lapsed);
         if (saved || !changes.isEmpty()) {
             activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
                     Long.toString(orderId), now.number(), "Track & trace bijgewerkt uit de bill of lading", changes);

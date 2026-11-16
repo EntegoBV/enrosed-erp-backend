@@ -87,6 +87,27 @@ public class VesselLinkStore {
     }
 
     /**
+     * A final bill of lading was taken over that names another ship than the linked one, and that ship stays
+     * linked (no IMO number is known for the bill's ship yet): a day the linked ship came in is not this
+     * container's arrival, as when the ship is unlinked ({@link TrackingDateSync#forgetPortArrival}). Only
+     * BillOfLadingService.apply calls this, once it has seen that the names differ: there the user takes the bill
+     * over with the sheet's warning about the two ships on screen. The ship check refuses such a ship's calls
+     * ({@link TrackingDateSync#vessel}) but never takes a stored day back by itself, as it runs with nobody
+     * looking. Returns what changed, for the apply's own history line; empty when the order held no arrival.
+     *
+     * <p>The order is the instance managed at this moment and is flushed at once, for the reason
+     * {@link #saveBillShip} gives.</p>
+     */
+    @Transactional
+    public List<ActivityChangeDto> forgetArrivalOfOtherShip(long orderId) {
+        PurchaseOrderEntity entity = entities.find(PurchaseOrderEntity.class, orderId);
+        if (entity == null) return List.of();
+        List<ActivityChangeDto> changes = TrackingDateSync.forgetPortArrival(entity);
+        entities.flush();
+        return changes;
+    }
+
+    /**
      * The reference text of an order was rewritten. The linked ship stays with the order unless the text now
      * names another shipment (both texts recognised, no number in common, and neither text still shows a number
      * of the other): "BL:" put in front of a number, a B/L added behind a container number or a container put

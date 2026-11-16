@@ -83,8 +83,10 @@ public class TrackingDateSync {
         if (departed != null) apply(current, new Plan(departed, null, null), "Voydar · werkelijk vertrek uit vertrekhaven");
         /* Not while the final bill of lading names another ship than this feed: a mistyped IMO, or a ship linked
            for a later leg, must not write "schip aangekomen" on this container. Such a call is treated as not
-           found, no more: an arrival stored earlier is left alone, so a bill whose ship was read wrong can never
-           take back a day that was right. Unlinking or relinking the ship is what clears it. */
+           found, no more: this pass runs with nobody looking (also when a feed first names its ship, or renames
+           it, later on), so it never takes back an arrival stored earlier. A step of the user does that:
+           unlinking or relinking the ship, or taking over a final bill that names another ship than the linked
+           one (BillOfLadingService.apply, with the sheet's warning about the two ships on screen). */
         if (arrived == null || VesselDirectory.differs(current.billVessel, observation.vessel())) return;
         /* By hand the hand date stays and only the fact is stored. */
         LocalDate arrival = Boolean.TRUE.equals(current.arrivalByHand) ? current.expectedArrival : arrived.day();
@@ -172,8 +174,9 @@ public class TrackingDateSync {
     }
 
     /**
-     * The ship's arrival is no longer this container's: another ship was linked, the ship was unlinked, or the
-     * reference now names another shipment. The fact goes, and with it the day it put on the order: when the
+     * The ship's arrival is no longer this container's: another ship was linked, the ship was unlinked, the
+     * reference now names another shipment, or a final bill of lading was taken over that names another ship than
+     * the linked one. The fact goes, and with it the day it put on the order: when the
      * expected arrival still is that day and was not set by hand, it goes back to the planning that stood before
      * tracking moved it (none when there was none), and that is the planning again, not a move. A day by hand, or
      * any other day, stays. Returns what changed for the activity log; empty when the order had no such arrival.
