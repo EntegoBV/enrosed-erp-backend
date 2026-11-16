@@ -25,6 +25,15 @@ public class TrackingDateSync {
     @Inject ActivityLogService activity;
     @Inject SourcingRepositories.PurchaseOrders orders;
     public record Plan(LocalDate shippedOn, LocalDate expectedArrival, String error) {}
+    /** The vessel feed is checked by us: its check time is fresh for a day. */
+    private static final Duration FEED_FRESH = Duration.ofHours(24);
+    /**
+     * A shipment source (bexy, ShipsGo) dates its own answer, and bexy refreshes its copy of the carrier's record on
+     * its own schedule: our one hit was three days old. At 24 hours that threw away a carrier ETA of 14/11 for a ship
+     * that came in on 15/11 while the order said 30/11. The other guards stay: a passed ETA is never applied, the
+     * ports must be the order's and the voyage must start around the departure day.
+     */
+    static final Duration SHIPMENT_FRESH = Duration.ofDays(7);
     /**
      * The ship's arrival at the port of destination counts from this many days after the departure day (a call
      * there right after the stored departure is not this voyage's arrival) up to this many (as a voyage's dates).
@@ -193,7 +202,7 @@ public class TrackingDateSync {
     public static Plan shipmentPlan(PurchaseOrder order, Observation data, Instant now) {
         DateEvidence dates = data == null ? null : data.dateEvidence();
         if (dates == null) return rejected("De bron levert geen bevestigde transportdatums voor deze zending.");
-        if (!fresh(data.providerCheckedAt(), now)) return rejected("De datumbron is ouder dan 24 uur of vermeldt geen geldige controletijd. De opgeslagen planning blijft behouden.");
+        if (!fresh(data.providerCheckedAt(), now, SHIPMENT_FRESH)) return rejected("De datumbron is ouder dan 7 dagen of vermeldt geen geldige controletijd. De opgeslagen planning blijft behouden.");
         if (!sameShipment(order, dates)) return rejected("De datumbron hoort niet bij het opgeslagen container- of B/L-nummer.");
         if (!samePort(order.departurePort(), dates.originCode(), dates.originName())
                 || !samePort(order.destinationPort(), dates.destinationCode(), dates.destinationName()))
@@ -269,8 +278,10 @@ public class TrackingDateSync {
         if (order.shippedOn() != null) return Math.abs(ChronoUnit.DAYS.between(order.shippedOn(), start)) <= 3;
         return order.orderDate() != null && !start.isBefore(order.orderDate());
     }
-    static boolean fresh(Instant checkedAt, Instant now) {
-        return checkedAt != null && !checkedAt.isBefore(now.minus(Duration.ofHours(24))) && !checkedAt.isAfter(now.plusSeconds(300));
+    /** The vessel feed: the time is our own check of it, so a day without one is stale. */
+    static boolean fresh(Instant checkedAt, Instant now) { return fresh(checkedAt, now, FEED_FRESH); }
+    private static boolean fresh(Instant checkedAt, Instant now, Duration life) {
+        return checkedAt != null && !checkedAt.isBefore(now.minus(life)) && !checkedAt.isAfter(now.plusSeconds(300));
     }
     /**
      * The source's shipment is the one in the reference. Everything the rule of 2026-10-26 accepted is still
