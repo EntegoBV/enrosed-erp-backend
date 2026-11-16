@@ -59,6 +59,31 @@ public class TrackingStore {
         return result;
     }
 
+    /** One ship's shared feed row as {@link VesselDirectory} reads it; observation is null while no fetch succeeded. */
+    public record VesselFeed(String trackingNumber, String id, Observation observation) {}
+
+    /**
+     * The shared feed row of every ship ever linked (tracking number "IMO:&lt;imo&gt;", id the feed's own key). Each
+     * order's own port-call snapshot carries that same tracking number under another id and is left out, so one
+     * ship is one row. Read defensively: a row whose JSON cannot be read is skipped and nothing is thrown, because
+     * an exception out of a transactional method would also break the caller's transaction.
+     */
+    @Transactional
+    public List<VesselFeed> vesselFeeds() {
+        List<VesselFeed> feeds = new ArrayList<>();
+        for (TrackingEntity entity : TrackingEntity.<TrackingEntity>list("trackingNumber like ?1", "IMO:%")) {
+            try {
+                String imo = entity.trackingNumber.substring(4);
+                if (!ContainerTrackingService.vesselFeedReference(imo).key().equals(entity.id)) continue;
+                feeds.add(new VesselFeed(entity.trackingNumber, entity.id,
+                        entity.observationJson == null ? null : json.readValue(entity.observationJson, Observation.class)));
+            } catch (JsonProcessingException | RuntimeException unreadable) {
+                /* One bad row must not hide the other ships. */
+            }
+        }
+        return feeds;
+    }
+
     /** Save the remote ID before fetching details: an interrupted detail fetch must never create again. */
     @Transactional
     public void registered(Reference reference, long id) { entity(reference).shipmentId = id; }
