@@ -29,6 +29,17 @@ public class VesselLinkStore {
      */
     public record BillShip(String vessel, String voyage) {
         public static final BillShip NONE = new BillShip(null, null);
+
+        /** A bill's ship and voyage as the two columns hold them: trimmed, nothing for blank, cut to the column. */
+        public static BillShip of(String vessel, String voyage) {
+            return new BillShip(column(vessel, 80), column(voyage, 40));
+        }
+
+        private static String column(String value, int length) {
+            if (value == null || value.isBlank()) return null;
+            String text = value.strip();
+            return text.length() > length ? text.substring(0, length).strip() : text;
+        }
     }
 
     @Transactional
@@ -157,6 +168,22 @@ public class VesselLinkStore {
         return entities.createQuery("select o.billVessel, o.billVoyage from " + ORDER + " o where o.id = :id", Object[].class)
                 .setParameter("id", orderId).getResultStream().findFirst()
                 .map(row -> new BillShip((String) row[0], (String) row[1])).orElse(BillShip.NONE);
+    }
+
+    /**
+     * What taking over a bill of lading stores (BillOfLadingService.apply, the only writer): the ship and voyage
+     * of a final bill, or {@link BillShip#NONE} for a draft. Set on the order as it is managed now and flushed at
+     * once: locking the order (findByIdForUpdate, also inside {@link #save}) detaches that instance and loads a
+     * new one, so a value that only stood in memory would be lost without an error.
+     */
+    @Transactional
+    public void saveBillShip(long orderId, BillShip ship) {
+        PurchaseOrderEntity order = entities.find(PurchaseOrderEntity.class, orderId);
+        if (order == null) throw new NotFoundException();
+        BillShip wanted = ship == null ? BillShip.NONE : BillShip.of(ship.vessel(), ship.voyage());
+        order.billVessel = wanted.vessel();
+        order.billVoyage = wanted.voyage();
+        entities.flush();
     }
 
     static Link matching(PurchaseOrder order, Link link) {
