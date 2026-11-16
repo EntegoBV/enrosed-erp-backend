@@ -88,8 +88,9 @@ public class VesselLinkStore {
 
     /**
      * The reference text of an order was rewritten. The linked ship stays with the order unless the text now
-     * names another shipment (both texts recognised and no number in common): "BL:" put in front of a number or
-     * a B/L added behind a container number must not unlink the ship. Called inside the order's save.
+     * names another shipment (both texts recognised, no number in common, and neither text still shows a number
+     * of the other): "BL:" put in front of a number, a B/L added behind a container number or a container put
+     * in front of a B/L number must not unlink the ship. Called inside the order's save.
      *
      * <p>What the bill of lading named and the day the ship came in belong to the shipment the text named: they
      * go when the text is emptied or names another shipment, also when no ship is linked. The order's save has
@@ -100,7 +101,12 @@ public class VesselLinkStore {
     public void rebind(long orderId, String before, String after) {
         boolean emptied = after == null || after.isBlank();
         Set<String> old = numbers(before), now = numbers(after);
-        boolean otherShipment = !old.isEmpty() && !now.isEmpty() && Collections.disjoint(old, now);
+        /* Another shipment: both texts are recognised, they are read as different numbers, and neither still shows
+           a number of the other. The reading alone would call "BL: SHZ8634494" (what the departure step writes)
+           and "TGBU5061534 · B/L SHZ8634494" (the form a bill of lading is taken over in) two shipments, as the
+           second reads as its container only: taking over the bill would then unlink the ship it belongs to. */
+        boolean otherShipment = !old.isEmpty() && !now.isEmpty() && Collections.disjoint(old, now)
+                && !shows(after, old) && !shows(before, now);
         if (emptied || otherShipment) {
             PurchaseOrderEntity order = entities.find(PurchaseOrderEntity.class, orderId);
             if (order != null) {
@@ -136,6 +142,23 @@ public class VesselLinkStore {
         if (List.of("CONTAINER", "BL", "BOOKING").contains(seen.kind()))
             for (String number : new String[] { seen.number(), seen.container(), seen.evergreenBl() }) if (number != null) found.add(number);
         return found;
+    }
+
+    /**
+     * The text still shows one of these numbers, however the text itself is read: compared in upper case, letters
+     * and digits only, so "TCNU 123456 5" shows TCNU1234565. A number shorter than six characters proves nothing.
+     */
+    private static boolean shows(String text, Set<String> numbers) {
+        String shown = plain(text);
+        for (String number : numbers) {
+            String wanted = plain(number);
+            if (wanted.length() >= 6 && shown.contains(wanted)) return true;
+        }
+        return false;
+    }
+
+    private static String plain(String text) {
+        return text == null ? "" : text.toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
     }
 
     @Transactional
