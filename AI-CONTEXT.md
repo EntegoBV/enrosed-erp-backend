@@ -3432,3 +3432,113 @@ inkooporders; Verhoeven moet het op zijn portaal terugzien."
   `warehouseArrivalTime` (null once received; the warehouse ones only where the place may be named: his own
   container or the main warehouse), `ContainerPage.warehouseName` (the MAIN location's name, Zaltbommel).
 - Checked on a local dev jar through the API (both modes, the form save, the refusals, the portal answer).
+
+## Track & trace uit de bill of lading (2026-11-16)
+
+Emre, pasting the panel's "Schip koppelen" block (IMO number only): "Moet ook met bill of lading kunnen, bekijk
+onze documenten en pas alles fatsoenlijk aan aub ook zodat alle track traces nu wel correct zijn." Production
+showed three causes: the ship could only be linked by typing an IMO number although the B/L in the dossier names
+it; a linked ship's arrival was ignored (EVER ALLY was in at Europoort on 15/11, PO-2026-004 still said 30/11);
+ports were compared by exact name ("Europoort" was not "Rotterdam", "Yantian" not "Shenzhen"). No provider, account
+or key was added. Details: `docs/integrations/container-tracking.md` (section 2026-11-16). Screens: the frontend's
+AI-CONTEXT, same title.
+
+- **Reading a bill** (`sourcing.tracking.bill`): `BillText` (PDF → lines of cells with their place on the page;
+  PDFBox 3.0.3, glyph by glyph, at most 8 pages and 25 MB; carrier PDFs locked against editing read, a scan gives
+  no lines, there is no OCR) and `BillParser` (cells → `Reading`: bill, draft, carrier, billNumber, containers
+  with the ISO 6346 check digit, vessel, voyage, portOfLoading, portOfDischarge, onBoard, issuedOn; a value is
+  taken from under its label and nothing is guessed). Verified on the real Evergreen and CMA CGM bills with a
+  scratch harness outside the repo: do not redesign them, and change them only with such documents at hand.
+  A draft names the planned ship (PO-2026-004: draft EVER GLOBE, final EVER ALLY), so only a final bill gives a
+  departure day and a ship name that guards anything.
+- **`BillOfLadingService.overview`** → GET `/api/purchase-orders/{id}/bill-of-lading` (`SourcingResource`, admin;
+  stored documents only, no source asked). Read: PDFs, never a payment's document nor kind PAYMENT_PROOF, INVOICE,
+  COMMERCIAL_INVOICE, PROFORMA_INVOICE; every BILL_OF_LADING document, then the other PDFs newest first, twelve in
+  all (a telex release is often filed as "Andere"). A document counts as a bill when the parser says so and it is
+  filed as B/L or names a ship. Listed: the bills (final with an on-board day first, then final, then drafts; a
+  B/L document before another kind; then newest; `bestDocumentId` is the first), every other B/L document with a
+  Dutch `note`, and a scan of another kind whose name says what it is. Readings are cached in memory by document
+  id (the storage key is checked; 200 entries; a stored document never changes).
+- **The answer is the frontend's contract**: the records `DocumentReading`, `Proposal`, `Current`, `Overview` and
+  `ApplyRequest` are `BillDocumentReading`, `BillProposal`, `BillCurrent`, `BillOverview` and `BillApplyRequest`
+  in the frontend's `core/api/models.ts`. Never rename a component or add a `getX` / `isX` method to them.
+- **Proposal** (one per readable bill; the server decides, the screen only shows). `reference`:
+  `<container> · B/L <number>` (the form production's orders carry: the tracker follows the container, the
+  Evergreen date lookup finds the bill) or `BL: <number>` without a container; with several containers the one
+  the current text names, never a guess; a text that already holds what the bill gives is left alone. `imo` /
+  `imoFrom`: `LINKED` (the order's linked ship is known under the bill's ship name), `KNOWN` (exactly one ship
+  linked before has that name) or null (the user types the IMO once per ship). `shippedOn`: the on-board day of
+  a final bill, between the order date and today (Brussels); it changes an order (BESTELD or ONDERWEG) that has
+  no departure day, an earlier one, or one more than three days later, because Voydar may already have written
+  the real sailing day and the two must not flip. `billShipChanges`, `portNote` (ports are not the same areas;
+  the order's ports are never changed from the bill) and the Dutch `warnings`.
+- **`BillOfLadingService.apply`** → POST on the same path with `{documentId, imo, expectedReference}`; one
+  transaction, no source asked, the proposal worked out again from the stored document. 404 for an unknown order
+  or a document of another order; 409 in Dutch for an archived / concept / received order, a document without a
+  readable bill, a reference changed since the screen read it, an IMO that is none, and an IMO the ERP knows
+  under another ship name than the bill's. Then: (1) reference and departure day through
+  `PurchaseOrderService.changeTracking`; (2) `bill_vessel` / `bill_voyage`; (3) the ship link (IMO typed, else the
+  proposal's) when the order is not linked to that ship; (4) one history line "Track & trace bijgewerkt uit de
+  bill of lading" ("B/L-schip", "B/L-reis", "Schip (IMO)"; also written when only step 1 changed something,
+  whose own line reads "Inkooporder bijgewerkt"). The status is never moved, also for BESTELD.
+- **Traps in the apply** (each one was a review finding):
+  - Never call `PurchaseOrderService.update` for it: `shippedOnAfter` keeps the stored departure and the form
+    rules run against today's suppliers and products. `changeTracking(id, reference, shippedOn)` (a null leaves
+    that value) saves `PurchaseOrder.withTracking` and then runs `rebindAndRecord`, the block the form save runs
+    too (ship link follows the reference, the order is read again, one history line).
+  - `findByIdForUpdate` (inside `getForUpdate` and inside `VesselLinkStore.save`) detaches the managed
+    `PurchaseOrderEntity` and loads a new one: hold no entity across those calls. `VesselLinkStore.saveBillShip`
+    sets the two columns on the instance managed at that moment and flushes.
+  - The POST answers the view from `TrackingDateSync.reread(id)` (its own transaction), never `currentView(id)`:
+    `ContainerTrackingService.refresh` reads the orders outside a transaction before its date sync writes, so a
+    plain read answers the dates from before. A failure of that check never fails the answer.
+  - The document is found and read before the order is locked (reading a PDF is slow); every check runs on the
+    locked order.
+- **Reference form and the ship link**: the form a bill is taken over in reads as its container only, while the
+  desk's departure step writes `BL: <number>`. `VesselLinkStore.rebind` therefore calls two texts another
+  shipment only when both are recognised, they are read as different numbers, and neither text still shows a
+  number of the other (letters and digits only, at least six characters). Without that, taking over the bill
+  unlinked the ship and took back its arrival.
+- **`PortAreas`**: a port and its terminals are one place (Rotterdam = Europoort, Maasvlakte, …; Shenzhen =
+  Yantian, Shekou, …; Ningbo = Beilun, Zhoushan, …; names and UN/LOCODEs; unknown text is its own area).
+  `TrackingDateSync.samePort` delegates to it, so the carrier's dates and the ship's port calls use it;
+  `portZone` also knows FR.
+- **`purchase_order.port_arrived_on`** (entity only, as the other arrival columns): the day the linked ship
+  arrived at the port of destination, "schip aangekomen", never "container gelost". `TrackingDateSync.vessel`
+  finds it on every ship check: an actual ARRIVAL in the destination's area, order ONDERWEG with a departure day,
+  7 to 180 days after it, the earliest such day, the feed fresh and still the linked one, and not while the
+  final bill names another ship than the feed (`VesselDirectory.differs`). It writes the day and, unless the
+  arrival is by hand, the expected arrival (history "Transportdatums bijgewerkt uit Voydar · schip aangekomen in
+  …"), on every pass that finds it. While it is set: a shipment plan no longer moves the arrival, the form save
+  keeps the stored day (`PanacheSourcingRepositories.save`), "Track & trace volgen" lands on it at once
+  (`ArrivalPlanStore.set`, `TrackingDateSync.adoptPortArrival`), the bell row reads "Schip aangekomen …". Cleared
+  in `VesselLinkStore.save` (other IMO or unlink, with a history line), in `VesselLinkStore.rebind` (reference
+  emptied or another shipment, with the bill columns) and in the form save when the order is no longer ONDERWEG
+  or has no departure day. `TrackingDateSync.forgetPortArrival` puts the expected arrival back to
+  `arrival_moved_from` when it still was that day and not by hand.
+- **`bill_vessel` / `bill_voyage`**: what the final bill named when it was taken over; a draft empties them; only
+  the apply writes them; unlinking the ship keeps them. `VesselLinkStore.billShip` / `billShips` read them.
+- **`VesselDirectory`**: `nameOf(imo)` and `imoOf(name)` from the shared feed row of every ship ever linked
+  (`TrackingStore.vesselFeeds`: only the row whose id is `vesselFeedReference(imo).key()`; each order's own
+  port-call snapshot carries the same tracking number and must not count). A feed that never answered or has no
+  title ("IMO 9893890") names no ship; two ships with one name answer nothing. It never throws. There is no
+  keyless lookup of a ship by name and no background linking by name: a ship is linked by the apply or by hand.
+- **Fields added** (optional for older clients; the native iOS app reads the feed with its own copy of the
+  rules): `ContainerTracking.Row` ends with `portArrivedOn, billVessel, billVoyage, vesselDiffers`; with
+  `portArrivedOn` the source's planning is not compared (`sourceArrival` null, `dateError` only for a failed
+  check). `ArrivalPlanStore.Plan` / `View` and `PartnerContainerViews.Container` carry `portArrivedOn` (the
+  portal: null once received, a date only).
+- **Date lookup**: a shipment source (bexy, ShipsGo) is fresh for 7 days (`TrackingDateSync.SHIPMENT_FRESH`; bexy
+  refreshes its copy on its own schedule, our one hit was three days old); the vessel feed keeps 24 hours.
+- **Schema and logging**: migration `docs/migrations/2026-11-16/purchase-order-bill-and-port-arrival-postgresql.sql`
+  (three nullable columns; Dockerfile COPY and runner line after the 2026-11-15 files). `application.properties`
+  switches the loggers `org.apache.pdfbox.pdmodel.font` and `org.apache.fontbox` off: PDFBox logs a stack trace
+  for every Chinese font whose CMap it lacks, while the text reads all the same.
+- **Not built**: a ship search by name (needs a Voydar key: Emre's call), several ships per container
+  (transshipment legs), OCR for scans, reading the bill at the "Container vertrokken" step, changing the order's
+  ports from the bill. Open: an arrival stored before a final bill that names another ship is taken over stays
+  until the ship is relinked or unlinked.
+- **Checked by build only** (this round ran without a server or a database); the rules were walked by hand
+  against the saved Voydar feed of EVER ALLY and the real bills. Expected at the first ship check after deploy:
+  PO-2026-004 goes from 30/11 to 15/11, PO-2026-006 gets 15/11. Look at the sheet on PO-2026-007 and PO-2026-011
+  (wrong and unrecognised references) on the first deploy.
