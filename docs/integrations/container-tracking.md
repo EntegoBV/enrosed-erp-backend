@@ -143,8 +143,8 @@ It then writes, in this order:
 
 1. the reference and the departure day, through `PurchaseOrderService.changeTracking`: a narrow save of these two values that shares what follows a form save (the ship link follows the reference, one history line) and none of its form rules. The form save itself never takes a departure day from outside;
 2. `purchase_order.bill_vessel` and `bill_voyage`: the ship and voyage of a final bill, nothing for a draft;
-3. the ship link, with the IMO typed or else the proposal's, when the order is not linked to that ship;
-4. one history line "Track & trace bijgewerkt uit de bill of lading" with "B/L-schip", "B/L-reis" and "Schip (IMO)" where they changed. It is also written when only the first step changed something: that step's own line reads "Inkooporder bijgewerkt", as a form save does, and this one says where it came from. Nothing changed, no line.
+3. the ship link, with the IMO typed or else the proposal's, when the order is not linked to that ship. After it, when the ship that is linked then is one its feed names otherwise than the final bill does (the bill's ship has no IMO number yet, so the link stayed), an arrival of that ship stored before is taken back (`VesselLinkStore.forgetArrivalOfOtherShip`; see "The linked ship's arrival counts" below);
+4. one history line "Track & trace bijgewerkt uit de bill of lading" with "B/L-schip", "B/L-reis" and "Schip (IMO)" where they changed, and "Schip aangekomen" and "Verwachte aankomst" for an arrival taken back. It is also written when only the first step changed something: that step's own line reads "Inkooporder bijgewerkt", as a form save does, and this one says where it came from. Nothing changed, no line.
 
 The endpoint then runs the manual check (`ContainerTrackingService.refresh`; a failure there never fails the answer) and answers the order view from the order re-read in its own transaction (`TrackingDateSync.reread`). The check reads the orders outside a transaction before its date sync writes, so a plain read in that request would answer the dates from before.
 
@@ -171,7 +171,9 @@ While the ship is in:
 - "Track & trace volgen" after a date by hand lands on the ship's arrival at once (`ArrivalPlanStore.set`, `ContainerTrackingService.adoptStoredDates`);
 - the bell row reads "Schip aangekomen 15/11/2026 · 15 dagen eerder" instead of "Aankomst …" while the order's day is that arrival.
 
-It is cleared when another ship is linked or the ship is unlinked (`VesselLinkStore.save`, with a history line), when the reference is emptied or names another shipment (`VesselLinkStore.rebind`, together with the bill columns), and when the order is saved in another status than ONDERWEG or without a departure day (a status step back, the receipt). When it is cleared because the ship or the shipment changed and the expected arrival still is that day and was not set by hand, the expected arrival goes back to the planning that stood before tracking moved it (possibly none): the other ship's arrival is not this container's planning. The Aankomst sheet never clears it.
+It is cleared when another ship is linked or the ship is unlinked (`VesselLinkStore.save`, with a history line), when the reference is emptied or names another shipment (`VesselLinkStore.rebind`, together with the bill columns), when a final bill is taken over that names another ship than the one that stays linked (`BillOfLadingService.apply`, told in its history line), and when the order is saved in another status than ONDERWEG or without a departure day (a status step back, the receipt). When it is cleared because the ship, the shipment or the ship on the bill changed and the expected arrival still is that day and was not set by hand, the expected arrival goes back to the planning that stood before tracking moved it (possibly none): the other ship's arrival is not this container's planning. The Aankomst sheet never clears it.
+
+The ship check never clears it either. While the final bill names another ship than the feed does, the check only skips that ship's calls: it runs with nobody looking, also when a feed first names its ship or renames it later, and a name that is wrong must not undo an arrival that was right. Taking over the final bill is the user's own step, with the sheet's line "Gekoppeld schip is …; de B/L noemt …." on screen, so that is where a stored arrival of the ship that stays linked goes, by the check's own test (`VesselDirectory.differs`: never for a draft, and not while no feed named the linked ship). Left in place, the order, the bell row and the partner portal kept "schip aangekomen" for a ship the container is not on, beside the panel's line that this ship's arrival is not taken over, and no carrier date could move the day.
 
 ### The ship on the bill
 
@@ -195,7 +197,7 @@ PDFBox logs a full stack trace for every Chinese font whose CMap it does not shi
 
 ### Not built, and how it was checked
 
-Not built: a ship search by name inside the ERP (it needs a Voydar key), several ships per container (transshipment legs), OCR for scanned bills, reading the bill at the "Container vertrokken" step, changing the order's ports from the bill. An arrival stored before a final bill that names another ship is taken over stays until the ship is relinked or unlinked.
+Not built: a ship search by name inside the ERP (it needs a Voydar key), several ships per container (transshipment legs), OCR for scanned bills, reading the bill at the "Container vertrokken" step, changing the order's ports from the bill. Left as it is on purpose: when a feed first names the linked ship, or renames it, after the final bill was taken over and that name is not the bill's, the ship check skips its calls from then on, but a day it stored before stays until the ship is relinked or unlinked, or the final bill is taken over again.
 
 Checked by build only; the rules were walked by hand against the saved Voydar feed of EVER ALLY and the real bills of the running containers. Nothing ran against a database, Voydar, bexy or ShipsGo. Expected at the first ship check after deploy: PO-2026-004 goes from 30/11 to 15/11 and PO-2026-006 gets 15/11.
 

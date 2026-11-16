@@ -3480,9 +3480,12 @@ AI-CONTEXT, same title.
   readable bill, a reference changed since the screen read it, an IMO that is none, and an IMO the ERP knows
   under another ship name than the bill's. Then: (1) reference and departure day through
   `PurchaseOrderService.changeTracking`; (2) `bill_vessel` / `bill_voyage`; (3) the ship link (IMO typed, else the
-  proposal's) when the order is not linked to that ship; (4) one history line "Track & trace bijgewerkt uit de
-  bill of lading" ("B/L-schip", "B/L-reis", "Schip (IMO)"; also written when only step 1 changed something,
-  whose own line reads "Inkooporder bijgewerkt"). The status is never moved, also for BESTELD.
+  proposal's) when the order is not linked to that ship, and after it, when the ship that is linked then is one
+  its feed names otherwise than the final bill, that ship's stored arrival is taken back
+  (`VesselLinkStore.forgetArrivalOfOtherShip`); (4) one history line "Track & trace bijgewerkt uit de bill of
+  lading" ("B/L-schip", "B/L-reis", "Schip (IMO)", and "Schip aangekomen" / "Verwachte aankomst" for an arrival
+  taken back; also written when only step 1 changed something, whose own line reads "Inkooporder bijgewerkt").
+  The status is never moved, also for BESTELD.
 - **Traps in the apply** (each one was a review finding):
   - Never call `PurchaseOrderService.update` for it: `shippedOnAfter` keeps the stored departure and the form
     rules run against today's suppliers and products. `changeTracking(id, reference, shippedOn)` (a null leaves
@@ -3496,6 +3499,14 @@ AI-CONTEXT, same title.
     plain read answers the dates from before. A failure of that check never fails the answer.
   - The document is found and read before the order is locked (reading a PDF is slow); every check runs on the
     locked order.
+  - A final bill that names another ship than the linked one, taken over without an IMO number for its ship,
+    keeps the link: nothing else is known. An arrival of that linked ship stored before is taken back in the
+    apply itself, after step 3 and with the link as it stands then, by the ship check's own test
+    (`VesselDirectory.differs` on the bill's ship and the feed's name: never for a draft, nor while no feed
+    named the linked ship). The ship check cannot do it: it only skips such a ship's calls and never takes a
+    stored day back, because it runs with nobody looking (9ce19b47). Without this the order, the bell row and
+    the partner portal kept "schip aangekomen" beside the panel's "De aankomst van dit schip wordt niet
+    overgenomen", and no carrier date could move the arrival while the day stood.
 - **Reference form and the ship link**: the form a bill is taken over in reads as its container only, while the
   desk's departure step writes `BL: <number>`. `VesselLinkStore.rebind` therefore calls two texts another
   shipment only when both are recognised, they are read as different numbers, and neither text still shows a
@@ -3515,9 +3526,11 @@ AI-CONTEXT, same title.
   keeps the stored day (`PanacheSourcingRepositories.save`), "Track & trace volgen" lands on it at once
   (`ArrivalPlanStore.set`, `TrackingDateSync.adoptPortArrival`), the bell row reads "Schip aangekomen …". Cleared
   in `VesselLinkStore.save` (other IMO or unlink, with a history line), in `VesselLinkStore.rebind` (reference
-  emptied or another shipment, with the bill columns) and in the form save when the order is no longer ONDERWEG
-  or has no departure day. `TrackingDateSync.forgetPortArrival` puts the expected arrival back to
-  `arrival_moved_from` when it still was that day and not by hand.
+  emptied or another shipment, with the bill columns), in the bill's apply when the final bill names another
+  ship than the one that stays linked (`VesselLinkStore.forgetArrivalOfOtherShip`, told in the apply's history
+  line) and in the form save when the order is no longer ONDERWEG or has no departure day. The ship check never
+  clears it. `TrackingDateSync.forgetPortArrival` puts the expected arrival back to `arrival_moved_from` when it
+  still was that day and not by hand.
 - **`bill_vessel` / `bill_voyage`**: what the final bill named when it was taken over; a draft empties them; only
   the apply writes them; unlinking the ship keeps them. `VesselLinkStore.billShip` / `billShips` read them.
 - **`VesselDirectory`**: `nameOf(imo)` and `imoOf(name)` from the shared feed row of every ship ever linked
@@ -3538,8 +3551,9 @@ AI-CONTEXT, same title.
   for every Chinese font whose CMap it lacks, while the text reads all the same.
 - **Not built**: a ship search by name (needs a Voydar key: Emre's call), several ships per container
   (transshipment legs), OCR for scans, reading the bill at the "Container vertrokken" step, changing the order's
-  ports from the bill. Open: an arrival stored before a final bill that names another ship is taken over stays
-  until the ship is relinked or unlinked.
+  ports from the bill. Left as it is on purpose: when a feed first names the linked ship, or renames it, after
+  the final bill was taken over and that name is not the bill's, the ship check skips its calls from then on but
+  a day it stored before stays until the ship is relinked or unlinked, or the final bill is taken over again.
 - **Checked by build only** (this round ran without a server or a database); the rules were walked by hand
   against the saved Voydar feed of EVER ALLY and the real bills. Expected at the first ship check after deploy:
   PO-2026-004 goes from 30/11 to 15/11, PO-2026-006 gets 15/11. Look at the sheet on PO-2026-007 and PO-2026-011
