@@ -11,7 +11,6 @@ import jakarta.inject.Inject;
 import jakarta.persistence.EntityManager;
 import jakarta.persistence.LockModeType;
 import jakarta.transaction.Transactional;
-import java.text.Normalizer;
 import java.time.*;
 import java.time.temporal.ChronoUnit;
 import java.util.*;
@@ -196,23 +195,17 @@ public class TrackingDateSync {
     private static boolean containsIdentifier(String declared, String identifier) {
         return identifier != null && !identifier.isBlank() && Pattern.compile("(?i)(?<![A-Z0-9])" + Pattern.quote(identifier) + "(?![A-Z0-9])").matcher(declared).find();
     }
+    /** The order's port and a source's are the same place: a port and its terminals are one ({@link PortAreas}). */
     public static boolean samePort(String configured, String code, String name) {
-        String expected = portName(configured);
-        return !expected.isBlank() && (expected.equals(portName(name)) || expected.equals(portName(code)));
-    }
-    private static String portName(String value) {
-        if (value == null) return "";
-        String result = value.strip().split(",", 2)[0].replaceFirst("\\s*\\([A-Za-z]{2}\\)\\s*$", "");
-        result = Normalizer.normalize(result, Normalizer.Form.NFKD).replaceAll("\\p{M}", "")
-                .toUpperCase(Locale.ROOT).replaceAll("[^A-Z0-9]", "");
-        return switch (result) { case "ANTWERPEN" -> "ANTWERP"; case "NINGBOZHOUSHAN" -> "NINGBO"; default -> result; };
+        return PortAreas.same(configured, code, name);
     }
     private static ZoneId portZone(String code) {
         if (code == null || code.length() != 5) return null;
         return switch (code.substring(0, 2).toUpperCase(Locale.ROOT)) {
             case "CN" -> ZoneId.of("Asia/Shanghai"); case "SG" -> ZoneId.of("Asia/Singapore");
             case "NL" -> ZoneId.of("Europe/Amsterdam"); case "BE" -> ZoneId.of("Europe/Brussels");
-            case "DE" -> ZoneId.of("Europe/Berlin"); case "GB" -> ZoneId.of("Europe/London"); default -> null;
+            case "DE" -> ZoneId.of("Europe/Berlin"); case "GB" -> ZoneId.of("Europe/London");
+            case "FR" -> ZoneId.of("Europe/Paris"); default -> null;
         };
     }
     private static LocalDate date(String value) { try { return value == null ? null : LocalDate.parse(value); } catch (DateTimeException ignored) { return null; } }
