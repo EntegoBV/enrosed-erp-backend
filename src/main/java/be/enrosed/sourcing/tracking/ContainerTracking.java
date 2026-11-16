@@ -85,7 +85,14 @@ public final class ContainerTracking {
                       String refreshOutcome,
                       /** Since 2026-11-15. The arrival was set by hand (ArrivalPlanStore), so tracking leaves it alone;
                           sourceArrival: the date the source gives now, when it is usable and differs from the order's. */
-                      boolean arrivalByHand, java.time.LocalDate sourceArrival) {}
+                      boolean arrivalByHand, java.time.LocalDate sourceArrival,
+                      /** Since 2026-11-16; older clients ignore them. portArrivedOn: the day the linked ship arrived at
+                          the port of destination ("schip aangekomen"), null while it is not in or once received; the
+                          shipment source's planning is not compared then (no dateError for it, no sourceArrival).
+                          billVessel, billVoyage: the ship and voyage the final bill of lading named, null without one.
+                          vesselDiffers: the linked ship's feed names another ship than the bill, so its arrival is
+                          not taken over. */
+                      java.time.LocalDate portArrivedOn, String billVessel, String billVoyage, boolean vesselDiffers) {}
     public record Feed(String provider, boolean configured, int intervalHours, List<Row> containers, boolean shipsGoConfigured) {}
 
     /**

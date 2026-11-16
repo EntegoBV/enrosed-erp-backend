@@ -32,13 +32,15 @@ public class ContainerTrackingService {
         Map<Long, VesselLinkStore.Link> linked = links.all();
         Map<Long, ArrivalMoveStore.Move> moved = moves.all();
         Map<Long, ArrivalPlanStore.Plan> planned = plans.all();
+        Map<Long, VesselLinkStore.BillShip> bills = links.billShips();
         return new Feed("Voydar / ShipsGo", enabled, INTERVAL_HOURS, trackedOrders().stream()
                 .map(order -> {
                     VesselLinkStore.Link link = VesselLinkStore.matching(order, linked.get(order.id()));
                     Reference reference = trackingReference(order, link);
                     Reference dates = dateReference(order);
                     return row(order, link, reference == null ? null : snapshots.get(reference.key()), dates == null ? null : snapshots.get(dates.key()),
-                            moved.get(order.id()), planned.getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE).byHand(), null);
+                            moved.get(order.id()), planned.getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE),
+                            bills.getOrDefault(order.id(), VesselLinkStore.BillShip.NONE), null);
                 }).toList(), provider.configured());
     }
 
@@ -106,7 +108,8 @@ public class ContainerTrackingService {
         VesselLinkStore.Link link = links.find(order);
         Reference reference = trackingReference(order, link), dates = dateReference(order);
         return row(order, link, reference == null ? null : store.find(reference.key()),
-                dates == null ? null : store.find(dates.key()), moves.find(order.id()), plans.find(order.id()).byHand(), refreshOutcome);
+                dates == null ? null : store.find(dates.key()), moves.find(order.id()), plans.find(order.id()),
+                links.billShip(order.id()), refreshOutcome);
     }
 
     public void syncDue() {
@@ -211,7 +214,11 @@ public class ContainerTrackingService {
     }
 
     private Row row(PurchaseOrder order, VesselLinkStore.Link link, TrackingStore.Snapshot snapshot, TrackingStore.Snapshot dateSnapshot,
-                    ArrivalMoveStore.Move move, boolean arrivalByHand, String refreshOutcome) {
+                    ArrivalMoveStore.Move move, ArrivalPlanStore.Plan plan, VesselLinkStore.BillShip bill, String refreshOutcome) {
+        boolean arrivalByHand = plan.byHand();
+        boolean received = order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null;
+        /* The linked ship is in at the port of destination (TrackingDateSync.vessel); the fact ends with the receipt. */
+        java.time.LocalDate portArrivedOn = received ? null : plan.portArrivedOn();
         Reference reference = trackingReference(order, link);
         Observation data = snapshot == null ? null : snapshot.observation();
         if (link != null && data != null) data = VoydarClient.since(data, cutoff(order, link));
@@ -233,14 +240,17 @@ public class ContainerTrackingService {
         }
         String dateSource = dateData != null ? "Evergreen via bexy" : data != null && data.dateEvidence() != null ? "ShipsGo" : null;
         Observation evidence = dateData != null ? dateData : data != null && data.dateEvidence() != null ? data : null;
-        String dateError = dateSnapshot == null ? null : dateSnapshot.error();
+        /* Once the ship is in, the source's planning no longer moves the day (an arrival that happened beats an ETA),
+           so it is not compared either: no "bronplanning wijkt af" or "geen bruikbare aankomstdatum" beside "schip
+           aangekomen", and no source date beside a day by hand. A failed check is still said (failure, below). */
+        String dateError = portArrivedOn != null || dateSnapshot == null ? null : dateSnapshot.error();
         java.time.LocalDate sourceArrival = null;
-        if (dateError == null && evidence != null) {
-            TrackingDateSync.Plan plan = TrackingDateSync.shipmentPlan(order, evidence, Instant.now());
-            dateError = plan.error();
-            if (dateError == null && plan.expectedArrival() != null && !Objects.equals(plan.expectedArrival(), order.expectedArrival())) {
+        if (portArrivedOn == null && dateError == null && evidence != null) {
+            TrackingDateSync.Plan sourcePlan = TrackingDateSync.shipmentPlan(order, evidence, Instant.now());
+            dateError = sourcePlan.error();
+            if (dateError == null && sourcePlan.expectedArrival() != null && !Objects.equals(sourcePlan.expectedArrival(), order.expectedArrival())) {
                 /* By hand the difference is no failure: the panel names the source's date beside the one kept. */
-                if (arrivalByHand) sourceArrival = plan.expectedArrival();
+                if (arrivalByHand) sourceArrival = sourcePlan.expectedArrival();
                 else dateError = "De bronplanning wijkt af van de opgeslagen aankomstdatum. De opgeslagen datum is nog niet aangepast.";
             }
         }
@@ -248,7 +258,6 @@ public class ContainerTrackingService {
            failure). "No record yet" from the date lookup is waiting while it never answered (a fresh bill): it stays
            the dateError line. Once it gave data, an answer without data is a failed check like any other. A received
            order is never checked again, so a failure there is history, not news. */
-        boolean received = order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null;
         boolean mainActive = link != null || (reference != null && provider.configured());
         boolean waiting = dateSnapshot != null && dateSnapshot.updatedAt() == null && BexyClient.NO_DATA_YET.equals(dateSnapshot.error());
         TrackingStore.Snapshot failed = received ? null : mainActive && snapshot != null && snapshot.checkFailed() ? snapshot
@@ -281,16 +290,27 @@ public class ContainerTrackingService {
                 dateSource, evidence == null ? null : evidence.providerCheckedAt(), dateError,
                 recognise(order.trackingReference()), failure, failed == null ? null : failed.checkedAt(), failed == null ? null : failed.updatedAt(),
                 movedDays == null ? null : move.from(), movedDays == null ? null : move.at(), movedDays, manual, refreshOutcome,
-                arrivalByHand && !received, received ? null : sourceArrival);
+                arrivalByHand && !received, received ? null : sourceArrival,
+                portArrivedOn, bill.vessel(), bill.voyage(),
+                /* The feed's ship name as this row shows it: the order's own port-call snapshot carries it. */
+                link != null && VesselDirectory.differs(bill.vessel(), data == null ? null : data.vessel()));
     }
 
     /**
      * "Volg track & trace" just gave the arrival back: the date the source gave last is applied now when it is still
      * fresh (TrackingDateSync checks that, as every check does); otherwise the next check applies it. No source is asked.
+     * When the linked ship is in, the day is its arrival instead.
      */
     public void adoptStoredDates(long orderId) {
         PurchaseOrder order = dateSync.reread(orderId).orElse(null);
         if (order == null || !tracked(order) || order.status() == PurchaseOrderStatus.ONTVANGEN || order.receivedOn() != null) return;
+        try {
+            /* The linked ship is in: its arrival is the container's day at once, and no source's planning goes over it. */
+            if (dateSync.adoptPortArrival(orderId)) return;
+        } catch (RuntimeException ignored) {
+            /* The next ship check puts the day on the arrival (TrackingDateSync.vessel writes it on every pass). */
+            return;
+        }
         VesselLinkStore.Link link = links.find(order);
         Reference reference = trackingReference(order, link), dates = dateReference(order);
         TrackingStore.Snapshot snapshot = reference == null ? null : store.find(reference.key());

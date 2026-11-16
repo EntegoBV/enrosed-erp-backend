@@ -535,6 +535,9 @@ public class PurchaseOrderService {
         if (!java.util.Objects.equals(current.trackingReference(), saved.trackingReference())
                 && vesselLinks != null && vesselLinks.isResolvable()) {
             vesselLinks.get().rebind(saved.id(), current.trackingReference(), saved.trackingReference());
+            /* A reference emptied or rewritten to another shipment ends the linked ship's arrival, and the expected
+               arrival can go back to the planning with it: the answer and the history take the order as it stands. */
+            saved = orders.findById(saved.id()).orElse(saved);
         }
         if (!saved.equals(current)) {
             List<ActivityChangeDto> auditChanges = purchaseChanges(current, saved, byId);

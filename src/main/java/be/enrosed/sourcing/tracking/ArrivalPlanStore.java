@@ -47,19 +47,25 @@ public class ArrivalPlanStore {
     @Inject ActivityLogService activity;
     @Inject StockService stock;
 
-    /** What one order holds: the container's hour at the port, whether its day is by hand, the warehouse day and hour. */
-    public record Plan(LocalTime containerAt, boolean byHand, LocalDate warehouseOn, LocalTime warehouseAt) {
-        public static final Plan NONE = new Plan(null, false, null, null);
+    /**
+     * What one order holds: the container's hour at the port, whether its day is by hand, the warehouse day and hour,
+     * and (since 2026-11-16, read here only: {@link TrackingDateSync} writes it) the day the linked ship came in at
+     * the port of destination.
+     */
+    public record Plan(LocalTime containerAt, boolean byHand, LocalDate warehouseOn, LocalTime warehouseAt, LocalDate portArrivedOn) {
+        public static final Plan NONE = new Plan(null, false, null, null, null);
     }
 
     /**
      * The block on the order's answer. Hours read "08:30". containerByHand: the container's day is by hand, so
-     * tracking does not move it (it only says so while the order has track &amp; trace).
+     * tracking does not move it (it only says so while the order has track &amp; trace). portArrivedOn: the linked
+     * ship arrived at the port of destination that day ("schip aangekomen"); null while it is not in.
      */
-    public record View(String containerAt, boolean containerByHand, LocalDate warehouseOn, String warehouseAt) {
+    public record View(String containerAt, boolean containerByHand, LocalDate warehouseOn, String warehouseAt, LocalDate portArrivedOn) {
         public static View of(Plan plan) {
             Plan value = plan == null ? Plan.NONE : plan;
-            return new View(hourText(value.containerAt()), value.byHand(), value.warehouseOn(), hourText(value.warehouseAt()));
+            return new View(hourText(value.containerAt()), value.byHand(), value.warehouseOn(), hourText(value.warehouseAt()),
+                    value.portArrivedOn());
         }
     }
 
@@ -78,19 +84,19 @@ public class ArrivalPlanStore {
     @Transactional
     public Map<Long, Plan> all() {
         Map<Long, Plan> plans = new HashMap<>();
-        List<Object[]> rows = entities.createQuery("select o.id, o.expectedArrivalTime, o.arrivalByHand, o.warehouseArrivalOn, o.warehouseArrivalTime from "
-                + ORDER + " o where o.expectedArrivalTime is not null or o.arrivalByHand = true or o.warehouseArrivalOn is not null",
-                Object[].class).getResultList();
-        for (Object[] row : rows) plans.put((Long) row[0], plan(row[1], row[2], row[3], row[4]));
+        List<Object[]> rows = entities.createQuery("select o.id, o.expectedArrivalTime, o.arrivalByHand, o.warehouseArrivalOn, o.warehouseArrivalTime, o.portArrivedOn from "
+                + ORDER + " o where o.expectedArrivalTime is not null or o.arrivalByHand = true or o.warehouseArrivalOn is not null"
+                + " or o.portArrivedOn is not null", Object[].class).getResultList();
+        for (Object[] row : rows) plans.put((Long) row[0], plan(row[1], row[2], row[3], row[4], row[5]));
         return plans;
     }
 
     @Transactional
     public Plan find(long orderId) {
-        return entities.createQuery("select o.expectedArrivalTime, o.arrivalByHand, o.warehouseArrivalOn, o.warehouseArrivalTime from "
+        return entities.createQuery("select o.expectedArrivalTime, o.arrivalByHand, o.warehouseArrivalOn, o.warehouseArrivalTime, o.portArrivedOn from "
                         + ORDER + " o where o.id = :id", Object[].class)
                 .setParameter("id", orderId).getResultStream().findFirst()
-                .map(row -> plan(row[0], row[1], row[2], row[3])).orElse(Plan.NONE);
+                .map(row -> plan(row[0], row[1], row[2], row[3], row[4])).orElse(Plan.NONE);
     }
 
     @Transactional
@@ -117,8 +123,9 @@ public class ArrivalPlanStore {
         if (follow) {
             /* The day stays with (or goes back to) tracking: the stored day counts, not the screen's copy of it, which
                may be from before tracking moved it (a page left open). The sheet never lets that day be typed. The
-               hour goes, as sources name a day; a hand day given back is replaced by adoptStoredDates. */
-            containerOn = order.expectedArrival;
+               hour goes, as sources name a day; a hand day given back is replaced by adoptStoredDates. Once the
+               linked ship is in, tracking's day is that arrival: a hand day given back lands on it at once. */
+            containerOn = order.portArrivedOn != null ? order.portArrivedOn : order.expectedArrival;
             containerAt = null;
         }
         boolean dayMoved = !Objects.equals(order.expectedArrival, containerOn);
@@ -161,8 +168,9 @@ public class ArrivalPlanStore {
         return main != null && main.name() != null && !main.name().isBlank() ? main.name().strip() : MAIN_NAME;
     }
 
-    private static Plan plan(Object containerAt, Object byHand, Object warehouseOn, Object warehouseAt) {
-        return new Plan((LocalTime) containerAt, Boolean.TRUE.equals(byHand), (LocalDate) warehouseOn, (LocalTime) warehouseAt);
+    private static Plan plan(Object containerAt, Object byHand, Object warehouseOn, Object warehouseAt, Object portArrivedOn) {
+        return new Plan((LocalTime) containerAt, Boolean.TRUE.equals(byHand), (LocalDate) warehouseOn, (LocalTime) warehouseAt,
+                (LocalDate) portArrivedOn);
     }
 
     private static LocalTime hour(String value, String label) {

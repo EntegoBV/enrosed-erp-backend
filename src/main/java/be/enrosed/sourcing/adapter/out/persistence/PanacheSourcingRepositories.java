@@ -630,9 +630,19 @@ public final class PanacheSourcingRepositories {
             entity.destinationPort = order.destinationPort();
             entity.receivingLocationId = order.receivingLocationId();
             entity.groupVariants = order.groupVariants();
+            /* The day the linked ship came in (TrackingDateSync writes it) belongs to a container that is under way
+               with a departure day: a status step back, or the receipt, ends it. */
+            if (entity.portArrivedOn != null && (order.status() != PurchaseOrderStatus.ONDERWEG || order.shippedOn() == null)) {
+                entity.portArrivedOn = null;
+            }
+            /* While the ship is in, the stored day is the arrival (or the day set by hand next to it) and the form no
+               longer edits that day: another day in a save is an older screen or a draft from before, and it must
+               not put the planning back over an arrival that happened. A save that just ended the arrival (above)
+               takes the form's day as it always did. */
+            java.time.LocalDate expectedArrival = entity.portArrivedOn != null ? entity.expectedArrival : order.expectedArrival();
             /* A date saved through the order is the planning from then on: what tracking moved before no longer
                counts (TrackingDateSync is the only writer of these four columns). */
-            if (!java.util.Objects.equals(entity.expectedArrival, order.expectedArrival())) {
+            if (!java.util.Objects.equals(entity.expectedArrival, expectedArrival)) {
                 entity.arrivalMovedFrom = null;
                 entity.arrivalMovedAt = null;
                 entity.arrivalNoticeDate = null;
@@ -646,7 +656,7 @@ public final class PanacheSourcingRepositories {
                     entity.arrivalByHand = null;
                 }
             }
-            entity.expectedArrival = order.expectedArrival();
+            entity.expectedArrival = expectedArrival;
             entity.receivedOn = order.receivedOn();
             entity.paidTotalEur = order.paidTotalEur();
             entity.stockBooked = order.stockBooked();

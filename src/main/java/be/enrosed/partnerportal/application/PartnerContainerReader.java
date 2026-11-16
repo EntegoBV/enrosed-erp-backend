@@ -207,7 +207,9 @@ public class PartnerContainerReader {
                    warehouse arrival only where the place may be named (his own container or the main warehouse). */
                 received || order.expectedArrival() == null ? null : ArrivalPlanStore.View.of(plan).containerAt(),
                 received || place == null ? null : plan.warehouseOn(),
-                received || place == null || plan.warehouseOn() == null ? null : ArrivalPlanStore.View.of(plan).warehouseAt());
+                received || place == null || plan.warehouseOn() == null ? null : ArrivalPlanStore.View.of(plan).warehouseAt(),
+                /* The ship is in at the port of arrival (the ERP read it from the linked ship's port calls). */
+                received ? null : plan.portArrivedOn());
     }
 
     /** Each product on pallets of its own (what the warehouse does after unloading); null without a fit. */

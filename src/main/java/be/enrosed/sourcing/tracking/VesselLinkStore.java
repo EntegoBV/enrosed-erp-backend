@@ -1,9 +1,13 @@
 package be.enrosed.sourcing.tracking;
 
+import be.enrosed.shared.audit.ActivityChangeDto;
+import be.enrosed.shared.audit.ActivityLogService;
+import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
 import be.enrosed.sourcing.application.port.out.SourcingRepositories;
 import be.enrosed.sourcing.domain.PurchaseOrder;
 import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
+import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import jakarta.ws.rs.BadRequestException;
 import jakarta.ws.rs.NotFoundException;
@@ -14,8 +18,18 @@ import static be.enrosed.sourcing.tracking.ContainerTracking.hash;
 
 @ApplicationScoped
 public class VesselLinkStore {
+    private static final String ORDER = "be.enrosed.sourcing.adapter.out.persistence.SourcingEntities$PurchaseOrderEntity";
     @Inject SourcingRepositories.PurchaseOrders orders;
+    @Inject EntityManager entities;
+    @Inject ActivityLogService activity;
     public record Link(String referenceHash, String imo, Instant linkedAt) {}
+    /**
+     * The ship and voyage the final bill of lading named when it was taken over (purchase_order.bill_vessel,
+     * bill_voyage); both null when none was. The purchase domain record does not carry them.
+     */
+    public record BillShip(String vessel, String voyage) {
+        public static final BillShip NONE = new BillShip(null, null);
+    }
 
     @Transactional
     public void save(long orderId, String imo) {
@@ -32,27 +46,62 @@ public class VesselLinkStore {
         if (imo != null && !validImo(imo))
             throw new BadRequestException("Gebruik het IMO-nummer van het schip: zeven cijfers met een geldig controlecijfer.");
         VesselLinkEntity link = VesselLinkEntity.findById(orderId);
-        if (imo == null) { if (link != null) link.delete(); return; }
+        if (imo == null) {
+            if (link != null) link.delete();
+            forgetArrival(order, "Schip losgekoppeld");
+            return;
+        }
         String binding = binding(order.trackingReference());
         if (link != null && Objects.equals(link.referenceHash, binding) && Objects.equals(link.imo, imo)) return;
         boolean fresh = link == null;
+        if (!fresh && !Objects.equals(link.imo, imo)) forgetArrival(order, "Ander schip gekoppeld");
         if (fresh) { link = new VesselLinkEntity(); link.orderId = orderId; }
         link.referenceHash = binding; link.imo = imo; link.linkedAt = Instant.now();
         if (fresh) link.persist();
     }
 
     /**
+     * The linked ship is another one now, or none: the arrival of the ship before is not this container's
+     * ({@link TrackingDateSync#forgetPortArrival}). The bill columns stay: the bill still names its ship. The
+     * entity is fetched here, after the order was locked: findByIdForUpdate detaches the instance read before it.
+     */
+    private void forgetArrival(PurchaseOrder order, String summary) {
+        PurchaseOrderEntity entity = entities.find(PurchaseOrderEntity.class, order.id());
+        if (entity == null) return;
+        List<ActivityChangeDto> changes = TrackingDateSync.forgetPortArrival(entity);
+        /* The expected arrival may have gone back with it: the order's history says why. */
+        if (!changes.isEmpty())
+            activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
+                    Long.toString(order.id()), order.number(), summary, changes);
+    }
+
+    /**
      * The reference text of an order was rewritten. The linked ship stays with the order unless the text now
      * names another shipment (both texts recognised and no number in common): "BL:" put in front of a number or
      * a B/L added behind a container number must not unlink the ship. Called inside the order's save.
+     *
+     * <p>What the bill of lading named and the day the ship came in belong to the shipment the text named: they
+     * go when the text is emptied or names another shipment, also when no ship is linked. The order's save has
+     * written its values by then, so the caller reads the order again when it answers with it; the bill-of-lading
+     * apply writes its bill columns after it changed the reference, so its own values stand.</p>
      */
     @Transactional
     public void rebind(long orderId, String before, String after) {
-        if (after == null || after.isBlank() || Objects.equals(binding(before), binding(after))) return;
+        boolean emptied = after == null || after.isBlank();
+        Set<String> old = numbers(before), now = numbers(after);
+        boolean otherShipment = !old.isEmpty() && !now.isEmpty() && Collections.disjoint(old, now);
+        if (emptied || otherShipment) {
+            PurchaseOrderEntity order = entities.find(PurchaseOrderEntity.class, orderId);
+            if (order != null) {
+                TrackingDateSync.forgetPortArrival(order);
+                order.billVessel = null;
+                order.billVoyage = null;
+            }
+        }
+        if (emptied || Objects.equals(binding(before), binding(after))) return;
         VesselLinkEntity link = VesselLinkEntity.findById(orderId);
         if (link == null || !Objects.equals(link.referenceHash, binding(before))) return;
-        Set<String> old = numbers(before), now = numbers(after);
-        if (!old.isEmpty() && !now.isEmpty() && Collections.disjoint(old, now)) return;
+        if (otherShipment) return;
         String bound = link.referenceHash;
         link.referenceHash = binding(after);
         /* The stored port calls of this order hang on a key that holds the reference hash: they follow the link,
@@ -90,6 +139,24 @@ public class VesselLinkStore {
         for (VesselLinkEntity entity : VesselLinkEntity.<VesselLinkEntity>listAll())
             links.put(entity.orderId, new Link(entity.referenceHash, entity.imo, entity.linkedAt));
         return links;
+    }
+
+    /** The bill's ship of every order that has one: one read for the whole tracking feed. */
+    @Transactional
+    public Map<Long, BillShip> billShips() {
+        Map<Long, BillShip> ships = new HashMap<>();
+        List<Object[]> rows = entities.createQuery("select o.id, o.billVessel, o.billVoyage from " + ORDER
+                + " o where o.billVessel is not null or o.billVoyage is not null", Object[].class).getResultList();
+        for (Object[] row : rows) ships.put((Long) row[0], new BillShip((String) row[1], (String) row[2]));
+        return ships;
+    }
+
+    /** The bill's ship of one order; {@link BillShip#NONE} without one. */
+    @Transactional
+    public BillShip billShip(long orderId) {
+        return entities.createQuery("select o.billVessel, o.billVoyage from " + ORDER + " o where o.id = :id", Object[].class)
+                .setParameter("id", orderId).getResultStream().findFirst()
+                .map(row -> new BillShip((String) row[0], (String) row[1])).orElse(BillShip.NONE);
     }
 
     static Link matching(PurchaseOrder order, Link link) {

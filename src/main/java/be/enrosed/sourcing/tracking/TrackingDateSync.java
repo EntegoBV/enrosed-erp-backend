@@ -1,5 +1,6 @@
 package be.enrosed.sourcing.tracking;
 
+import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityChangeSet;
 import be.enrosed.shared.audit.ActivityLogService;
 import be.enrosed.sourcing.adapter.out.persistence.SourcingEntities.PurchaseOrderEntity;
@@ -24,6 +25,11 @@ public class TrackingDateSync {
     @Inject ActivityLogService activity;
     @Inject SourcingRepositories.PurchaseOrders orders;
     public record Plan(LocalDate shippedOn, LocalDate expectedArrival, String error) {}
+    /**
+     * The ship's arrival at the port of destination counts from this many days after the departure day (a call
+     * there right after the stored departure is not this voyage's arrival) up to this many (as a voyage's dates).
+     */
+    static final int ARRIVAL_EARLIEST_DAYS = 7, ARRIVAL_LATEST_DAYS = 180;
 
     /**
      * The order as it is stored now, read in its own transaction. Outside a transaction a request (and a job
@@ -49,16 +55,50 @@ public class TrackingDateSync {
         return plan.error();
     }
 
+    /**
+     * What the linked ship's port calls say about this container: the day it left the port of departure, and the
+     * day it came in at the port of destination. The arrival is a fact about the ship the user linked ("schip
+     * aangekomen"), never "container gelost". Both are looked for on every pass, so an arrival day an older screen
+     * put back is repaired at the next one.
+     */
     @Transactional
     public void vessel(PurchaseOrder baseline, VesselLinkStore.Link expectedLink, Observation observation, Instant sourceCheckedAt, Instant now) {
         LocalDate departed = vesselDeparture(baseline, expectedLink, observation, sourceCheckedAt, now);
-        if (departed == null) return;
+        PortCall arrived = vesselArrival(baseline, expectedLink, observation, sourceCheckedAt, now);
+        if (departed == null && arrived == null) return;
         PurchaseOrderEntity current = current(baseline);
         if (current == null) return;
         VesselLinkEntity link = entities.find(VesselLinkEntity.class, baseline.id());
         if (link == null || !Objects.equals(link.referenceHash, expectedLink.referenceHash())
                 || !Objects.equals(link.imo, expectedLink.imo()) || !Objects.equals(link.linkedAt, expectedLink.linkedAt())) return;
-        apply(current, new Plan(departed, null, null), "Voydar · werkelijk vertrek uit vertrekhaven");
+        if (departed != null) apply(current, new Plan(departed, null, null), "Voydar · werkelijk vertrek uit vertrekhaven");
+        if (arrived == null) return;
+        if (VesselDirectory.differs(current.billVessel, observation.vessel())) {
+            /* The final bill of lading names another ship than this feed (a mistyped IMO, a ship linked for a later
+               leg): its call must not write "schip aangekomen" on this container, and an arrival of that ship
+               written before the bill was taken over goes too. */
+            List<ActivityChangeDto> changes = forgetPortArrival(current);
+            if (!changes.isEmpty())
+                activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
+                        Long.toString(current.id), current.number, "Scheepsaankomst gewist: de B/L noemt een ander schip", changes);
+            return;
+        }
+        /* By hand the hand date stays and only the fact is stored. */
+        LocalDate arrival = Boolean.TRUE.equals(current.arrivalByHand) ? current.expectedArrival : arrived.day();
+        write(current, current.shippedOn, arrival, arrived.day(), "Voydar · schip aangekomen in " + arrived.place());
+    }
+
+    /**
+     * "Volg track &amp; trace" gave the container's day back while the ship is in: the day is the ship's arrival at
+     * once, not at the next check. True when the order has such an arrival; no source's planning is applied then.
+     */
+    @Transactional
+    public boolean adoptPortArrival(long orderId) {
+        PurchaseOrderEntity current = entities.find(PurchaseOrderEntity.class, orderId, LockModeType.PESSIMISTIC_WRITE);
+        if (current == null || current.deletedAt != null || current.portArrivedOn == null) return false;
+        if (!Boolean.TRUE.equals(current.arrivalByHand))
+            write(current, current.shippedOn, current.portArrivedOn, current.portArrivedOn, "de aankomst van het schip");
+        return true;
     }
 
     private PurchaseOrderEntity current(PurchaseOrder baseline) {
@@ -78,11 +118,18 @@ public class TrackingDateSync {
 
     private void apply(PurchaseOrderEntity current, Plan plan, String source) {
         LocalDate departure = plan.shippedOn() == null ? current.shippedOn : plan.shippedOn();
-        /* An arrival set by hand stays until "Volg track & trace" (ArrivalPlanStore); the departure still follows. */
-        boolean byHand = Boolean.TRUE.equals(current.arrivalByHand);
-        LocalDate arrival = byHand || plan.expectedArrival() == null ? current.expectedArrival : plan.expectedArrival();
+        /* An arrival set by hand stays until "Volg track & trace" (ArrivalPlanStore); the departure still follows.
+           So does the day the ship came in: an arrival that happened beats a source's planning. */
+        boolean kept = Boolean.TRUE.equals(current.arrivalByHand) || current.portArrivedOn != null;
+        LocalDate arrival = kept || plan.expectedArrival() == null ? current.expectedArrival : plan.expectedArrival();
+        write(current, departure, arrival, current.portArrivedOn, source);
+    }
+
+    /** The one place tracking writes the order's transport dates: one activity record per source, none without a change. */
+    private void write(PurchaseOrderEntity current, LocalDate departure, LocalDate arrival, LocalDate portArrived, String source) {
         var changes = ActivityChangeSet.create()
                 .add("shippedOn", "Vertrekdatum", current.shippedOn, departure)
+                .add("portArrivedOn", "Schip aangekomen", current.portArrivedOn, portArrived)
                 .add("expectedArrival", "Verwachte aankomst", current.expectedArrival, arrival).build();
         if (changes.isEmpty()) return;
         if (!Objects.equals(current.expectedArrival, arrival)) {
@@ -91,6 +138,7 @@ public class TrackingDateSync {
             current.expectedArrivalTime = null;
         }
         current.shippedOn = departure;
+        current.portArrivedOn = portArrived;
         current.expectedArrival = arrival;
         activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
                 Long.toString(current.id), current.number, "Transportdatums bijgewerkt uit " + source, changes);
@@ -118,6 +166,28 @@ public class TrackingDateSync {
             order.arrivalNoticeDate = arrival;
             order.arrivalNoticeAt = now;
         }
+    }
+
+    /**
+     * The ship's arrival is no longer this container's: another ship was linked, the ship was unlinked, or the
+     * reference now names another shipment. The fact goes, and with it the day it put on the order: when the
+     * expected arrival still is that day and was not set by hand, it goes back to the planning that stood before
+     * tracking moved it (none when there was none), and that is the planning again, not a move. A day by hand, or
+     * any other day, stays. Returns what changed for the activity log; empty when the order had no such arrival.
+     */
+    static List<ActivityChangeDto> forgetPortArrival(PurchaseOrderEntity order) {
+        LocalDate arrived = order.portArrivedOn;
+        if (arrived == null) return List.of();
+        LocalDate expected = order.expectedArrival;
+        order.portArrivedOn = null;
+        if (arrived.equals(expected) && !Boolean.TRUE.equals(order.arrivalByHand)) {
+            order.expectedArrival = order.arrivalMovedFrom;
+            order.expectedArrivalTime = null;
+            order.arrivalMovedFrom = null; order.arrivalMovedAt = null; order.arrivalNoticeDate = null; order.arrivalNoticeAt = null;
+        }
+        return ActivityChangeSet.create()
+                .add("portArrivedOn", "Schip aangekomen", arrived, null)
+                .add("expectedArrival", "Verwachte aankomst", expected, order.expectedArrival).build();
     }
 
     public static Plan shipmentPlan(PurchaseOrder order, Observation data, Instant now) {
@@ -161,6 +231,37 @@ public class TrackingDateSync {
         // Several different departure days could be two voyages. Do not choose a plausible one silently.
         List<LocalDate> unique = candidates.stream().distinct().toList();
         return unique.size() == 1 ? unique.getFirst() : null;
+    }
+
+    /** A call of the linked ship at the order's port of destination: the day there and the place as the feed names it. */
+    record PortCall(LocalDate day, String place) {}
+
+    /**
+     * The day the linked ship came in at the order's port of destination, or null. Only for a container that is
+     * under way with a departure day, and only a call that can be this voyage's: the ship's earlier rounds and a
+     * call at the destination right after the stored departure are not. The earliest such day wins: the ship
+     * calls again on later rounds, the container came off at the first.
+     */
+    static PortCall vesselArrival(PurchaseOrder order, VesselLinkStore.Link link, Observation data, Instant checkedAt, Instant now) {
+        if (link == null || data == null || !fresh(checkedAt, now) || VesselLinkStore.matching(order, link) == null) return null;
+        if (order.status() != PurchaseOrderStatus.ONDERWEG || order.shippedOn() == null) return null;
+        LocalDate from = order.shippedOn().plusDays(ARRIVAL_EARLIEST_DAYS), until = order.shippedOn().plusDays(ARRIVAL_LATEST_DAYS);
+        PortCall earliest = null;
+        Instant earliestAt = null;
+        for (Event event : data.events()) {
+            if (!event.actual() || !"ARRIVAL".equals(event.kind())
+                    || !PortAreas.same(order.destinationPort(), event.locationCode(), event.location())) continue;
+            OffsetDateTime at = offset(event.occurredAt());
+            ZoneId zone = portZone(event.locationCode());
+            if (at == null || zone == null || at.toInstant().isAfter(now.plusSeconds(300))) continue;
+            LocalDate day = at.atZoneSameInstant(zone).toLocalDate();
+            if (day.isBefore(from) || day.isAfter(until)) continue;
+            if (earliest != null && (day.isAfter(earliest.day()) || (day.equals(earliest.day()) && !at.toInstant().isBefore(earliestAt)))) continue;
+            String place = event.location() == null || event.location().isBlank() ? order.destinationPort() : event.location().strip();
+            earliest = new PortCall(day, place);
+            earliestAt = at.toInstant();
+        }
+        return earliest;
     }
 
     private static boolean voyageDate(PurchaseOrder order, LocalDate start, LocalDate today) {

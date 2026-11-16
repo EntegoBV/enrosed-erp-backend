@@ -33,25 +33,26 @@ public class ArrivalMoveStore {
 
     /**
      * from: the planning that stood before tracking; at: the last move; noticed: the date the bell last named (two
-     * days or more from the one before), or null; noticedAt: when it named it.
+     * days or more from the one before), or null; noticedAt: when it named it; portArrivedOn: the day the linked
+     * ship came in at the port of destination (purchase_order.port_arrived_on), null while it is not in.
      */
-    public record Move(LocalDate from, Instant at, LocalDate noticed, Instant noticedAt) {}
+    public record Move(LocalDate from, Instant at, LocalDate noticed, Instant noticedAt, LocalDate portArrivedOn) {}
 
     @Transactional
     public Map<Long, Move> all() {
         Map<Long, Move> moves = new HashMap<>();
-        List<Object[]> rows = entities.createQuery("select o.id, o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt from "
+        List<Object[]> rows = entities.createQuery("select o.id, o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt, o.portArrivedOn from "
                 + ORDER + " o where o.arrivalMovedFrom is not null", Object[].class).getResultList();
-        for (Object[] row : rows) moves.put((Long) row[0], new Move((LocalDate) row[1], (Instant) row[2], (LocalDate) row[3], (Instant) row[4]));
+        for (Object[] row : rows) moves.put((Long) row[0], new Move((LocalDate) row[1], (Instant) row[2], (LocalDate) row[3], (Instant) row[4], (LocalDate) row[5]));
         return moves;
     }
 
     @Transactional
     public Move find(long orderId) {
-        return entities.createQuery("select o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt from " + ORDER
+        return entities.createQuery("select o.arrivalMovedFrom, o.arrivalMovedAt, o.arrivalNoticeDate, o.arrivalNoticeAt, o.portArrivedOn from " + ORDER
                         + " o where o.id = :id and o.arrivalMovedFrom is not null", Object[].class)
                 .setParameter("id", orderId).getResultStream().findFirst()
-                .map(row -> new Move((LocalDate) row[0], (Instant) row[1], (LocalDate) row[2], (Instant) row[3])).orElse(null);
+                .map(row -> new Move((LocalDate) row[0], (Instant) row[1], (LocalDate) row[2], (Instant) row[3], (LocalDate) row[4])).orElse(null);
     }
 
     /** Signed days from the date that stood to the date now; null without a move, without a date or when equal. */
@@ -73,6 +74,10 @@ public class ArrivalMoveStore {
      * (arrival_notice_date, arrival_notice_at): a carrier's one-day correction changes the date in the title, not
      * the row, so a dismissed row stays dismissed (the frontend's key holds id and detail, not the title) and an old
      * row does not come back to the top with a new time. A move two days or more from the named date is a new row.
+     *
+     * <p>Once the linked ship is in and the order's day is that arrival, the day is no expectation any more: the row
+     * reads "Schip aangekomen 15/11/2026 · 15 dagen eerder". While the order keeps another day (set by hand), the
+     * row names that day and stays "Aankomst …": it must not say the ship came in on a day it did not.</p>
      */
     static NotificationService.Notification notice(PurchaseOrder order, Move move, Instant now) {
         Instant noticedAt = move == null ? null : move.noticedAt() != null ? move.noticedAt() : move.at();
@@ -85,7 +90,8 @@ public class ArrivalMoveStore {
         if (days == null || Math.abs(days) < NOTICE_DAYS) return null;
         String name = order.alias() == null || order.alias().isBlank() ? order.number() : order.alias();
         return new NotificationService.Notification(NotificationService.Kind.CONTAINER_AANKOMST, order.id(), order.number(), name,
-                "Aankomst " + order.expectedArrival().format(DAY) + " · " + words(days),
+                (order.expectedArrival().equals(move.portArrivedOn()) ? "Schip aangekomen " : "Aankomst ")
+                        + order.expectedArrival().format(DAY) + " · " + words(days),
                 "was " + move.from().format(DAY), false, noticedAt,
                 "/purchasing/" + order.id() + "?tracking=1",
                 ContainerTracking.hash("ARRIVAL_MOVED:" + order.id() + ":" + move.from() + ":" + move.noticed()));

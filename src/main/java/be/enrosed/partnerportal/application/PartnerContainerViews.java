@@ -12,12 +12,13 @@ import java.util.List;
  *
  * <p>Allowed: the PO number (as number and as name; the "Herkenbare naam" is free text and never sent), whether the
  * container is this partner's own, the status and the derived state word, the type, the order / departure / arrival
- * / receipt dates and a tracked move of the arrival, the ports, the location name (only for an own container or the
- * main warehouse), quantities in sales units and pieces, cartons, m³, fill, pallets, weight, and the product card's
- * sizes and packaging. Never: a price, cost, freight, duty, payment or amount, the supplier (id, name, reference,
- * version), notes or any other free text (alias, issue note, supplier note, description, tracking reference), the
- * partner percents, another partner's identity. Built by {@link PartnerContainerReader} from the domain records;
- * never serialise PurchaseOrder, PurchaseOrderLine, Product or LandedCost into these.</p>
+ * / receipt dates, a tracked move of the arrival and the day the ship came in, the ports, the location name (only
+ * for an own container or the main warehouse), quantities in sales units and pieces, cartons, m³, fill, pallets,
+ * weight, and the product card's sizes and packaging. Never: a price, cost, freight, duty, payment or amount, the
+ * supplier (id, name, reference, version), notes or any other free text (alias, issue note, supplier note,
+ * description, tracking reference), the partner percents, another partner's identity. Built by
+ * {@link PartnerContainerReader} from the domain records; never serialise PurchaseOrder, PurchaseOrderLine, Product
+ * or LandedCost into these.</p>
  */
 public final class PartnerContainerViews {
 
@@ -63,7 +64,11 @@ public final class PartnerContainerViews {
                             /* Since 2026-11-15, set by hand in the ERP; null once received or when not planned. The hour
                                the container is expected at the port ("08:30"), and the day and hour it is expected at
                                the place it is unloaded at (Zaltbommel; locationName names it when it may be named). */
-                            String expectedArrivalTime, LocalDate warehouseArrivalOn, String warehouseArrivalTime) {}
+                            String expectedArrivalTime, LocalDate warehouseArrivalOn, String warehouseArrivalTime,
+                            /* Since 2026-11-16: the day the ship arrived at the port of arrival ("schip is binnen"),
+                               from the port calls of the ship linked in the ERP; null while it is not in and once the
+                               container is received. A date only: no ship, voyage or reference is sent. */
+                            LocalDate portArrivedOn) {}
 
     /**
      * ProductTile (unwrapped, so it reads as the same flat tile the rest of the portal gets; it carries the category:
