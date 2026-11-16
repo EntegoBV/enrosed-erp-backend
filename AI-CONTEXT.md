@@ -3390,7 +3390,9 @@ works without ShipsGo and keeps working with it. Details: `docs/integrations/con
   more from the last named one; its time is `arrival_notice_at`, so a one-day correction neither
   re-shows a dismissed row nor moves it to the top).
 - **Ship link**: `VesselLinkStore.rebind` (called in `PurchaseOrderService.update`) keeps the link
-  when the reference text is rewritten, unless both texts are recognised with no number in common.
+  when the reference text is rewritten, unless both texts are recognised with no number in common
+  (2026-11-16: and neither text still shows a number of the other; it also runs after
+  `changeTracking`, see "Track & trace uit de bill of lading").
   The order's port-call snapshot moves with it (`ContainerTrackingService.vesselKey` holds the
   reference hash).
 - **Time**: "today" in `shipmentPlan` is the Brussels day; the Voydar window starts the day before

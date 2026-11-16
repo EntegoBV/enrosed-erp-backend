@@ -75,7 +75,7 @@ The line names what is followed: when the parser of 2026-10-26 (`strictReference
 
 `ContainerTracking.reference(raw)` asks the parser of 2026-10-26 first (`strictReference`, unchanged): a text it accepts keeps its key, so no snapshot, ShipsGo registration, ship link or reminder identity moves. Only texts it rejects are read by the wider rule. Newly followed: a bare Evergreen bill, `B/L:` forms, a number followed by other text behind `BL:`, the split check digit. `TrackingDateSync.sameShipment` accepts everything it accepted before, first of all the Evergreen bill the lookup read from the text (a bare `EGLV…` got lookups but its dates were refused before).
 
-A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in the order save) unless both texts are recognised and have no number in common. The order's stored port calls move with the link (their key, `ContainerTrackingService.vesselKey`, holds the reference hash), so the row keeps its last check.
+A rewritten reference keeps the linked ship (`VesselLinkStore.rebind`, called in the order save) unless both texts are recognised and have no number in common (since 2026-11-16 also: and neither text still shows a number of the other; section 2026-11-16). The order's stored port calls move with the link (their key, `ContainerTrackingService.vesselKey`, holds the reference hash), so the row keeps its last check.
 
 ### Row fields added (null when they do not apply)
 
