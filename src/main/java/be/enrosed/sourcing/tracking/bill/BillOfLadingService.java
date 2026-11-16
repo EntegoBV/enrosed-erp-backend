@@ -411,7 +411,8 @@ public class BillOfLadingService {
         /* 1. The reference and the departure day, through the order's own narrow save: it moves the ship link with
               the reference and writes the order's history line. */
         PurchaseOrder now = order;
-        if (proposal.referenceChanges() || proposal.shippedOnChanges()) {
+        boolean saved = proposal.referenceChanges() || proposal.shippedOnChanges();
+        if (saved) {
             now = purchaseOrders.changeTracking(orderId, proposal.referenceChanges() ? proposal.reference() : null,
                     proposal.shippedOnChanges() ? proposal.shippedOn() : null);
         }
@@ -426,13 +427,16 @@ public class BillOfLadingService {
             links.save(orderId, imo, now.trackingReference());
             link = links.find(now);
         }
-        /* 4. One line in the order's history for what step 1 did not already write there. */
+        /* 4. One line in the order's history, with what step 1 did not already write there. It is also written
+              when only step 1 changed something: its own line reads "Inkooporder bijgewerkt", as a form save
+              does, and this one says the bill of lading was where it came from. Each value is compared with how
+              the order stood before the apply, so a ship link that step 1 let go is told here too. */
         List<ActivityChangeDto> changes = ActivityChangeSet.create()
                 .add("billVessel", "B/L-schip", before.bill().vessel(), named.vessel())
                 .add("billVoyage", "B/L-reis", before.bill().voyage(), named.voyage())
                 .add("vesselImo", "Schip (IMO)", before.imo(), link == null ? null : link.imo())
                 .build();
-        if (!changes.isEmpty()) {
+        if (saved || !changes.isEmpty()) {
             activity.record(ActivityLogService.ACTION_UPDATED, ActivityLogService.ENTITY_PURCHASE_ORDER,
                     Long.toString(orderId), now.number(), "Track & trace bijgewerkt uit de bill of lading", changes);
         }
