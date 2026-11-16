@@ -575,20 +575,30 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   ": "), and every price there wraps at its spaces (a range after its
   dash; an amount never breaks inside), so a long one stays inside the cell
   instead of running over the logistics column.
-- **Compact overzicht = one block per product** (Emre, 2026-11-15, "Compact pdf kan
-  iets beter"): `catalog.html` prints a family's colours under one heading (the family's
-  catalogue name, as the brochure; a product's own name only without a family, or where
-  the family has no name in that language and the product has), one Maat / product size /
-  HS line, one logistics strip (Omdoos, Europallet, Deense kar, 20ft, 40ft) and one price,
-  then the colours four to a row with a 16 mm photo (five without photos) with
-  swatch, SKU, EAN, carton EAN and "Niet op voorraad". `compactProducts` splits a family
-  into one block per set of colours whose printed figures are equal (`compactFigures`:
-  carton, pallet, kar, 20ft, 40ft, unit, price and display price), so every figure is true
-  for every colour under it; several Maten in one block go next to their colours. On a
-  local copy of the old test data the 62-colour EN list went from 13 to 7 pages (5,7 to
-  2,5 MB). The strict copy check still asks
-  the product names in this layout (unchanged, so no export starts failing). The old
-  per-SKU `Item` rows are gone.
+- **Compact overzicht = one card per product** (Emre, 2026-11-15: "Compact pdf kan iets beter", then
+  "die compacte design kan beter aub en mooier"): `catalog.html` prints a family's colours as one white,
+  softly rounded card with a fine hairline on a light page tint (the look of the ERP's own phone
+  screens). Card: the family's catalogue name (as the brochure; a product's own name only without a
+  family, or where the family has no name in that language and the product has), a Maat pill, product
+  size and HS code, the price at the right (display total first, piece price under it); then the
+  colours as the picture: four or more colours as centred 25 mm photos with swatch, name, SKU and EAN
+  under each, two or three with the caption beside the photo, one colour as a compact photo-left card;
+  without photos, swatch discs. At the foot one ribbon on five shared columns: Omdoos, Europallet,
+  Deense kar, 20ft, 40ft, each with its line icon, a large numeral, the unit word and a detail
+  ("(84 omdozen)", the carton size). An unknown figure is a soft icon, a grey label and a dash.
+  "Niet op voorraad" is one rust pill in the heading when every colour is out, a rust line under a
+  colour otherwise. `compactProducts` still splits a family into one card per set of colours whose
+  printed figures are equal (`compactFigures`), so every figure is true for every colour under it.
+  The template reads the figures split (`CompactFigure`: number, unit, detail, known), the display
+  price split (`displayPriceHead` / `displayPriceAmount`), `priceOnRequest`, `colourCount`,
+  `allOutOfStock` and the `icons` map (`catalog-assets/icons/*.png`, gold and `-soft` grey, drawn on a
+  64-unit grid; the template fails without the map). The container labels beside their icons are the
+  short `catalog.simple.short20ft` / `short40ft` ("20ft GP", "20' GP"): the long ones wrapped in Spanish
+  and Greek and cost a page. Greek is set DejaVu-first (no letter of a word from Jost), no forced
+  capitals in Greek or Turkish, nothing under 6.8 pt but the footer note. Production data, 80 colours
+  in 32 cards: 8 pages in all nine languages (6 without photos), about 3 MB. The design came out of a
+  panel of four rendered directions judged on real data; the strict copy check still asks the product
+  names in this layout (unchanged, so no export starts failing).
 - **Pallet, kar, 20ft and 40ft always together** (Emre, 2026-11-06; the Deense kar
   joined both layouts on 2026-11-15, "Ja, ook brochure"), in that order: the compact strip
   (Europallet "864 st." with "(72 omdozen)" under it, Deense kar likewise, 20ft, 40ft HC),

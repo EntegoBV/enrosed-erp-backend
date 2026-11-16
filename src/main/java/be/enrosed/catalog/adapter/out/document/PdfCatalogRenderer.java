@@ -143,28 +143,63 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
             String priceLabel, String displayPriceLabel, String perUnitLabel,
             /** Whether the colours get a photo cell: photos asked for and at least one colour has one. */
             boolean photos,
-            List<CompactColour> colours) {
+            List<CompactColour> colours,
+            /** The price is "Prijs op aanvraag": there is no unit to print after it. */
+            boolean priceOnRequest) {
 
         public CompactProduct {
             colours = List.copyOf(colours);
         }
 
-        /** Four colours a row beside their photos, five without photos: most families fill one row. */
-        public List<CompactColourRow> colourRows() {
-            int perRow = photos ? 4 : 5;
-            List<CompactColourRow> rows = new ArrayList<>();
-            for (int index = 0; index < colours.size(); index += perRow) {
-                List<CompactColour> cells = colours.subList(index, Math.min(index + perRow, colours.size()));
-                rows.add(new CompactColourRow(cells, perRow - cells.size()));
-            }
-            return List.copyOf(rows);
+        public CompactFigure carton() { return CompactFigure.of(cartonQuantity, cartonSize); }
+        public CompactFigure pallet() { return CompactFigure.of(palletUnits, palletCartons); }
+        public CompactFigure kar() { return CompactFigure.of(karUnits, karCartons); }
+        public CompactFigure gp() { return CompactFigure.of(capacity20Ft, ""); }
+        public CompactFigure hc() { return CompactFigure.of(capacity40Ft, ""); }
+
+        /** "Display (8 bowls)" of "Display (8 bowls): € 31,60"; null without a display price. */
+        public String displayPriceHead() {
+            int split = displayPriceSplit();
+            return split < 0 ? null : displayPriceLabel.substring(0, split);
+        }
+
+        public String displayPriceAmount() {
+            int split = displayPriceSplit();
+            return split < 0 ? null : displayPriceLabel.substring(split + 2);
+        }
+
+        private int displayPriceSplit() {
+            return displayPriceLabel == null ? -1 : displayPriceLabel.lastIndexOf(": ");
+        }
+
+        /** The card's layout follows it: one colour, two or three, four or more. */
+        public int colourCount() { return colours.size(); }
+
+        /** Every colour is out of stock: the card says so once, in its heading. */
+        public boolean allOutOfStock() {
+            return !colours.isEmpty() && colours.stream().allMatch(CompactColour::outOfStock);
         }
     }
 
-    /** A row of colours and the empty cells that close it, so every cell keeps its width. */
-    public record CompactColourRow(List<CompactColour> cells, int filler) {
-        public CompactColourRow {
-            cells = List.copyOf(cells);
+    /**
+     * One logistics figure of a compact product: "3.360 bowls" whole, and split into its number and its
+     * unit word so a layout can set them apart; the detail is the line under it ("(84 omdozen)", a size).
+     */
+    public record CompactFigure(String text, String number, String unit, String detail) {
+        private static final java.util.regex.Pattern LEADING_NUMBER =
+                java.util.regex.Pattern.compile("^([0-9](?:[0-9.,\\u00a0\\u202f ]*[0-9])?)\\s*(.*)$");
+
+        static CompactFigure of(String text, String detail) {
+            String value = text == null ? "" : text.strip();
+            java.util.regex.Matcher matcher = LEADING_NUMBER.matcher(value);
+            boolean split = matcher.matches();
+            return new CompactFigure(value, split ? matcher.group(1) : value, split ? matcher.group(2) : "",
+                    detail == null ? "" : detail);
+        }
+
+        /** False for "-": nothing is known or nothing fits. */
+        public boolean known() {
+            return !text.isEmpty() && !"-".equals(text);
         }
     }
 
@@ -187,6 +222,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         public CompactSection {
             products = List.copyOf(products);
         }
+
     }
 
     public record BrochureVariant(
@@ -764,7 +800,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("catalogContacts", staffContacts.catalogContacts())
                 .data("palletBasis", palletBasis(language, copy))
                 .data("karBasis", karBasis(language, copy))
-                .data("karBasis", karBasis(language, copy))
+                .data("icons", compactIcons())
                 .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
                 /* The running header is one line: a long name is cut shorter there. */
                 .data("recipientShort", catalog.recipient() == null ? ""
@@ -775,6 +811,19 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         ? priceBasis(catalog, namedUnits, copy) : "")
                 .data("copy", copy)
                 .render();
+    }
+
+    /**
+     * The compact catalogue's line icons (catalog-assets/icons), by the name the template asks them
+     * under: gold for a known figure, the "Soft" grey for an unknown one.
+     */
+    private Map<String, String> compactIcons() {
+        Map<String, String> icons = new LinkedHashMap<>();
+        for (String name : List.of("carton", "pallet", "kar", "container20", "container40")) {
+            icons.put(name, editorial.image("icons/" + name + ".png"));
+            icons.put(name + "Soft", editorial.image("icons/" + name + "-soft.png"));
+        }
+        return icons;
     }
 
     private static CompactSection compactSection(
@@ -1097,7 +1146,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 request.includePrices() ? displayPriceLabel(first, language, copy, prices) : null,
                 perUnitLabel(first, language, copy),
                 allowed > 0 && printed.stream().anyMatch(colour -> present(colour.image())),
-                printed);
+                printed,
+                request.includePrices() && !present(priceLabel(first, language, prices)));
     }
 
     /**

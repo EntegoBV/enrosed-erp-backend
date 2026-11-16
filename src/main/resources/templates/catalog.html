@@ -4,158 +4,290 @@
   <meta charset="utf-8"/>
   <title>{title}</title>
   <style>
+    /* Colour showcase cards: white cards with a warm hairline on a faint ivory page, the colour photos are the picture.
+       Shared edges: the text axis 5 mm inside the card edge (masthead, chapter number, name, photos, first figure),
+       the caption axis 28.4 mm further right (captions beside a photo, the whole text of a one-colour card) and one
+       grid of five 35.6 mm columns for carton, pallet, trolley, 20ft and 40ft on every card (chapter titles, swatch
+       discs and five-colour photos stand on the same columns). */
     @page {
       size: A4;
-      margin: 18mm 12mm 22mm;
+      margin: 13mm 11mm 20mm;
+      background-color: #f6f1eb;
       @top-center { content: element(catalog-header); }
-      @bottom-center { content: element(catalog-footer); }
+      @bottom-center { content: element(catalog-footer); vertical-align: top; }
     }
     * { box-sizing: border-box; }
-    body { margin: 0; color: #30242a; background: #fff; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
-    table { border-collapse: collapse; }
-    td { vertical-align: top; word-wrap: break-word; }
-    .running-header { position: running(catalog-header); width: 100%; border-bottom: .25mm solid #c8ac78; padding-bottom: 2mm; color: #725b62; font-size: 7.5pt; }
-    .running-header table, .running-footer table { width: 100%; table-layout: fixed; }
-    .running-brand { width: 29mm; color: #59172d; font-weight: 600; letter-spacing: 1.2px; }
+    body { margin: 0; color: #30242a; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
+    table { border-collapse: collapse; border-spacing: 0; }
+    td { padding: 0; vertical-align: top; word-wrap: break-word; }
+    img { border: 0; }
+
+    .running-header { position: running(catalog-header); width: 100%; padding: 0 5mm; color: #806c70; font-size: 7.2pt; }
+    .running-header table, .running-footer table { width: 100%; }
+    .running-brand { color: #59172d; font-weight: 600; letter-spacing: 2.2px; }
     .running-title { text-align: right; }
-    .running-footer { position: running(catalog-footer); width: 100%; border-top: .2mm solid #d8c8bb; padding-top: 2mm; color: #7d6a6c; font-size: 6.5pt; line-height: 1.35; }
-    .footer-note { margin-bottom: 1mm; }
-    .footer-page { width: 22mm; text-align: right; color: #59172d; }
+    /* The footer hangs from the top of the bottom margin: a third note line grows towards the paper edge, never into the cards. */
+    .running-footer { position: running(catalog-footer); width: 100%; margin-top: .7mm; padding: 0 5mm; color: #806c70; font-size: 6.4pt; line-height: 1.3; }
+    .footer-note { margin-bottom: .9mm; padding-top: 1.6mm; border-top: .2mm solid #dccfc3; }
+    .footer-brand { color: #725e64; font-size: 6.8pt; letter-spacing: .9px; }
+    .footer-page { width: 24mm; text-align: right; color: #59172d; font-size: 7.2pt; font-weight: 500; }
     .page-number:before { content: counter(page); }
     .page-total:before { content: counter(pages); }
 
-    .masthead { margin: 0 0 4mm; padding: 4.2mm 5.5mm; color: #fffaf3; background: #4b1024; border-bottom: .5mm solid #bea16a; }
-    .masthead table { width: 100%; table-layout: fixed; }
-    .masthead .heading { padding-right: 5mm; vertical-align: bottom; }
-    .logo { width: 33mm; height: auto; }
-    h1 { margin: 2.4mm 0 1.4mm; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 22pt; font-weight: 600; line-height: 1.06; word-wrap: break-word; }
-    .eyebrow { color: #e1c590; font-size: 7.3pt; letter-spacing: .8px; }
-    .meta { width: 62mm; text-align: right; color: #eee3dc; font-size: 7.2pt; line-height: 1.45; vertical-align: bottom; }
-    .meta strong { color: #fff; font-weight: 600; }
-    .recipient { margin-top: 1.4mm; color: #fffaf3; font-size: 9pt; font-weight: 600; line-height: 1.3; word-wrap: break-word; }
-    .intro { margin: 0 0 4mm; padding: 1.6mm 0 1.6mm 4mm; color: #59454d; border-left: .5mm solid #bea16a; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11.5pt; line-height: 1.3; word-wrap: break-word; }
+    /* Masthead: the one dark block of the document, it carries the gold logo. */
+    .masthead { margin: 0 0 3.4mm; padding: 1mm; color: #fffaf3; background: #4b1024; border-radius: 3mm; }
+    .mast-in { padding: 2.8mm 3.8mm 2.6mm; border: .2mm solid #8f6f4a; border-radius: 2.1mm; }
+    .masthead table { width: 100%; }
+    .masthead .heading { vertical-align: bottom; padding-right: 6mm; }
+    .logo { display: block; width: 34mm; height: auto; }
+    h1 { margin: 2.2mm 0 0; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 23pt; font-weight: 600; line-height: 1.04; word-wrap: break-word; }
+    .to { margin-top: .6mm; color: #f1e2c8; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 13pt; font-style: italic; line-height: 1.15; word-wrap: break-word; }
+    .eyebrow { margin-top: 1.4mm; color: #cbb07b; font-size: 7.2pt; letter-spacing: 1.3px; text-transform: uppercase; }
+    .contact { width: 62mm; text-align: right; vertical-align: bottom; color: #e7d9d2; font-size: 7.2pt; line-height: 1.44; }
+    .contact strong { color: #fffaf3; font-weight: 600; letter-spacing: .4px; }
+    .contact .gold { color: #cbb07b; letter-spacing: .9px; }
+    .intro { margin: 0 5mm 2.8mm; color: #59454d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11.5pt; font-style: italic; line-height: 1.25; word-wrap: break-word; }
 
     /* A product moves to the next page whole; its category heading travels with the first one. */
-    .product-block { page-break-inside: avoid; margin-bottom: 3.2mm; }
-    .chapter { padding: 2.4mm 0 1.8mm; page-break-after: avoid; }
-    .chapter table { width: 100%; table-layout: fixed; }
-    .chapter .number { width: 10mm; color: #ad8952; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 19pt; line-height: 1; }
-    .chapter h2 { margin: 0; color: #59172d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 16pt; font-weight: 600; line-height: 1.1; word-wrap: break-word; }
-    .chapter .description { margin-top: .8mm; color: #756168; font-size: 7.5pt; line-height: 1.35; }
+    .block { page-break-inside: avoid; padding-bottom: 2.2mm; }
+    .chapter { padding: 1.2mm 5mm 1.5mm; page-break-after: avoid; }
+    .chapter table { width: 100%; }
+    /* The number shares the baseline of the title and is raised to hang from its x-height: it follows the title when the
+       engine pushes the first line of a page down. */
+    .chapter td { vertical-align: baseline; }
+    .chapter .number span { vertical-align: 1mm; }
+    .chapter .number { width: 6.6mm; color: #ad8952; font-size: 7.8pt; font-weight: 500; letter-spacing: 1.2px; }
+    .chapter h2 { margin: 0; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 18pt; font-weight: 600; line-height: 1.05; word-wrap: break-word; }
+    .chapter .description { margin-top: .45mm; color: #725e64; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 9.8pt; font-style: italic; line-height: 1.15; word-wrap: break-word; }
 
-    .product { width: 100%; table-layout: fixed; border-top: .35mm solid #a88051; }
-    .product > tbody > tr > td { padding: 2mm 0 1.6mm; }
-    .name { margin: 0; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 13.5pt; font-weight: 600; line-height: 1.12; word-wrap: break-word; }
-    .sub { margin-top: .7mm; color: #725e64; font-size: 7.3pt; line-height: 1.35; }
-    .sub b { color: #382a30; font-weight: 500; }
-    .price-cell { width: 60mm; padding-left: 4mm !important; text-align: right; }
-    .price-main { color: #64132e; font-size: 12pt; font-weight: 600; line-height: 1.2; word-wrap: break-word; }
-    .price-main small { color: #725b63; font-size: 7.3pt; font-weight: 400; }
-    .price-sub { margin-top: .5mm; color: #725b63; font-size: 7.3pt; line-height: 1.25; }
+    .card { background: #fff; border: .2mm solid #e5d9d2; border-radius: 3mm; }
+    .top { padding: 2.5mm 4.8mm 1.4mm; }
 
-    /* Carton, pallet, kar, 20ft and 40ft always together, in that order. */
-    .logistics { width: 100%; table-layout: fixed; background: #f6f1ed; }
-    .logistics td { padding: 1.5mm 2.2mm 1.6mm; border-left: .25mm solid #fff; }
-    .logistics td.first { border-left: 0; }
-    .logistics .label { color: #826b72; font-size: 6.4pt; line-height: 1.25; letter-spacing: .15px; }
-    .logistics .value { margin-top: .5mm; color: #30242a; font-size: 8.2pt; font-weight: 600; line-height: 1.2; }
-    .logistics .detail { color: #826b72; font-size: 6.6pt; line-height: 1.25; }
+    .head { width: 100%; }
+    .name { margin: 0; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 14pt; font-weight: 600; line-height: 1.1; word-wrap: break-word; }
+    .meta { margin-top: .5mm; color: #806c70; font-size: 7.5pt; line-height: 1.4; }
+    .meta b { color: #4d3d43; font-weight: 400; }
+    .meta .na { color: #b9a9a0; }
+    .meta .sep { color: #cdbfb4; padding: 0 1.1mm; }
+    .maat { display: inline-block; margin-right: 1.6mm; padding: 0 1.7mm .1mm; border: .2mm solid #cbb07b; border-radius: 1.7mm; color: #7d6235; font-size: 6.8pt; font-weight: 500; line-height: 1.35; }
+    .gone { display: inline-block; padding: 0 1.8mm .1mm; border: .2mm solid #9a552f; border-radius: 1.7mm; color: #9a552f; background: #fffaf6; font-size: 6.8pt; font-weight: 500; line-height: 1.35; }
+    .meta b + .gone, .meta .maat + .gone { margin-left: 1.6mm; }
+    .price { white-space: nowrap; text-align: right; padding-left: 6mm; }
+    .price .amount { color: #59172d; font-size: 15pt; font-weight: 500; line-height: 1.03; }
+    .price .whole { font-size: 11.5pt; line-height: 1.34; }
+    .price .lead { color: #806c70; font-size: 7.5pt; font-weight: 400; padding-right: 1.5mm; }
+    .deal { margin-left: auto; }
+    .deal td { white-space: nowrap; vertical-align: baseline; }
+    .price .per { margin-top: .5mm; color: #806c70; font-size: 7.5pt; line-height: 1.4; }
+    .price .request { color: #59172d; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 12.5pt; font-style: italic; line-height: 1.2; }
 
-    .colours { width: 100%; table-layout: fixed; margin-top: 1.4mm; }
-    .colours td.colour { padding: .9mm 1.6mm .9mm 0; vertical-align: top; }
-    .colour-card { width: 100%; table-layout: fixed; }
-    .colour-card td { vertical-align: middle; }
-    .colour-card td.thumb { width: 17.6mm; padding-right: 1.8mm; }
-    .thumb img { display: block; width: 15.8mm; height: 15.8mm; border: .2mm solid #eee4dc; }
-    .thumb .no-photo { width: 15.8mm; height: 15.8mm; border: .2mm dashed #e2d6cd; }
-    .colour-text { color: #725e64; font-size: 6.6pt; line-height: 1.32; word-wrap: break-word; }
-    .colour-name { color: #382a30; font-size: 7.8pt; font-weight: 600; line-height: 1.25; }
-    .dot { display: inline-block; width: 2.6mm; height: 2.6mm; margin: 0 1mm .3mm 0; border: .2mm solid #b7a89e; border-radius: 50%; vertical-align: middle; }
-    .sku { color: #4f3f45; letter-spacing: .1px; }
-    .nostock { color: #9a552f; font-weight: 500; }
+    /* The colours: a filmstrip of 25 mm photos. Four and more: each photo centred in its column, caption under it.
+       Two or three: the photo on the text axis with the caption beside it (two colours stand on the first and third
+       logistics column). */
+    .shelf { margin-top: 1.4mm; }
+    .cell { display: inline-block; width: 44.4mm; vertical-align: top; text-align: center; }
+    .n5 .cell { width: 35.6mm; }
+    .n6 .cell { width: 29.6mm; }
+    .rows { margin-bottom: -2mm; }
+    .rows .cell { padding-bottom: 2mm; }
+    .ph { position: relative; width: 25mm; height: 25mm; margin: 0 auto; }
+    .ph img { display: block; width: 25mm; height: 25mm; }
+    /* A white ring rounds the corners of photos that are not on white. The pictures sit about 0.7 mm inside their square,
+       so the ring reaches 0.85 mm into it; packshots keep at least that margin and stay untouched. */
+    .mask { position: absolute; left: -1mm; top: -1mm; width: 27mm; height: 27mm; border: 1.85mm solid #fff; border-radius: 3.35mm; }
+    /* A colour without a photo: an ivory tile with the visible size and corner of a photo inside its ring; the swatch disc only when there is a swatch. */
+    .blank { position: absolute; left: .85mm; top: .85mm; width: 23.3mm; height: 23.3mm; background: #fbf8f4; border: .2mm solid #ece2d9; border-radius: 1.5mm; text-align: center; }
+    .blank span { display: inline-block; width: 9mm; height: 9mm; margin-top: 6.95mm; border: .2mm solid #d8c8bb; border-radius: 50%; }
+    .cap { color: #766269; font-size: 6.8pt; line-height: 1.22; word-wrap: break-word; }
+    .cap .colour { color: #30242a; font-size: 8pt; font-weight: 500; line-height: 1.22; }
+    .cap .sku { color: #4a3a40; letter-spacing: .15px; }
+    .cap .out { color: #9a552f; font-weight: 500; }
+    .under { position: relative; margin-top: .7mm; padding: 0 1mm; }
+    .dot { display: inline-block; width: 2.5mm; height: 2.5mm; margin: 0 1.1mm .35mm 0; border: .2mm solid #cdbfb4; border-radius: 50%; vertical-align: middle; }
 
-    html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name,
-    html[lang="el"] .intro { font-family: "DejaVu Sans", sans-serif; }
-    html[lang="el"] .name { font-size: 11pt; }
+    .side .cell { width: 59.2mm; text-align: left; }
+    .side.n2 .cell { width: 71.2mm; }
+    /* One colour: the photo on the text axis, the header and the caption beside it on the caption axis. */
+    .duo { width: 100%; }
+    .duo .hero { width: 28.4mm; }
+    .duo .hero .ph { margin: 0; }
+    .cap.solo { margin-top: 1.9mm; }
+    /* The caption stands beside the photo, centred for its usual three lines; the colour names of a row share one line. */
+    .pc { width: 100%; table-layout: fixed; }
+    .pc .pic { width: 28.4mm; }
+    .pc .pic .ph { margin: 0; }
+    .pc .cap { padding: 7.6mm 2mm 0 0; }
+
+    /* Without photos the colour itself is the picture: a swatch disc with the caption beside it,
+       five to a row on the columns of the logistics figures. */
+    .chips { margin-top: 1.9mm; }
+    .chips .cell { width: 35.6mm; text-align: left; }
+    .chips .pc .pic { width: 10.6mm; padding-top: .5mm; }
+    .chips .pc .cap { padding: 0 .6mm 0 0; }
+    .disc { width: 8.4mm; height: 8.4mm; border: .2mm solid #d8c8bb; border-radius: 50%; }
+
+    /* Carton, pallet, trolley, 20ft and 40ft always together, in that order, on five equal columns.
+       Labels and figures are two table rows, so the five figures share one baseline in every language;
+       each detail stands in the cell of its own figure, directly under it. */
+    .ribbon { margin: 0 4.8mm; padding: 1.4mm 0 1.6mm; border-top: .2mm solid #ece2d9; }
+    .ribbon table { width: 100%; table-layout: fixed; }
+    .ribbon td { width: 20%; padding: 0 .8mm 0 6.6mm; }
+    .ribbon .lab td { vertical-align: bottom; color: #64132e; font-size: 6.8pt; line-height: 1.16; }
+    .ribbon .lab .off { color: #a8989a; }
+    .fg { position: relative; color: #5d4b52; font-size: 7.2pt; line-height: 1.15; }
+    .fg img { position: absolute; left: -6.7mm; top: -2.3mm; width: 5.6mm; height: 5.6mm; }
+    .fg b { color: #30242a; font-size: 10.5pt; font-weight: 500; line-height: 1.1; }
+    .fg .none { color: #b9a9a0; font-size: 10.5pt; line-height: 1.1; }
+    .ribbon .det { color: #806c70; font-size: 6.8pt; line-height: 1.2; }
+
+    /* Turkish and Greek: no forced capitals (the engine would turn i into I, and Greek capitals lose their accents). */
+    html[lang="tr"] .eyebrow, html[lang="el"] .eyebrow { text-transform: none; letter-spacing: .8px; }
+
+    /* Greek: Jost and Cormorant have no Greek (only a few stray letters that would mix into words), so every translated
+       text runs in DejaVu Sans; figures, codes and the company block keep Jost. */
+    html[lang="el"] body, html[lang="el"] h1, html[lang="el"] h2, html[lang="el"] .name, html[lang="el"] .intro, html[lang="el"] .to,
+    html[lang="el"] .price .request, html[lang="el"] .chapter .description, html[lang="el"] .tx { font-family: "DejaVu Sans", sans-serif; font-style: normal; }
+    html[lang="el"] .running-brand, html[lang="el"] .footer-page, html[lang="el"] .contact, html[lang="el"] .price .amount, html[lang="el"] .lat,
+    html[lang="el"] .meta b, html[lang="el"] .maat, html[lang="el"] .cap .sku, html[lang="el"] .cap .ean, html[lang="el"] .fg b, html[lang="el"] .chapter .number { font-family: "Jost", "DejaVu Sans", sans-serif; }
+    html[lang="el"] .price .whole { font-family: "DejaVu Sans", sans-serif; font-size: 9.5pt; font-weight: 400; line-height: 1.62; }
+    html[lang="el"] .running-header { font-size: 6.8pt; }
+    html[lang="el"] .running-footer { font-size: 6.2pt; }
+    html[lang="el"] h1 { font-size: 18pt; font-weight: 400; }
+    html[lang="el"] .to, html[lang="el"] .price .request, html[lang="el"] .intro { font-size: 9.5pt; }
+    html[lang="el"] .eyebrow { font-size: 6.8pt; }
+    html[lang="el"] .chapter h2 { font-size: 13pt; font-weight: 400; }
+    html[lang="el"] .chapter .number span { vertical-align: .68mm; }
+    html[lang="el"] .chapter .description { margin-top: .2mm; font-size: 7pt; line-height: 1.3; }
+    html[lang="el"] .name { font-size: 10.6pt; font-weight: 400; line-height: 1.16; }
+    html[lang="el"] .meta, html[lang="el"] .price .lead, html[lang="el"] .price .per { font-size: 7pt; }
+    html[lang="el"] .meta b { font-size: 7.5pt; }
+    html[lang="el"] .gone, html[lang="el"] .cap .out { font-weight: 400; }
+    html[lang="el"] .cap .colour { font-size: 7.4pt; font-weight: 400; }
+    html[lang="el"] .ribbon .lab td { line-height: 1.1; }
+    /* Greek labels need two lines: the cards give that height back in their paddings, so the page count holds. */
+    html[lang="el"] .block { padding-bottom: 2mm; }
+    html[lang="el"] .chapter { padding: 1mm 5mm 1.3mm; }
+    html[lang="el"] .top { padding: 2.1mm 4.8mm 1.2mm; }
+    html[lang="el"] .shelf { margin-top: 1.1mm; }
+    html[lang="el"] .chips { margin-top: 1.7mm; }
+    html[lang="el"] .cap, html[lang="el"] .cap .colour { line-height: 1.2; }
+    html[lang="el"] .ribbon { padding: 1.3mm 0 1.5mm; }
+    html[lang="el"] .fg { font-size: 6.8pt; }
+    html[lang="el"] .fg b, html[lang="el"] .fg .none { font-size: 10pt; line-height: 1.06; }
+    html[lang="el"] .ribbon .det { line-height: 1.16; }
   </style>
 </head>
 <body>
 <div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title}{#if recipientShort} · {recipientShort}{/if} · {itemCountLabel}</td></tr></table></div>
 <div class="running-footer">
   <div class="footer-note">{#if priceBasis}{priceBasis} {/if}{#if validityLine}{validityLine}. {/if}{copy['catalog.simple.footer']} {palletBasis} {karBasis}</div>
-  <table><tr><td>ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
+  <table><tr><td class="footer-brand">ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
 </div>
 
-<div class="masthead">
+<div class="masthead"><div class="mast-in">
   <table><tr>
     <td class="heading">
       {#if logo}<img class="logo" src="{logo}" alt="{company.name}"/>{#else}<div class="eyebrow">ENROSED</div>{/if}
       <h1>{title}</h1>
-      <div class="eyebrow">{todayText} · {itemCountLabel}</div>
-      {#if recipientLine || validityLine}<div class="recipient">{recipientLine}{#if recipientLine && validityLine} · {/if}{validityLine}</div>{/if}
+      {#if recipientLine}<div class="to">{recipientLine}</div>{/if}
+      <div class="eyebrow">{todayText} · {itemCountLabel}{#if validityLine} · {validityLine}{/if}</div>
     </td>
-    <td class="meta">
+    <td class="contact">
       <strong>{company.name}</strong><br/>
       {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
-      {#if company.vatNumber}{copy['catalog.simple.vatnumber']} {company.vatNumber}<br/>{/if}
-      {#if company.email}{company.email}{/if}{#for contact in catalogContacts}<br/>{contact.displayName}: {contact.phone}{#else}{#if company.phone}<br/>{company.phone}{/if}{/for}
-      {#if company.website}<br/>{company.website}{/if}
+      {#if company.vatNumber}<span class="tx">{copy['catalog.simple.vatnumber']}</span> {company.vatNumber}<br/>{/if}
+      {#if company.email}{company.email}{/if}{#for contact in catalogContacts}<br/>{contact.displayName} {contact.phone}{#else}{#if company.phone}<br/>{company.phone}{/if}{/for}{#if company.website}<br/><span class="gold">{company.website}</span>{/if}
     </td>
   </tr></table>
-</div>
+</div></div>
 
 {#if intro}<div class="intro">{intro}</div>{/if}
 
 {#for section in sections}
   {#for p in section.products}
-    <div class="product-block">
+    <div class="block">
       {#if p_index == 0 && section.name}
         <div class="chapter">
-          <table><tr><td class="number">{section.number}</td><td>
-            <h2>{section.name}</h2>
-            {#if section.description}<div class="description">{section.description}</div>{/if}
-          </td></tr></table>
+          <table><tr>
+            <td class="number"><span>{section.number}</span></td>
+            <td class="heading"><h2>{section.name}</h2>{#if section.description}<div class="description">{section.description}</div>{/if}</td>
+          </tr></table>
         </div>
       {/if}
-      <table class="product"><tbody><tr>
-        <td>
-          <h3 class="name">{p.name}</h3>
-          <div class="sub">{#if p.size}<b>{p.size}</b> · {/if}{#if p.productSize}{copy['catalog.common.productdimensions']} {p.productSize} · {/if}{copy['catalog.spec.hscode']} {#if p.hsCode}{p.hsCode}{#else}-{/if}</div>
-        </td>
-        {#if p.priceLabel}
-          <td class="price-cell">
-            {#if p.displayPriceLabel}
-              <div class="price-main">{p.displayPriceLabel}</div>
-              {#if p.priceLabel != copy['catalog.brochure.overview.priceonrequest']}<div class="price-sub">{p.priceLabel} · {p.perUnitLabel}</div>{/if}
-            {#else}
-              <div class="price-main">{p.priceLabel}{#if p.priceLabel != copy['catalog.brochure.overview.priceonrequest']} <small>{p.perUnitLabel}</small>{/if}</div>
-            {/if}
-          </td>
-        {/if}
-      </tr></tbody></table>
-      <table class="logistics"><tr>
-        <td class="first"><div class="label">{copy['catalog.common.carton']}</div><div class="value">{p.cartonQuantity}</div>{#if p.cartonSize}<div class="detail">{p.cartonSize}</div>{/if}</td>
-        <td><div class="label">{copy['catalog.simple.pallet']}</div><div class="value">{p.palletUnits}</div>{#if p.palletCartons}<div class="detail">{p.palletCartons}</div>{/if}</td>
-        <td><div class="label">{copy['catalog.simple.kar']}</div><div class="value">{p.karUnits}</div>{#if p.karCartons}<div class="detail">{p.karCartons}</div>{/if}</td>
-        <td><div class="label">{copy['catalog.simple.container20ft']}</div><div class="value">{p.capacity20Ft}</div></td>
-        <td><div class="label">{copy['catalog.simple.container40ft']}</div><div class="value">{p.capacity40Ft}</div></td>
-      </tr></table>
-      <table class="colours">
-        {#for row in p.colourRows}<tr>
-          {#for c in row.cells}<td class="colour">
-            <table class="colour-card"><tr>
-              {#if p.photos}<td class="thumb">{#if c.image}<img src="{c.image}" alt="{c.label}"/>{#else}<div class="no-photo"></div>{/if}</td>{/if}
-              <td class="colour-text">
-                <div class="colour-name">{#if c.hasSwatch}<span class="dot" style="background:{c.swatch}"></span>{/if}{c.label}</div>
-                <div class="sku">{c.sku}</div>
-                {#if c.ean}<div>EAN {c.ean}</div>{/if}
-                {#if c.cartonEan}<div>EAN {copy['catalog.common.carton']} {c.cartonEan}</div>{/if}
-                {#if c.outOfStock}<div class="nostock">{copy['catalog.simple.outofstock']}</div>{/if}
+      <div class="card">
+        <div class="top">
+          {#if p.colourCount == 1 && p.photos}<table class="duo"><tr><td class="hero">{#for c in p.colours}<div class="ph">{#if c.image}<img src="{c.image}" alt=""/><span class="mask"></span>{#else}<div class="blank">{#if c.hasSwatch}<span style="background:{c.swatch}"></span>{/if}</div>{/if}</div>{/for}</td><td class="body">{/if}
+          <table class="head"><tr>
+            <td>
+              <h3 class="name">{p.name}</h3>
+              <div class="meta">{#if p.size}<span class="maat">{p.size}</span>{/if}{#if p.productSize}{copy['catalog.common.productdimensions']} <b>{p.productSize}</b><span class="sep">·</span>{/if}{copy['catalog.spec.hscode']} {#if p.hsCode}<b>{p.hsCode}</b>{#else}<b class="na">–</b>{/if}{#if p.allOutOfStock}<span class="gone">{copy['catalog.simple.outofstock']}</span>{/if}</div>
+            </td>
+            {#if p.priceLabel}
+              <td class="price">
+                {#if p.displayPriceLabel}
+                  {#if p.displayPriceHead && p.displayPriceAmount}<table class="deal"><tr><td class="lead">{p.displayPriceHead}</td><td class="amount">{p.displayPriceAmount}</td></tr></table>{#else}<div class="amount whole">{p.displayPriceLabel}</div>{/if}
+                  {#if !p.priceOnRequest}<div class="per"><span class="lat">{p.priceLabel}</span> {p.perUnitLabel}</div>{/if}
+                {#else if p.priceOnRequest}
+                  <div class="request">{p.priceLabel}</div>
+                {#else}
+                  <div class="amount">{p.priceLabel}</div>
+                  <div class="per">{p.perUnitLabel}</div>
+                {/if}
               </td>
-            </tr></table>
-          </td>{/for}{#if row.filler > 0}{#for f in row.filler}<td class="colour"></td>{/for}{/if}
-        </tr>{/for}
-      </table>
+            {/if}
+          </tr></table>
+          {#if !p.photos}
+            <div class="shelf chips{#if p.colourCount > 5} rows{/if}">{#for c in p.colours}<div class="cell"><table class="pc"><tr>{#if c.hasSwatch || p.colourCount > 1}<td class="pic">{#if c.hasSwatch}<div class="disc" style="background:{c.swatch}"></div>{/if}</td>{/if}<td class="cap">
+                <div class="colour">{c.label}</div>
+                <div class="sku">{c.sku}</div>
+                {#if c.ean}<div class="ean">EAN {c.ean}</div>{/if}
+                {#if c.cartonEan}<div class="ean">EAN <span class="tx">{copy['catalog.common.carton']}</span> {c.cartonEan}</div>{/if}
+                {#if c.outOfStock && !p.allOutOfStock}<div class="out">{copy['catalog.simple.outofstock']}</div>{/if}
+              </td></tr></table></div>{/for}</div>
+          {#else if p.colourCount == 1}
+            {#for c in p.colours}<div class="cap solo">
+                <div class="colour">{#if c.hasSwatch}<span class="dot" style="background:{c.swatch}"></span>{/if}{c.label}</div>
+                <div class="sku">{c.sku}</div>
+                {#if c.ean}<div class="ean">EAN {c.ean}</div>{/if}
+                {#if c.cartonEan}<div class="ean">EAN <span class="tx">{copy['catalog.common.carton']}</span> {c.cartonEan}</div>{/if}
+                {#if c.outOfStock && !p.allOutOfStock}<div class="out">{copy['catalog.simple.outofstock']}</div>{/if}
+              </div>{/for}
+            </td></tr></table>
+          {#else if p.colourCount < 4}
+            <div class="shelf side n{p.colourCount}">{#for c in p.colours}<div class="cell"><table class="pc"><tr><td class="pic"><div class="ph">{#if c.image}<img src="{c.image}" alt=""/><span class="mask"></span>{#else}<div class="blank">{#if c.hasSwatch}<span style="background:{c.swatch}"></span>{/if}</div>{/if}</div></td><td class="cap">
+                <div class="colour">{#if c.hasSwatch}<span class="dot" style="background:{c.swatch}"></span>{/if}{c.label}</div>
+                <div class="sku">{c.sku}</div>
+                {#if c.ean}<div class="ean">EAN {c.ean}</div>{/if}
+                {#if c.cartonEan}<div class="ean">EAN <span class="tx">{copy['catalog.common.carton']}</span> {c.cartonEan}</div>{/if}
+                {#if c.outOfStock && !p.allOutOfStock}<div class="out">{copy['catalog.simple.outofstock']}</div>{/if}
+              </td></tr></table></div>{/for}</div>
+          {#else}
+            <div class="shelf{#if p.colourCount == 5} n5{#else if p.colourCount == 6} n6{#else if p.colourCount > 6} rows{/if}">{#for c in p.colours}<div class="cell"><div class="ph">{#if c.image}<img src="{c.image}" alt=""/><span class="mask"></span>{#else}<div class="blank">{#if c.hasSwatch}<span style="background:{c.swatch}"></span>{/if}</div>{/if}</div><div class="cap under">
+                <div class="colour">{#if c.hasSwatch}<span class="dot" style="background:{c.swatch}"></span>{/if}{c.label}</div>
+                <div class="sku">{c.sku}</div>
+                {#if c.ean}<div class="ean">EAN {c.ean}</div>{/if}
+                {#if c.cartonEan}<div class="ean">EAN <span class="tx">{copy['catalog.common.carton']}</span> {c.cartonEan}</div>{/if}
+                {#if c.outOfStock && !p.allOutOfStock}<div class="out">{copy['catalog.simple.outofstock']}</div>{/if}
+              </div></div>{/for}</div>
+          {/if}
+        </div>
+        <div class="ribbon"><table>
+          <tr class="lab">
+            <td{#if !p.carton.known} class="off"{/if}>{copy['catalog.common.carton']}</td>
+            <td{#if !p.pallet.known} class="off"{/if}>{copy['catalog.simple.pallet']}</td>
+            <td{#if !p.kar.known} class="off"{/if}>{copy['catalog.simple.kar']}</td>
+            <td{#if !p.gp.known} class="off"{/if}>{copy['catalog.simple.short20ft']}</td>
+            <td{#if !p.hc.known} class="off"{/if}>{copy['catalog.simple.short40ft']}</td>
+          </tr>
+          <tr class="num">
+            <td><div class="fg">{#if p.carton.known}<img src="{icons.carton}" alt=""/><b>{p.carton.number}</b>&#160;{p.carton.unit}{#else}<img src="{icons.cartonSoft}" alt=""/><span class="none">–</span>{/if}</div>{#if p.carton.detail}<div class="det">{p.carton.detail}</div>{/if}</td>
+            <td><div class="fg">{#if p.pallet.known}<img src="{icons.pallet}" alt=""/><b>{p.pallet.number}</b>&#160;{p.pallet.unit}{#else}<img src="{icons.palletSoft}" alt=""/><span class="none">–</span>{/if}</div>{#if p.pallet.detail}<div class="det">{p.pallet.detail}</div>{/if}</td>
+            <td><div class="fg">{#if p.kar.known}<img src="{icons.kar}" alt=""/><b>{p.kar.number}</b>&#160;{p.kar.unit}{#else}<img src="{icons.karSoft}" alt=""/><span class="none">–</span>{/if}</div>{#if p.kar.detail}<div class="det">{p.kar.detail}</div>{/if}</td>
+            <td><div class="fg">{#if p.gp.known}<img src="{icons.container20}" alt=""/><b>{p.gp.number}</b>&#160;{p.gp.unit}{#else}<img src="{icons.container20Soft}" alt=""/><span class="none">–</span>{/if}</div></td>
+            <td><div class="fg">{#if p.hc.known}<img src="{icons.container40}" alt=""/><b>{p.hc.number}</b>&#160;{p.hc.unit}{#else}<img src="{icons.container40Soft}" alt=""/><span class="none">–</span>{/if}</div></td>
+          </tr>
+        </table></div>
+      </div>
     </div>
   {/for}
 {/for}
