@@ -648,6 +648,20 @@ public record PurchaseOrder(
                 createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance, inspectionViaSupplier);
     }
 
+    /**
+     * Same order with this track &amp; trace reference and this departure day: the two things a bill of lading is
+     * taken over with. A form save never takes a departure day from outside (it keeps the stored one), so this
+     * is the one way a day read from a document reaches the order.
+     */
+    public PurchaseOrder withTracking(String trackingReference, LocalDate shippedOn) {
+        return new PurchaseOrder(id, number, alias, supplierId, orderDate, status, containerType, cnyToUsd,
+                usdToEurGoods, usdToEurTransport, freightUsd, originCosts, originCurrency, destinationCostsEur,
+                defaultDutyRatePct, extraRevenueEur, allocFreight, allocOrigin, allocDestination, allocExtra,
+                departurePort, destinationPort, receivingLocationId, groupVariants, expectedArrival,
+                receivedOn, paidTotalEur, stockBooked, paymentTerms, shippedOn, trackingReference,
+                createdBy, createdAt, notes, lines, inspectionCostEur, otherCosts, archivedAt, partnerCustomerId, partnerCostPct, partnerSharePct, allocSeparate, payPctOrdered, payPctShipped, payPctArrived, freightViaSupplier, clearance, inspectionViaSupplier);
+    }
+
     /** Compatibility for callers written before variant grouping existed. */
     public PurchaseOrder(
             Long id, String number, String alias, Long supplierId, LocalDate orderDate,

@@ -532,6 +532,50 @@ public class PurchaseOrderService {
                 /* Server-owned: set by its own endpoint or by a payment that says so, never by a form save. */
                 .withInspectionViaSupplier(current.inspectionViaSupplier()));
 
+        saved = rebindAndRecord(current, saved, byId, stepBack);
+        /* A step back corrects a mistake; it is not news for anyone's phone. */
+        if (current.status() != saved.status() && !stepBack) {
+            switch (saved.status()) {
+                case BESTELD -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.ORDERED,
+                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
+                case ONDERWEG -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.DEPARTED,
+                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
+                default -> { }
+            }
+        }
+        return new UpdateResult(saved, warnings);
+    }
+
+    /**
+     * The track &amp; trace reference and the departure day, and nothing else of the order: what a bill of lading
+     * is taken over with ({@code BillOfLadingService.apply}, which decides whether the order may still change).
+     * A null argument leaves that value as it is stored.
+     *
+     * <p>Deliberately not a call of {@link #update(long, PurchaseOrder, boolean)}: a form save never takes a
+     * departure day from outside ({@code shippedOnAfter} keeps the stored one), and it runs the header and line
+     * rules against today's suppliers and products, so a rule that has nothing to do with tracking could refuse
+     * the bill. The status is left alone, also for an order that is still Besteld: tracking writes the departure
+     * day the same way, and the step to Vertrokken keeps a day that is stored. What follows the save is the form
+     * save's own: the linked ship follows the new reference and the history gets its line.</p>
+     */
+    @Transactional
+    public PurchaseOrder changeTracking(long id, String reference, LocalDate shippedOn) {
+        PurchaseOrder current = getForUpdate(id);
+        String text = reference == null || reference.isBlank() ? current.trackingReference() : reference.strip();
+        LocalDate day = shippedOn == null ? current.shippedOn() : shippedOn;
+        if (Objects.equals(text, current.trackingReference()) && Objects.equals(day, current.shippedOn())) return current;
+        PurchaseOrder saved = orders.save(current.withTracking(text, day));
+        /* No line changed, so the history needs no product names. */
+        return rebindAndRecord(current, saved, Map.of(), false);
+    }
+
+    /**
+     * What follows a save of the order's header, shared by the form save and {@link #changeTracking}: the ship
+     * linked for track &amp; trace follows a rewritten reference, and the order's history gets one line. Returns the
+     * order as it stands after that, which is what the caller answers with.
+     */
+    private PurchaseOrder rebindAndRecord(PurchaseOrder current, PurchaseOrder saved, Map<Long, Product> byId,
+                                          boolean stepBack) {
         if (!java.util.Objects.equals(current.trackingReference(), saved.trackingReference())
                 && vesselLinks != null && vesselLinks.isResolvable()) {
             vesselLinks.get().rebind(saved.id(), current.trackingReference(), saved.trackingReference());
@@ -553,17 +597,7 @@ public class PurchaseOrderService {
                 recordActivity(ActivityLogService.ACTION_UPDATED, saved, "Inkooporder bijgewerkt", auditChanges);
             }
         }
-        /* A step back corrects a mistake; it is not news for anyone's phone. */
-        if (current.status() != saved.status() && !stepBack) {
-            switch (saved.status()) {
-                case BESTELD -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.ORDERED,
-                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
-                case ONDERWEG -> firePush(new PurchasePushNotifier.Ready(PurchasePushNotifier.Kind.DEPARTED,
-                        saved.id(), saved.number(), saved.destinationPort(), false, currentActor()));
-                default -> { }
-            }
-        }
-        return new UpdateResult(saved, warnings);
+        return saved;
     }
 
     private record LinePurchasePrice(BigDecimal amount, Currency currency) {}
