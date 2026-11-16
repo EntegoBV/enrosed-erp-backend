@@ -17,6 +17,8 @@ import be.enrosed.sourcing.domain.PurchaseCostLabels;
 import be.enrosed.sourcing.domain.Supplier;
 import be.enrosed.sourcing.tracking.ArrivalPlanStore;
 import be.enrosed.sourcing.tracking.ContainerTrackingService;
+import be.enrosed.sourcing.tracking.TrackingDateSync;
+import be.enrosed.sourcing.tracking.bill.BillOfLadingService;
 import be.enrosed.shared.security.AdminIdentityProvider;
 import be.enrosed.shared.security.ActorRef;
 import jakarta.annotation.security.RolesAllowed;
@@ -43,6 +45,8 @@ public class SourcingResource {
     @jakarta.inject.Inject PurchaseInvoiceService invoices;
     @jakarta.inject.Inject ArrivalPlanStore arrivals;
     @jakarta.inject.Inject ContainerTrackingService tracking;
+    @jakarta.inject.Inject TrackingDateSync trackingDates;
+    @jakarta.inject.Inject BillOfLadingService billsOfLading;
 
     public SourcingResource(SupplierService suppliers, PurchaseOrderService purchaseOrders,
                             PdfPurchaseRenderer purchasePdf) {
@@ -307,6 +311,40 @@ public class SourcingResource {
         ArrivalPlanStore.Result result = arrivals.set(id, request);
         if (result.followed()) tracking.adoptStoredDates(id);
         return currentView(id);
+    }
+
+    /**
+     * Track &amp; trace from the bill of lading: what the bills in the order's dossier say (container, bill number,
+     * ship and voyage, ports, on-board day) and what taking each of them over would change. Reads stored documents
+     * only; no source is asked.
+     */
+    @GET
+    @Path("/purchase-orders/{id}/bill-of-lading")
+    public BillOfLadingService.Overview billOfLading(@PathParam("id") long id) {
+        return billsOfLading.overview(id);
+    }
+
+    /**
+     * Takes one bill over (reference, departure day, the bill's ship and the ship link), lets tracking check at
+     * once, and answers the order as it stands after that check.
+     */
+    @POST
+    @Path("/purchase-orders/{id}/bill-of-lading")
+    public PurchaseOrderView applyBillOfLading(@PathParam("id") long id, BillOfLadingService.ApplyRequest request) {
+        billsOfLading.apply(id, request);
+        try {
+            tracking.refresh(id);
+        } catch (RuntimeException ignored) {
+            /* The bill is taken over; the check is a courtesy. The reference may still be one the tracker cannot
+               follow (it answers 404 then), and a source that fails must not fail this answer: the scheduled
+               check comes by anyway. */
+        }
+        /* Not currentView(id): the check reads the orders outside a transaction before its date sync writes, so a
+           plain read in this request would answer the dates from before (the trap TrackingDateSync.reread names).
+           Read in its own transaction, the order carries the departure and the arrival the check just wrote. */
+        PurchaseOrder order = trackingDates.reread(id)
+                .orElseThrow(() -> new be.enrosed.shared.NotFoundException("Inkooporder", id));
+        return view(order, purchaseOrders.calculate(order), List.of());
     }
 
     /** A partner comes in, the deal changes, or the partner leaves; the container carries the settings itself. */
