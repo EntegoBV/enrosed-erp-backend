@@ -323,8 +323,14 @@ public class ContainerTrackingService {
                ship the final bill names, a departure or arrival by hand). */
             try {
                 TrackingStore.Snapshot feed = store.find(vesselFeedReference(link.imo()).key());
-                if (feed != null && feed.error() == null && feed.observation() != null)
+                if (feed != null && feed.error() == null && feed.observation() != null) {
                     dateSync.vessel(order, link, feed.observation(), feed.checkedAt(), Instant.now());
+                    /* The carrier date below is judged against the order as the ship's calls left it, as syncDue and
+                       refresh do: vessel may have written the departure or the arrival, and TrackingDateSync.current
+                       refuses a baseline from before that write ("De container is tijdens de controle gewijzigd"),
+                       which would be stored as the date lookup's note and keep the carrier date off the order. */
+                    order = dateSync.reread(orderId).orElse(order);
+                }
             } catch (RuntimeException ignored) {
                 /* The scheduled check judges the feed again. */
             }
