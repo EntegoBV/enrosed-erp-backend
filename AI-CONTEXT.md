@@ -3486,7 +3486,10 @@ inkooporders; Verhoeven moet het op zijn portaal terugzien."
     judging live, so `adoptStoredDates` stores its own verdict for the new day in place of the last check's note
     (`TrackingStore.noted`: only while that check's success is still the last attempt; the instants and the
     schedule stay). A refresh held back by the 15-minute cooldown therefore no longer leaves a refusal that names
-    the old day.
+    the old day. `adoptStoredDates` also judges the linked ship's feed as last fetched (shared feed row, fresh
+    within 24 hours) through `TrackingDateSync.vessel`, asking nothing: a departure put right just after a typo took
+    "schip aangekomen" back gets it back at once, though the order's own check is in its cooldown (seen locally
+    2026-11-17: 12/11 dropped the 15/11 arrival, 06/10 brought it back in the same request).
   - **JSON**: `arrival.departureByHand` (`ArrivalPlanStore.Plan` / `View`), always a boolean on this server: the
     screens take its presence as the server knowing the feature. The tracking row, the partner portal and the native
     app's feed get nothing new.
