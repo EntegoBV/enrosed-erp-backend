@@ -122,9 +122,15 @@ public class TrackingDateSync {
     private static String recordedPort(String port) { return port == null || port.isBlank() ? null : port.strip(); }
 
     private void apply(PurchaseOrderEntity current, Plan plan, String source) {
-        LocalDate departure = plan.shippedOn() == null ? current.shippedOn : plan.shippedOn();
-        /* An arrival set by hand stays until "Volg track & trace" (ArrivalPlanStore); the departure still follows.
-           So does the day the ship came in: an arrival that happened beats a source's planning. */
+        /* The departure follows a source only while it is not by hand. A day set in the Aankomst sheet
+           (ArrivalPlanStore) stays: a source that names another day within the three-day voyage window would put
+           its own day back at every pass. This covers the ship's port calls (vessel) and the carrier dates
+           (shipment); the arrival part of the same plan is applied as before. The mark ends when the day is written
+           through an order save: a status step back, a bill of lading taken over (PanacheSourcingRepositories.save). */
+        boolean departureKept = Boolean.TRUE.equals(current.departureByHand);
+        LocalDate departure = departureKept || plan.shippedOn() == null ? current.shippedOn : plan.shippedOn();
+        /* An arrival set by hand stays until "Volg track & trace" (ArrivalPlanStore), and so does the day the ship
+           came in: an arrival that happened beats a source's planning. */
         boolean kept = Boolean.TRUE.equals(current.arrivalByHand) || current.portArrivedOn != null;
         LocalDate arrival = kept || plan.expectedArrival() == null ? current.expectedArrival : plan.expectedArrival();
         write(current, departure, arrival, current.portArrivedOn, source);

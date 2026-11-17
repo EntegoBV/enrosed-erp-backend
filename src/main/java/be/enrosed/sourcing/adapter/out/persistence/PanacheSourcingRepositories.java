@@ -661,6 +661,12 @@ public final class PanacheSourcingRepositories {
             entity.paidTotalEur = order.paidTotalEur();
             entity.stockBooked = order.stockBooked();
             entity.paymentTerms = order.paymentTerms();
+            /* A departure day set by hand in the Aankomst sheet (ArrivalPlanStore) stays until the day is written
+               through an order save: a status step back empties it, a bill of lading taken over writes its on-board
+               day (PurchaseOrderService.changeTracking), and that day is then the day tracking may refine again. A
+               form save keeps the stored day (PurchaseOrderService.shippedOnAfter), so an ordinary save, a receipt,
+               an archive or a partner change keeps the mark. */
+            if (!java.util.Objects.equals(entity.shippedOn, order.shippedOn())) entity.departureByHand = null;
             entity.shippedOn = order.shippedOn();
             entity.trackingReference = order.trackingReference();
             entity.createdBy = order.createdBy() == null ? null : order.createdBy().username();
