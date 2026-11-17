@@ -3382,7 +3382,8 @@ works without ShipsGo and keeps working with it. Details: `docs/integrations/con
 - **Failure** = last attempt failed (`TrackingStore.Snapshot.checkFailed`: error and `checkedAt` ≠
   `updatedAt`), also without a source; `failureDataAt` is the failing snapshot's own last success.
   Not a failure: a date that could not be applied (`checkDates` writes it with the same instant as
-  its success: keep that), and `BexyClient.NO_DATA_YET` while the bill never gave data (once it did,
+  its success: keep that; `adoptStoredDates` may replace that note through `TrackingStore.noted`,
+  which keeps the instants), and `BexyClient.NO_DATA_YET` while the bill never gave data (once it did,
   it is the failure "De datumbron gaf bij de laatste controle geen gegevens."). A received order
   sends no failure.
 - **Manual check**: `refreshOutcome` CHECKED / COOLDOWN / BUSY / OFF / NO_SOURCE; `manualCheckAt` is
@@ -3481,8 +3482,11 @@ inkooporders; Verhoeven moet het op zijn portaal terugzien."
   - **After the save** (`SourcingResource.setArrival`): `Result.departureChanged` (the day itself was written) runs
     `adoptStoredDates` (also after `followed`) and then `tracking.refresh(id)` in try/catch, as after a bill; the
     answer is built from `TrackingDateSync.reread(id)`, never `currentView(id)` after a check. A save that leaves the
-    departure alone answers `currentView(id)` as before. A refresh held back by the 15-minute cooldown leaves the
-    last check's stored refusal on the row until the next scheduled check.
+    departure alone answers `currentView(id)` as before. The row shows the date lookup's stored note instead of
+    judging live, so `adoptStoredDates` stores its own verdict for the new day in place of the last check's note
+    (`TrackingStore.noted`: only while that check's success is still the last attempt; the instants and the
+    schedule stay). A refresh held back by the 15-minute cooldown therefore no longer leaves a refusal that names
+    the old day.
   - **JSON**: `arrival.departureByHand` (`ArrivalPlanStore.Plan` / `View`), always a boolean on this server: the
     screens take its presence as the server knowing the feature. The tracking row, the partner portal and the native
     app's feed get nothing new.

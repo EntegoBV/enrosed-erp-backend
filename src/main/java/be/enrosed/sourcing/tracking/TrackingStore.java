@@ -127,6 +127,24 @@ public class TrackingStore {
         entity.nextCheckAt = now.plus(Duration.ofHours(INTERVAL_HOURS));
     }
 
+    /**
+     * The stored date judged again without asking the source (ContainerTrackingService.adoptStoredDates, after the
+     * Aankomst sheet wrote a new departure day or gave the container's day back to tracking): its verdict, null when
+     * the date applied, replaces the note the last check wrote beside its success. Only while that success is still
+     * the last attempt: a check that wrote since (another checkedAt than the caller read) is newer, and a failed
+     * attempt (checkedAt after updatedAt) or a snapshot that never succeeded keeps its message. checkedAt, updatedAt
+     * and nextCheckAt stay, so the manual cooldown, the six-hour schedule and Snapshot.checkFailed() read as before.
+     * The row is locked: this runs outside the tracking lease, so a scheduled check can write it at the same moment,
+     * and an update writes every column, which would put that check's row back as it was read here.
+     */
+    @Transactional
+    public void noted(Reference reference, Instant checkedAt, String note) {
+        TrackingEntity entity = TrackingEntity.findById(reference.key(), LockModeType.PESSIMISTIC_WRITE);
+        if (entity == null || entity.checkedAt == null || !entity.checkedAt.equals(checkedAt)
+                || !entity.checkedAt.equals(entity.updatedAt)) return;
+        entity.lastError = note;
+    }
+
     private TrackingEntity entity(Reference reference) {
         TrackingEntity entity = TrackingEntity.findById(reference.key());
         if (entity == null) {

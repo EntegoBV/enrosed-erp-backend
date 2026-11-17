@@ -297,8 +297,9 @@ public class ContainerTrackingService {
     }
 
     /**
-     * "Volg track & trace" just gave the arrival back: the date the source gave last is applied now when it is still
-     * fresh (TrackingDateSync checks that, as every check does); otherwise the next check applies it. No source is asked.
+     * "Volg track & trace" just gave the arrival back, or the Aankomst sheet wrote a new departure day: the date the
+     * source gave last is judged against the order as it stands now and applied when it is still fresh
+     * (TrackingDateSync checks that, as every check does); otherwise the next check applies it. No source is asked.
      * When the linked ship is in, the day is its arrival instead.
      */
     public void adoptStoredDates(long orderId) {
@@ -318,8 +319,14 @@ public class ContainerTrackingService {
         Observation data = snapshot == null ? null : snapshot.observation();
         Observation dateData = dateSnapshot == null ? null : dateSnapshot.observation();
         try {
-            if (dateData != null) dateSync.shipment(order, dateData, Instant.now(), "Evergreen via bexy");
-            else if (data != null && data.dateEvidence() != null) dateSync.shipment(order, data, Instant.now(), "ShipsGo");
+            if (dateData != null) {
+                String verdict = dateSync.shipment(order, dateData, Instant.now(), "Evergreen via bexy");
+                /* row() shows a stored note instead of judging live, so a note the last check judged against the
+                   departure day from before this save would name that old day beside the new one until the next
+                   check, and the cooldown can hold back the check that follows the save. The store keeps a newer
+                   check's note and a failure's message. ShipsGo's verdict is never stored: row() judges it live. */
+                store.noted(dates, dateSnapshot.checkedAt(), verdict);
+            } else if (data != null && data.dateEvidence() != null) dateSync.shipment(order, data, Instant.now(), "ShipsGo");
         } catch (RuntimeException ignored) {
             /* The hand mark is gone already; the scheduled check applies the date. */
         }
