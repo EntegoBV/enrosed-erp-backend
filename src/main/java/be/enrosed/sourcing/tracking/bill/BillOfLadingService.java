@@ -374,7 +374,9 @@ public class BillOfLadingService {
 
     /**
      * Takes one bill over: the reference and the departure day, what the bill names as ship and voyage, and the
-     * ship link. A stored arrival of a linked ship that the final bill does not name is taken back with it.
+     * ship link. A stored arrival of a linked ship that the final bill does not name is taken back with it, and so
+     * is one that cannot be this voyage's for the bill's departure day. The bill's day ends a departure day set by
+     * hand (it is written through the order's save), and tracking may refine it again.
      * Refused in Dutch (409) when the order can no longer change, the document holds no readable bill,
      * the reference was changed since the screen read it, or the IMO number is not one or belongs to another ship.
      * No source is asked inside this transaction.
@@ -439,7 +441,12 @@ public class BillOfLadingService {
               same test the ship check uses; after a relink just above there is nothing left to take back. */
         boolean otherShipStays = link != null
                 && VesselDirectory.differs(named.vessel(), directory.nameOf(link.imo()).orElse(null));
-        List<ActivityChangeDto> lapsed = otherShipStays ? links.forgetArrivalOfOtherShip(orderId) : List.of();
+        List<ActivityChangeDto> lapsed = new ArrayList<>(otherShipStays ? links.forgetArrivalOfOtherShip(orderId) : List.of());
+        /*    Step 1 wrote the bill's on-board day as the departure: an arrival stored before that lies outside the
+              new day's voyage window is a call the ship check would refuse now, so it goes too, by the rule the
+              Aankomst sheet uses when the day is set there. Here as well the user takes the bill over with the
+              day's change on screen. After the other-ship case just above there is nothing left to take back. */
+        if (!Objects.equals(order.shippedOn(), now.shippedOn())) lapsed.addAll(links.forgetArrivalOutsideVoyage(orderId));
         /* 4. One line in the order's history, with what step 1 did not already write there. It is also written
               when only step 1 changed something: its own line reads "Inkooporder bijgewerkt", as a form save
               does, and this one says the bill of lading was where it came from. Each value is compared with how

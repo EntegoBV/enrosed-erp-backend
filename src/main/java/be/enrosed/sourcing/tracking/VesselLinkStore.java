@@ -108,6 +108,25 @@ public class VesselLinkStore {
     }
 
     /**
+     * A bill of lading taken over just wrote its on-board day as the departure day: a stored arrival of the linked
+     * ship that cannot be this voyage's for that day goes, as when the day is set in the Aankomst sheet
+     * ({@link TrackingDateSync#forgetPortArrivalOutsideVoyage}). Only BillOfLadingService.apply calls this, once its
+     * first step changed the day: the user takes the bill over with the sheet's "Vertrek" line (old day, new day) on
+     * screen. Returns what changed, for the apply's own history line; empty when the arrival stays or there is none.
+     *
+     * <p>The order is the instance managed at this moment and is flushed at once, for the reason
+     * {@link #saveBillShip} gives.</p>
+     */
+    @Transactional
+    public List<ActivityChangeDto> forgetArrivalOutsideVoyage(long orderId) {
+        PurchaseOrderEntity entity = entities.find(PurchaseOrderEntity.class, orderId);
+        if (entity == null) return List.of();
+        List<ActivityChangeDto> changes = TrackingDateSync.forgetPortArrivalOutsideVoyage(entity);
+        entities.flush();
+        return changes;
+    }
+
+    /**
      * The reference text of an order was rewritten. The linked ship stays with the order unless the text now
      * names another shipment (both texts recognised, no number in common, and neither text still shows a number
      * of the other): "BL:" put in front of a number, a B/L added behind a container number or a container put
