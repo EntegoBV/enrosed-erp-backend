@@ -300,8 +300,10 @@ public class SourcingResource {
 
     /**
      * The arrival by hand: the container's day and hour at the port (the order's expected arrival), and the day and
-     * hour at the place it is unloaded at. followTracking gives the container's day back to track & trace, which
-     * applies the date it gave last when that is still fresh. Answers the order as it stands.
+     * hour at the place it is unloaded at; since 2026-11-16 also the departure day, by hand. followTracking gives the
+     * container's day back to track & trace, which applies the date it gave last when that is still fresh. A new
+     * departure day lets tracking check at once, as taking over a bill of lading does. Answers the order as it
+     * stands after that.
      */
     @PUT
     @Path("/purchase-orders/{id}/arrival")
@@ -309,8 +311,25 @@ public class SourcingResource {
         /* No read of the order before the write: outside a transaction this request would keep the order as it
            read it first, and answer with the day from before (TrackingDateSync.reread says the same). */
         ArrivalPlanStore.Result result = arrivals.set(id, request);
-        if (result.followed()) tracking.adoptStoredDates(id);
-        return currentView(id);
+        /* The stored carrier date is judged against the order as it stands now, also against a new departure day;
+           no source is asked. */
+        if (result.followed() || result.departureChanged()) tracking.adoptStoredDates(id);
+        if (!result.departureChanged()) return currentView(id);
+        /* The departure day is the anchor of the voyage tests: the refusal of the last date check, the ship's port
+           calls cut at the old day and an arrival that only counts with the new day would otherwise stay until the
+           next scheduled check, up to six hours later. */
+        try {
+            tracking.refresh(id);
+        } catch (RuntimeException ignored) {
+            /* The day is saved; the check is a courtesy. A busy or cooled-down check asks nothing and the scheduled
+               one finishes it; a check that fails, or an order without track & trace (404), must not fail this
+               answer either. */
+        }
+        /* Not currentView(id): the check reads the orders outside a transaction before its date sync writes, so a
+           plain read in this request would answer the dates from before (the trap TrackingDateSync.reread names). */
+        PurchaseOrder order = trackingDates.reread(id)
+                .orElseThrow(() -> new be.enrosed.shared.NotFoundException("Inkooporder", id));
+        return view(order, purchaseOrders.calculate(order), List.of());
     }
 
     /**
