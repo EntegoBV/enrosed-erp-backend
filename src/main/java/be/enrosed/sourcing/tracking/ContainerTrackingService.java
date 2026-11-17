@@ -297,10 +297,11 @@ public class ContainerTrackingService {
     }
 
     /**
-     * "Volg track & trace" just gave the arrival back, or the Aankomst sheet wrote a new departure day: the date the
-     * source gave last is judged against the order as it stands now and applied when it is still fresh
-     * (TrackingDateSync checks that, as every check does); otherwise the next check applies it. No source is asked.
-     * When the linked ship is in, the day is its arrival instead.
+     * "Volg track & trace" just gave the arrival back, or the Aankomst sheet wrote a new departure day: the linked
+     * ship's port calls and the date the source gave last, as they were stored, are judged against the order as it
+     * stands now and applied when they are still fresh (TrackingDateSync checks that, as every check does);
+     * otherwise the next check applies them. No source is asked. When the linked ship is in, the day is its arrival
+     * instead.
      */
     public void adoptStoredDates(long orderId) {
         PurchaseOrder order = dateSync.reread(orderId).orElse(null);
@@ -313,6 +314,21 @@ public class ContainerTrackingService {
             return;
         }
         VesselLinkStore.Link link = links.find(order);
+        if (link != null) {
+            /* The linked ship's feed as last fetched is judged again for the day the order has now, as the ship check
+               would, without asking Voydar. The check after a save is held back for fifteen minutes after the last
+               one (MANUAL_SECONDS_FREE): a departure put right just after a typo took "schip aangekomen" back would
+               otherwise wait for the scheduled check, up to six hours, to bring it back. TrackingDateSync.vessel
+               uses a feed checked within the last 24 hours only, and its own rules decide (the voyage window, the
+               ship the final bill names, a departure or arrival by hand). */
+            try {
+                TrackingStore.Snapshot feed = store.find(vesselFeedReference(link.imo()).key());
+                if (feed != null && feed.error() == null && feed.observation() != null)
+                    dateSync.vessel(order, link, feed.observation(), feed.checkedAt(), Instant.now());
+            } catch (RuntimeException ignored) {
+                /* The scheduled check judges the feed again. */
+            }
+        }
         Reference reference = trackingReference(order, link), dates = dateReference(order);
         TrackingStore.Snapshot snapshot = reference == null ? null : store.find(reference.key());
         TrackingStore.Snapshot dateSnapshot = dates == null ? null : store.find(dates.key());
