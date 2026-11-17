@@ -175,8 +175,9 @@ public class TrackingDateSync {
 
     /**
      * The ship's arrival is no longer this container's: another ship was linked, the ship was unlinked, the
-     * reference now names another shipment, or a final bill of lading was taken over that names another ship than
-     * the linked one. The fact goes, and with it the day it put on the order: when the
+     * reference now names another shipment, a final bill of lading was taken over that names another ship than
+     * the linked one, or the user changed the departure day so that the arrival cannot be this voyage's
+     * ({@link #forgetPortArrivalOutsideVoyage}). The fact goes, and with it the day it put on the order: when the
      * expected arrival still is that day and was not set by hand, it goes back to the planning that stood before
      * tracking moved it (none when there was none), and that is the planning again, not a move. A day by hand, or
      * any other day, stays. Returns what changed for the activity log; empty when the order had no such arrival.
@@ -194,6 +195,25 @@ public class TrackingDateSync {
         return ActivityChangeSet.create()
                 .add("portArrivedOn", "Schip aangekomen", arrived, null)
                 .add("expectedArrival", "Verwachte aankomst", expected, order.expectedArrival).build();
+    }
+
+    /**
+     * The user just changed the departure day: in the Aankomst sheet (ArrivalPlanStore.set) or by taking over a
+     * bill of lading with its on-board day (BillOfLadingService.apply, through VesselLinkStore). A stored arrival of
+     * the ship that lies outside the window the ship check uses for the new day ({@link #ARRIVAL_EARLIEST_DAYS} to
+     * {@link #ARRIVAL_LATEST_DAYS} days after the departure, {@link #vesselArrival}) is a call the check would refuse
+     * now, so it goes through {@link #forgetPortArrival}, which also puts the expected arrival back to the planning
+     * when that day was the ship's and not by hand. Left in place, "schip aangekomen" would stand on the order, the
+     * bell and the partner's portal for a call that is not this voyage's, and no carrier date could move the arrival
+     * while it stood. The ship check itself never does this: it runs with nobody looking, while here the user's own
+     * step changed the day. Returns the changes; empty when the arrival stays or there is none.
+     */
+    static List<ActivityChangeDto> forgetPortArrivalOutsideVoyage(PurchaseOrderEntity order) {
+        LocalDate arrived = order.portArrivedOn, departed = order.shippedOn;
+        if (arrived == null || departed == null) return List.of();
+        boolean inVoyage = !arrived.isBefore(departed.plusDays(ARRIVAL_EARLIEST_DAYS))
+                && !arrived.isAfter(departed.plusDays(ARRIVAL_LATEST_DAYS));
+        return inVoyage ? List.of() : forgetPortArrival(order);
     }
 
     public static Plan shipmentPlan(PurchaseOrder order, Observation data, Instant now) {
