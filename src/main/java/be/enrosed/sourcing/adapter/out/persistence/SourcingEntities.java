@@ -153,8 +153,9 @@ public final class SourcingEntities {
         /**
          * The day the linked ship arrived at the port of destination, read from its port calls ("schip aangekomen",
          * never "container gelost"); null = not in, or no ship linked. Only TrackingDateSync writes it; it is cleared
-         * when the ship or the shipment changes and when the order is no longer under way. Like the columns above it
-         * is not on the PurchaseOrder record, so a form save cannot set or undo it.
+         * when the ship or the shipment changes, when the user changes the departure day so that it cannot be this
+         * voyage's (TrackingDateSync.forgetPortArrivalOutsideVoyage) and when the order is no longer under way. Like
+         * the columns above it is not on the PurchaseOrder record, so a form save cannot set or undo it.
          */
         @Column(name = "port_arrived_on") public LocalDate portArrivedOn;
         /**

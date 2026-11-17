@@ -390,7 +390,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `orderedQuantity` per line so short shipments stay visible; arrival
   books stock. `shippedOn` is server-owned: set to today (Brussels) the
   first time the status says ONDERWEG, then kept; the form value is
-  ignored.
+  ignored. Only tracking (within three days), a bill of lading taken over
+  and the Aankomst sheet (by hand, since 2026-11-16) correct it later; see
+  "Aankomst met de hand".
 - Step back (2026-10-14), for a status set by mistake: the same
   `PUT /purchase-orders/{id}` with `?stepBack=true` (service
   `update(id, order, true)`) accepts an earlier status
@@ -3432,10 +3434,11 @@ inkooporders; Verhoeven moet het op zijn portaal terugzien."
   {plaats}", "Uur aankomst {plaats}"). Do not read the order before the write in that request: outside a
   transaction the request keeps the first read and answered the old day (seen and fixed while building).
 - **By hand** counts only while the order has a track & trace reference and a day: `TrackingDateSync.apply`
-  then keeps `expected_arrival` (the departure still follows); a day tracking does move clears the hour. The
-  tracking row has `arrivalByHand` and `sourceArrival` (the source's usable date while it differs; no "wijkt
-  af" dateError then). `containerByHand: false` on a by-hand order gives it back: `ContainerTrackingService.
-  adoptStoredDates` applies the stored source date at once when it is fresh, else the next check does.
+  then keeps `expected_arrival` (the departure follows only while it is not by hand, see "Vertrek met de hand"
+  below); a day tracking does move clears the hour. The tracking row has `arrivalByHand` and `sourceArrival` (the
+  source's usable date while it differs; no "wijkt af" dateError then). `containerByHand: false` on a by-hand order
+  gives it back: `ContainerTrackingService.adoptStoredDates` applies the stored source date at once when it is
+  fresh, else the next check does.
 - **Order form save** (`PanacheSourcingRepositories.save`): a day that changes there drops the hour and the hand
   mark (the screens no longer edit the day in the form; an older screen or a stale draft is planning).
 - **Order answer**: `PurchaseOrderView.arrival` (`ArrivalPlanStore.View`, never null; the list reads all plans
@@ -3444,6 +3447,56 @@ inkooporders; Verhoeven moet het op zijn portaal terugzien."
   `warehouseArrivalTime` (null once received; the warehouse ones only where the place may be named: his own
   container or the main warehouse), `ContainerPage.warehouseName` (the MAIN location's name, Zaltbommel).
 - Checked on a local dev jar through the API (both modes, the form save, the refusals, the portal answer).
+- **Vertrek met de hand** (2026-11-16, Emre asked whether to add a departure day to the sheet: "Ja, voeg toe").
+  `shipped_on` was the day staff pressed "Container vertrokken"; only a source within three days of it or a final
+  bill could correct it, so PO-2026-011 (final B/L a scan, the ship's feed missing the Yantian call) kept 26/10 for
+  good. Details: `docs/integrations/container-tracking.md` (section "2026-11-16: the departure day by hand").
+  - **Who writes the departure day now**: the departure step (today, the first time ONDERWEG), a status step back
+    (empties it), a bill of lading taken over (its on-board day, through `PurchaseOrderService.changeTracking`),
+    tracking (`TrackingDateSync.write`, within three days, never while the day is by hand) and this sheet. The form
+    save never takes a day (`shippedOnAfter`).
+  - **Column** `purchase_order.departure_by_hand` (boolean, null = no; migration
+    `docs/migrations/2026-11-16/purchase-order-departure-by-hand-postgresql.sql`, Dockerfile COPY and the last runner
+    line). Entity only, beside `arrival_by_hand`: the `PurchaseOrder` record does not carry it, so a form save cannot
+    set or undo it.
+  - **Request** `shippedOn` ("yyyy-MM-dd", the sixth component of `ArrivalPlanStore.Request`): null or absent leaves
+    the departure alone (older screens). The screen sends it only when the user set the day, so a request that
+    carries it means by hand, also when the day equals the stored one (then only "Vertrek met de hand" is logged,
+    nothing when it already was). Only for ONDERWEG with a day: another day on any other order is refused "De
+    vertrekdag kan je aanpassen zodra de container vertrokken is." (an equal day is ignored). A new day after today
+    (Brussels) or before the order date is refused ("De vertrekdag kan niet in de toekomst liggen.", "De vertrekdag
+    kan niet vóór de orderdatum liggen.").
+  - **Order of `set(...)`**: the departure first, then the container's day against the order as it stands (follow
+    mode reads the stored day). A day that was written takes back a stored ship arrival outside its voyage
+    (`TrackingDateSync.forgetPortArrivalOutsideVoyage`: before day + 7 or after day + 180, the ship check's own
+    window; the expected arrival goes back to the planning when it was the ship's day and not by hand).
+  - **History**: one record. "Vertrokken op", "Vertrek met de hand"; the arrival lines compare with the arrival read
+    before the departure block, and of the forget only "Schip aangekomen" joins (never a second "Verwachte aankomst"
+    the other way). Summaries "Vertrek bijgewerkt", "Vertrek en aankomst bijgewerkt" ("Schip aangekomen" counts as
+    arrival), else the texts of before.
+  - **The mark** stays until the day is written through an order save (`PanacheSourcingRepositories.save` clears it
+    when the day changes): a status step back, or a bill of lading's day; that day is then the day tracking may
+    refine again. A form save, a receipt, an archive or a partner change keeps it. While set, `TrackingDateSync.apply`
+    applies no source's departure (port calls or carrier dates); the arrival part of a plan applies as before.
+  - **After the save** (`SourcingResource.setArrival`): `Result.departureChanged` (the day itself was written) runs
+    `adoptStoredDates` (also after `followed`) and then `tracking.refresh(id)` in try/catch, as after a bill; the
+    answer is built from `TrackingDateSync.reread(id)`, never `currentView(id)` after a check. A save that leaves the
+    departure alone answers `currentView(id)` as before. A refresh held back by the 15-minute cooldown leaves the
+    last check's stored refusal on the row until the next scheduled check.
+  - **JSON**: `arrival.departureByHand` (`ArrivalPlanStore.Plan` / `View`), always a boolean on this server: the
+    screens take its presence as the server knowing the feature. The tracking row, the partner portal and the native
+    app's feed get nothing new.
+  - **Refusal text** (`TrackingDateSync.shipmentPlan`, rule unchanged): when the order has a departure day and the
+    source's start is usable (not after today, at most 180 days old) and more than three days from it, "De datumbron
+    noemt vertrek dd/MM/yyyy, de order dd/MM/yyyy. De opgeslagen planning blijft behouden."; every other case keeps
+    "De datumbron kan niet aan de huidige reis worden gekoppeld. ...". No code matches either text; keep it so.
+  - **Consequences**: (a) the day by hand is the anchor of the three-day voyage test (`TrackingDateSync.voyageDate`;
+    for the Evergreen lookup the carrier's own date is bexy's `estimated_departure`): a day more than three days from
+    the carrier's departure date makes the date lookup refuse its dates, and tracking cannot heal the day by itself,
+    until the day is put right by hand (or a final bill is taken over). (b) The year-end inventory reads the day for
+    "under way on the closing date" (`ClosingSeparations.inTransit`): a concept closing recomputes with the new day,
+    a final closing keeps its copy.
+  - Checked by build only (no server, no database).
 
 ## Track & trace uit de bill of lading (2026-11-16)
 
@@ -3489,10 +3542,13 @@ AI-CONTEXT, same title.
   or a document of another order; 409 in Dutch for an archived / concept / received order, a document without a
   readable bill, a reference changed since the screen read it, an IMO that is none, and an IMO the ERP knows
   under another ship name than the bill's. Then: (1) reference and departure day through
-  `PurchaseOrderService.changeTracking`; (2) `bill_vessel` / `bill_voyage`; (3) the ship link (IMO typed, else the
+  `PurchaseOrderService.changeTracking` (a day written there ends a departure day by hand, see "Vertrek met de
+  hand"); (2) `bill_vessel` / `bill_voyage`; (3) the ship link (IMO typed, else the
   proposal's) when the order is not linked to that ship, and after it, when the ship that is linked then is one
   its feed names otherwise than the final bill, that ship's stored arrival is taken back
-  (`VesselLinkStore.forgetArrivalOfOtherShip`); (4) one history line "Track & trace bijgewerkt uit de bill of
+  (`VesselLinkStore.forgetArrivalOfOtherShip`), and when step 1 changed the departure day, a stored arrival outside
+  the new day's voyage window too (`VesselLinkStore.forgetArrivalOutsideVoyage`, the Aankomst sheet's rule, same
+  fetch-and-flush); (4) one history line "Track & trace bijgewerkt uit de bill of
   lading" ("B/L-schip", "B/L-reis", "Schip (IMO)", and "Schip aangekomen" / "Verwachte aankomst" for an arrival
   taken back; also written when only step 1 changed something, whose own line reads "Inkooporder bijgewerkt").
   The status is never moved, also for BESTELD.
@@ -3538,7 +3594,10 @@ AI-CONTEXT, same title.
   in `VesselLinkStore.save` (other IMO or unlink, with a history line), in `VesselLinkStore.rebind` (reference
   emptied or another shipment, with the bill columns), in the bill's apply when the final bill names another
   ship than the one that stays linked (`VesselLinkStore.forgetArrivalOfOtherShip`, told in the apply's history
-  line) and in the form save when the order is no longer ONDERWEG or has no departure day. The ship check never
+  line), when the user changes the departure day so that the arrival lies outside the new day's voyage window
+  (before day + 7 or after day + 180: the Aankomst sheet, `ArrivalPlanStore.set`, and a bill's on-board day,
+  `VesselLinkStore.forgetArrivalOutsideVoyage`; both through `TrackingDateSync.forgetPortArrivalOutsideVoyage`)
+  and in the form save when the order is no longer ONDERWEG or has no departure day. The ship check never
   clears it. `TrackingDateSync.forgetPortArrival` puts the expected arrival back to `arrival_moved_from` when it
   still was that day and not by hand.
 - **`bill_vessel` / `bill_voyage`**: what the final bill named when it was taken over; a draft empties them; only
