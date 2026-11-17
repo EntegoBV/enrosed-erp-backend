@@ -152,6 +152,7 @@ COPY docs/migrations/2026-11-15/stock-radar-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-15/purchase-order-arrivals-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-15/customer-login-activity-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-16/purchase-order-bill-and-port-arrival-postgresql.sql ./migrations/
+COPY docs/migrations/2026-11-16/purchase-order-departure-by-hand-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

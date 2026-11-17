@@ -139,6 +139,13 @@ public final class SourcingEntities {
         @Column(name = "expected_arrival_time") public java.time.LocalTime expectedArrivalTime;
         /** expectedArrival was set by hand while the order had track & trace: tracking leaves it alone; null reads as no. */
         @Column(name = "arrival_by_hand") public Boolean arrivalByHand;
+        /**
+         * shippedOn was set by hand in the Aankomst sheet (ArrivalPlanStore): tracking no longer moves it, as a source
+         * that names another day within the voyage window would put its own day back at every pass; null reads as no.
+         * It ends when the day is written through an order save (a status step back, a bill of lading taken over:
+         * PanacheSourcingRepositories.save). Not on the PurchaseOrder record, so a form save cannot set or undo it.
+         */
+        @Column(name = "departure_by_hand") public Boolean departureByHand;
         /** When the container is expected at the place it is unloaded at (Zaltbommel), set by hand; null = not planned. */
         @Column(name = "warehouse_arrival_on") public LocalDate warehouseArrivalOn;
         /** The hour of that arrival; null = the day only. */
