@@ -39,6 +39,8 @@ public class TrackingDateSync {
      * there right after the stored departure is not this voyage's arrival) up to this many (as a voyage's dates).
      */
     static final int ARRIVAL_EARLIEST_DAYS = 7, ARRIVAL_LATEST_DAYS = 180;
+    /** Days in the panel's texts, as the screens write them. */
+    private static final java.time.format.DateTimeFormatter DAY = java.time.format.DateTimeFormatter.ofPattern("dd/MM/yyyy");
 
     /**
      * The order as it is stored now, read in its own transaction. Outside a transaction a request (and a job
@@ -236,8 +238,7 @@ public class TrackingDateSync {
         if (start == null) start = departure;
         // "Today" is the Brussels day everywhere in tracking (as the arrival reminders count it), not the UTC day.
         LocalDate today = now.atZone(ContainerArrivalReminders.ZONE).toLocalDate();
-        if (!voyageDate(order, start, today))
-            return rejected("De datumbron kan niet aan de huidige reis worden gekoppeld. De opgeslagen planning blijft behouden.");
+        if (!voyageDate(order, start, today)) return rejected(otherVoyage(order, start, today));
         if (departedAt != null && (departedAt.toInstant().isAfter(now.plusSeconds(300))
                 || Math.abs(ChronoUnit.DAYS.between(start, departure)) > 3)) departure = null;
         LocalDate arrival = date(dates.expectedArrivalDate());
@@ -294,6 +295,21 @@ public class TrackingDateSync {
             earliestAt = at.toInstant();
         }
         return earliest;
+    }
+
+    /**
+     * Why a source's voyage was refused, in Dutch for the panel. The rule is voyageDate's, unchanged. Since the
+     * departure day can be set by hand (ArrivalPlanStore), the refusal says what to look at when the cause is the
+     * day itself: the order has a departure day and the source names a usable start (not after today, at most 180
+     * days old, voyageDate's own bounds) more than three days from it. Every other case keeps the sentence it
+     * always had. Never match either text in code (as NO_DATA_YET is): the one that names the days differs per order.
+     */
+    private static String otherVoyage(PurchaseOrder order, LocalDate start, LocalDate today) {
+        boolean usable = start != null && !start.isAfter(today) && !start.isBefore(today.minusDays(180));
+        if (order.shippedOn() != null && usable && Math.abs(ChronoUnit.DAYS.between(order.shippedOn(), start)) > 3)
+            return "De datumbron noemt vertrek " + start.format(DAY) + ", de order " + order.shippedOn().format(DAY)
+                    + ". De opgeslagen planning blijft behouden.";
+        return "De datumbron kan niet aan de huidige reis worden gekoppeld. De opgeslagen planning blijft behouden.";
     }
 
     private static boolean voyageDate(PurchaseOrder order, LocalDate start, LocalDate today) {
