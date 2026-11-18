@@ -16,7 +16,7 @@ import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
 import be.enrosed.shared.Language;
-import be.enrosed.shared.PdfFonts;
+import be.enrosed.catalog.adapter.out.document.CatalogPdfFonts;
 import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
 import be.enrosed.sourcing.application.CurrencyConverter;
@@ -130,7 +130,8 @@ public class PdfPurchaseRenderer {
     private final Template portraitTemplate;
     private final Brand brand;
     private final CompanyProfileService company;
-    private final PdfFonts fonts;
+    /** The brand typefaces (Jost, Cormorant Garamond) the catalogue uses, with DejaVu Sans for every glyph they lack. */
+    private final CatalogPdfFonts fonts;
     private final ProductService products;
     private final ProductSupplierAgreementPhotoService supplierAgreementPhotos;
     private final PdfImageEncoder imageEncoder;
@@ -155,7 +156,7 @@ public class PdfPurchaseRenderer {
 
     public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
                                @Location("purchase-portrait.html") Template portraitTemplate,
-                               Brand brand, CompanyProfileService company, PdfFonts fonts,
+                               Brand brand, CompanyProfileService company, CatalogPdfFonts fonts,
                                ProductService products, PdfImageEncoder imageEncoder,
                                CurrencyConverter currencies, LandedCostCalculator landedCosts,
                                ProductSupplierAgreementPhotoService supplierAgreementPhotos,
@@ -368,6 +369,18 @@ public class PdfPurchaseRenderer {
                     purchasePriceAvailable, eurPriceAvailable, eurEquivalentAvailable, cbmText,
                     0, null, null, null, null, null, null, null, null, null, null, null, null);
         }
+
+        /** The name already says the colour ("Rose In Dome - 12*25 - Red"), so the sheet need not repeat it. */
+        public boolean colourInName() {
+            return nameCarriesColour(productName, colour);
+        }
+    }
+
+    /** True when the colour stands in the name as a whole word, in any letter case. */
+    static boolean nameCarriesColour(String name, String colour) {
+        if (name == null || colour == null || colour.isBlank()) return false;
+        return Pattern.compile("(?<![\\p{L}\\p{N}])" + Pattern.quote(colour.strip()) + "(?![\\p{L}\\p{N}])",
+                Pattern.CASE_INSENSITIVE | Pattern.UNICODE_CASE).matcher(name).find();
     }
 
     /**
@@ -394,6 +407,11 @@ public class PdfPurchaseRenderer {
         /** The line has an instruction, reference images or a history worth their own block. */
         public boolean hasAgreement() {
             return !supplierNoteLines.isEmpty() || !agreementPhotos.isEmpty() || !priorIssues.isEmpty();
+        }
+
+        /** The name already says the colour (a supplier line's name ends in " - colour"), so the sheet need not repeat it. */
+        public boolean colourInName() {
+            return nameCarriesColour(productName, colour);
         }
     }
 

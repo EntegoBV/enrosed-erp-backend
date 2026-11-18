@@ -452,6 +452,25 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (asks confirmation - every sales margin recalculates from it).
 - Purchase PDF has an internal variant (extra revenue as its own line)
   and a customer-safe variant (folded into the piece price).
+- **Purchase PDF look (2026-11-18, Emre: "de pakbon bij aankoop is ook lelijk zeker die B x d x h
+  enzo in de titel")**: `purchase-portrait.html` (Staande inkooporder and Leveranciersorder) and the
+  product cell of `purchase.html` (Interne calculatie / horizontaal) follow the compact catalogue:
+  - white paper (the warehouse prints the Dutch copy as its pakbon), one white rounded card per line:
+    photo, name, one sentence-case spec line (Maat · Verpakking · Kleur), a figure ribbon on the grid
+    of the repeating table head;
+  - Jost for every figure, code, product name and the PO number; Cormorant only for wordy titles
+    (its old-style figures made "PO-2026-011" and "11x11" ambiguous for a factory);
+  - order totals Stuks / Kartons / Volume also in the masthead; a receiving tick box per line in the
+    Dutch copy only; no "maten B × D × H" legend (every value carries its unit);
+  - Kleur / Colour only when `!line.colourInName` (`PdfPurchaseRenderer.nameCarriesColour`: the
+    colour as a whole word in the product name, any case);
+  - the supplier copy shows the logo, lets the agreed instructions follow the product table (each
+    card prints its first variant once, in its head), keeps short instruction cards whole and starts
+    the binding terms on their own page;
+  - the renderer renders through `CatalogPdfFonts` (Jost, Cormorant Garamond, DejaVu Sans for every
+    glyph they lack). openhtmltopdf: a fixed cell's padding adds to its width; a collapsed-border
+    table ignores its own padding; `page-break-before: avoid` on rows stops the thead repeating, so
+    the last two cards and the totals are kept together in one unbreakable group instead.
 - Container payments carry an optional **bank euro amount** (2026-09-25):
   `PaymentRequest.amountEur` on POST/PUT `/purchase-orders/{id}/payments`.
   Absent, the order's frozen rates convert as before (and a PUT that

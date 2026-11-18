@@ -4,51 +4,63 @@
   <meta charset="utf-8"/>
   <style>
     /* Wide purchase order. Internal cost components stay in the summary
-       below instead of being repeated as a dense wall of line columns. */
+       below instead of being repeated as a dense wall of line columns.
+       Type: Jost throughout (DejaVu Sans only for glyphs Jost lacks: arrows, ticks);
+       every figure 7.5 pt or more.
+       Product cell: photo, the name in bordeaux, the codes, then the specification with
+       calm sentence-case labels: Maat, Verpakking, Kleur (only when the name lacks the colour),
+       Omdoos, each group on its own line. Every part of a fact is an inline-block: this
+       engine breaks inside a nowrap span or lets it overflow, while an inline-block moves
+       to the next line whole and only wraps when it is wider than the cell. A separator
+       "·" ends the part before it, so it never starts a line. */
     @page {
       size: A4 landscape; margin: 11mm 8mm 13mm;
       @bottom-left {
         content: "{order.number}{#if showRevenue} · interne calculatie{#else} · inkooporder horizontaal{/if}";
-        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+        font-family: "Jost", "DejaVu Sans"; font-size: 6.6pt; color: #806c70;
       }
       @bottom-right {
         content: "Pagina " counter(page) " van " counter(pages);
-        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+        font-family: "Jost", "DejaVu Sans"; font-size: 7.5pt; color: #806c70;
       }
     }
-    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8pt; color: #1c1715; margin: 0; }
-    h1 { font-size: 15pt; margin: 0; }
-    .muted { color: #8a807a; }
-    .tiny { font-size: 6.2pt; color: #8a807a; font-weight: 400; }
+    body { font-family: "Jost", "DejaVu Sans"; font-size: 8pt; color: #30242a; margin: 0; }
+    b, strong { font-weight: 600; }
+    h1 { font-size: 15pt; font-weight: 600; letter-spacing: .08em; margin: 0; }
+    .muted { color: #806c70; }
+    .tiny { font-size: 6.6pt; color: #806c70; font-weight: 400; }
+    .arrow { font-family: "DejaVu Sans"; font-weight: 400; color: #ad8952; }
 
     /* -- head ------------------------------------------------------------ */
     table.head { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
     table.head td { vertical-align: top; padding: 0; }
-    .head__company { font-size: 7pt; color: #8a807a; margin-top: 4px; }
+    .head__company { font-size: 7pt; color: #806c70; margin-top: 4px; }
+    .head__company b { color: #30242a; }
     .head__meta { text-align: right; }
-    .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #8f2942; font-weight: 700; }
-    .doc-number { font-size: 15pt; font-weight: 700; margin-top: 1px; }
-    .doc-alias { font-size: 7.5pt; color: #8a807a; margin-top: 1px; }
+    .doc-kicker { font-size: 6.6pt; letter-spacing: .14em; text-transform: uppercase; color: #8f2942; font-weight: 600; }
+    .doc-number { font-size: 15pt; font-weight: 600; margin-top: 1px; line-height: 1.15; }
+    .doc-alias { font-size: 7.5pt; color: #806c70; margin-top: 1px; }
     .doc-badges { margin-top: 4px; }
+    /* The engine sizes an inline box without its letter-spacing: keep the spacing light so the label stays centred. */
     .badge {
-      display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca; border-radius: 3px;
-      font-size: 6.3pt; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+      display: inline-block; padding: 1.5px 6px; border: .6pt solid #d8d0ca; border-radius: 3px;
+      font-size: 6.5pt; letter-spacing: .04em; text-transform: uppercase; font-weight: 600; white-space: nowrap;
     }
     .badge--status { border-color: #b99143; color: #744f12; }
-    .badge--intern { background: #1a1614; border-color: #1a1614; color: #ffffff; margin-left: 3px; }
+    .badge--intern { background: #30242a; border-color: #30242a; color: #ffffff; margin-left: 3px; }
 
     /* -- facts band ------------------------------------------------------ */
     table.band { width: 100%; border-collapse: collapse; margin-top: 9px; page-break-inside: avoid; }
     td.band__cell {
-      vertical-align: top; background: #fbf7f2; border: 1px solid #e7dccd;
+      vertical-align: top; background: #fbf7f2; border: .6pt solid #e7dccd;
       padding: 6px 9px;
     }
-    .band__label { font-size: 6pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8a807a; margin-bottom: 3px; }
-    .band__value { font-size: 8.5pt; font-weight: 700; }
-    .band__sub { font-size: 6.9pt; color: #8a807a; margin-top: 1px; }
-    .band__line { font-size: 7.2pt; margin-top: 1px; }
-    .band__line span { color: #8a807a; }
-    .band__line b { float: right; }
+    .band__label { font-size: 6.4pt; letter-spacing: .12em; text-transform: uppercase; color: #806c70; font-weight: 500; margin-bottom: 3px; }
+    .band__value { font-size: 8.6pt; font-weight: 600; }
+    .band__sub { font-size: 7.5pt; color: #725e64; margin-top: 1px; }
+    .band__line { clear: both; font-size: 7.6pt; margin-top: 1px; }
+    .band__line span { color: #725e64; }
+    .band__line b { float: right; margin-left: 2mm; }
 
     /* -- lines table ----------------------------------------------------- */
     table.lines {
@@ -57,98 +69,116 @@
     }
     table.lines thead { display: table-header-group; }
     table.lines tr { page-break-inside: avoid; }
+    /* The last two product rows and the Totaal row share a page, so the table never ends on one lone row.
+       (A page-break-before on a row would do it too, but then the engine stops repeating the table head.) */
+    table.lines tbody.tail { page-break-inside: avoid; }
     table.lines th {
-      text-align: right; font-size: 6pt; letter-spacing: 0.05em; text-transform: uppercase;
-      color: #8a807a; padding: 3px 3.5px; white-space: nowrap;
+      text-align: right; font-size: 7pt; font-weight: 500; color: #725e64;
+      padding: 3px 2px; white-space: nowrap; line-height: 1.2; vertical-align: bottom;
     }
-    /* Sixteen internal columns: fixed narrow number columns, headers may wrap,
-       the product column takes what remains. */
+    /* Internal columns: fixed number columns, headers may wrap, the product column takes what remains. */
     table.lines--internal { table-layout: fixed; }
-    table.lines--internal th { white-space: normal; font-size: 5.2pt; letter-spacing: 0; padding-left: 2px; padding-right: 2px; vertical-align: bottom; }
-    table.lines--internal tr.grouprow th { white-space: nowrap; font-size: 6pt; letter-spacing: 0.12em; }
-    table.lines--internal th.c-num, table.lines--internal td.c-num { width: 4mm; padding-left: 0; padding-right: 1mm; }
+    table.lines--internal th { white-space: normal; }
+    table.lines--internal th.c-num, table.lines--internal td.c-num { padding-left: 0; padding-right: 1mm; }
     table.lines--internal td { padding-left: 2px; padding-right: 2px; }
-    table.lines--internal th.w-n { width: 12mm; }
-    table.lines--internal th.w-m { width: 13.5mm; }
-    table.lines--internal td.c-name { padding-right: 4px; }
+    table.lines--internal td.c-name { padding-right: 2px; }
     tr.grouprow th {
-      text-align: left; color: #8f2942; font-weight: 700; letter-spacing: 0.12em;
-      border-bottom: 1px solid #d8d0ca; padding-bottom: 2px;
+      text-align: left; color: #8f2942; font-size: 6.4pt; font-weight: 600; letter-spacing: .12em;
+      text-transform: uppercase; white-space: nowrap;
+      border-bottom: .6pt solid #d8d0ca; padding-bottom: 2px;
     }
-    tr.labelrow th { border-bottom: 1px solid #1a1614; }
+    /* The rule under the column labels is one cell across the table: drawn as the labels' bottom border,
+       the engine paints it thinner under the last column of the Lading group and lets the group lines cross it. */
+    tr.rulerow th { height: 0; padding: 0; border-top: .8pt solid #30242a; font-size: 1pt; line-height: 0; }
     table.lines th.l { text-align: left; }
-    table.lines td { padding: 4.5px 3.5px; border-bottom: 1px solid #efeae6; font-size: 7.3pt; }
+    table.lines td { padding-top: 1.7mm; padding-bottom: 1.7mm; border-bottom: .5pt solid #ece5df; font-size: 7.6pt; vertical-align: top; line-height: 1.25; }
     tr.alt td { background: #faf8f7; }
-    .group-l { border-left: 1px solid #d8d0ca; }
+    .group-l { border-left: .6pt solid #d8d0ca; }
     table.lines td.c-res { background: #f7efe3; }
     .r { text-align: right; white-space: nowrap; }
-    .c-num { color: #8a807a; font-size: 6.5pt; }
-    .c-name { font-weight: 700; }
-    table.product-cell { width: 100%; border-collapse: collapse; }
-    table.product-cell td { border: 0; padding: 0; vertical-align: middle; background: transparent; }
-    table.product-cell td.product-cell__image { width: 15mm; padding-right: 2.2mm; }
-    .product-photo { display: block; width: auto; height: 12mm; max-width: 12mm; border: .35pt solid #d9c6a6; border-radius: 2mm; }
-    .product-photo--empty { display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
-    .product-name { font-weight: 700; line-height: 1.25; }
-    .product-sku { margin-top: 1px; color: #8a807a; font-size: 6pt; letter-spacing: .05em; }
-    .product-cell__facts { padding-top: 1.2mm !important; }
-    table.facts-list { width: 100%; border-collapse: collapse; table-layout: fixed; }
-    /* Label column wide enough for VERPAKKING at this size, so a value never starts glued to its label. */
-    table.facts-list th { width: 17mm; padding: .25mm 1mm .25mm 0 !important; border: 0; background: transparent; color: #8f2942; font-size: 5.2pt; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; vertical-align: top; white-space: nowrap; }
-    table.facts-list td { padding: .25mm 0 !important; border: 0; background: transparent; color: #3f3631; font-size: 5.9pt; font-weight: 400; line-height: 1.35; text-align: left; vertical-align: top; }
-    /* Pieces per display, carton facts and codes each on a small line of their own. */
-    .facts-list__sub { display: block; margin-top: .1mm; color: #6b5f58; font-size: 5.4pt; line-height: 1.3; }
-    .facts-list__code { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
-    .product-specs { margin-top: 2px; color: #584d47; font-size: 5.9pt; line-height: 1.35; font-weight: 400; }
-    .product-spec {
-      display: table; width: 100%; margin-top: 1px; padding-top: 1px;
-      border-top: .25pt solid #e8ded1; page-break-inside: avoid;
+    td.c-num { color: #806c70; font-size: 7.5pt; }
+    /* First lines share the product name's baseline (name 9 pt, figures 7.6 pt, line number 7.5 pt). */
+    table.lines td.r { padding-top: 2.15mm; }
+    table.lines td.c-num { padding-top: 2.15mm; }
+    /* A white gutter between the two landed columns, so a total never reads into the note beside it. */
+    table.lines td.c-res + td.c-res { border-left: .8pt solid #ffffff; }
+    /* Second line in a figure cell: the currency, the duty rate, the price per stuk of a display. */
+    .sub { display: block; color: #806c70; font-size: 6.8pt; font-weight: 400; margin-top: .3mm; }
+    .sub--fig { font-size: 7.5pt; white-space: normal; }
+
+    /* -- product cell ---------------------------------------------------- */
+    table.pc { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    table.pc td { border: 0; padding: 0; vertical-align: top; background: transparent; }
+    table.pc td.pc__photo { padding-right: 2.4mm; }
+    .pc__img { display: block; margin: 0 auto; max-width: 14mm; max-height: 14mm; }
+    .pc__empty { display: block; width: 14mm; height: 14mm; line-height: 14mm; text-align: center; background: #f7efe3; color: #8f2942; border-radius: 2mm; font-size: 6.6pt; font-weight: 600; letter-spacing: .08em; }
+    .pc__name { color: #4b1024; font-size: 9pt; font-weight: 500; line-height: 1.2; }
+    .pc__codes { margin-top: .2mm; color: #806c70; font-size: 6.8pt; line-height: 1.3; letter-spacing: .02em; }
+    .pc__spec { margin-top: .8mm; color: #30242a; font-size: 7.5pt; line-height: 1.3; }
+    /* One fact group per line, in the baseline's order (and the portrait's Maat · Verpakking · Kleur): Maat,
+       Verpakking, Kleur (only when the name lacks the colour), Omdoos. The label stands at the left edge;
+       whatever runs over continues 2.6 mm in, so a second line never reads as a new fact. */
+    .fx { padding-left: 1.7mm; }
+    /* Every part is an inline-block, the label too: a part moves to the next line whole and wraps inside only
+       when it is wider than a line. The gap before a part is a left margin, so a part never needs room for a
+       trailing margin at the line end, and a part that moves down starts at 1.7 + .9 = 2.6 mm. The label
+       steps back over the indent (this engine ignores a negative text-indent before an inline-block). */
+    .f { display: inline-block; margin-left: .9mm; }
+    .f--lead { margin-left: -1.7mm; }
+    .fl { color: #725e64; }
+    .fs { color: #806c70; }
+    /* Details after a fact (pieces per display, the EANs, the carton's measures) step back like the labels.
+       The packaging's details start their own line: the packaging is the longest value ("Geschenkverpakking
+       18.5 × 18.5 × 31.5 cm") and so never needs room for a separator behind it. */
+    .f--sub { color: #725e64; }
+    /* Both optional cost columns (68 mm product column): a 12 mm photo leaves the text 50 mm after the
+       indent, so "Geschenkverpakking 18.5 × 18.5 × 31.5 cm" stays on one line under its label. */
+    .lines--narrow td.pc__photo { padding-right: 2mm; }
+    .lines--narrow .pc__img { max-width: 12mm; max-height: 12mm; }
+    .lines--narrow .pc__empty { width: 12mm; height: 12mm; line-height: 12mm; }
+
+    table.lines tr.sumrow td {
+      border-top: 1pt solid #30242a; border-bottom: none; font-weight: 600;
+      padding-top: 1.8mm; background: none;
     }
-    .product-spec__label {
-      display: table-cell; width: 29mm; padding-right: 3px;
-      color: #8f2942; font-size: 5.2pt; font-weight: 700;
-      letter-spacing: .05em; text-transform: uppercase;
-    }
-    .product-spec__value { display: table-cell; font-variant-numeric: tabular-nums; }
-    .spec-part { white-space: nowrap; }
-    .spec-sep { margin: 0 2px; color: #8b8179; }
-    .spec-code { color: #6b5f58; }
-    tr.sumrow td {
-      border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
-      padding-top: 5px; background: none;
-    }
+    table.lines tr.sumrow td.c-res { background: #f7efe3; }
+    tr.sumrow td.note-cell { text-align: right; white-space: normal; line-height: 1.15; }
 
     .purchase-totals {
-      margin-top: 8px; padding: 7px 9px; border: 1px solid #e3d7c6;
+      margin-top: 8px; padding: 7px 9px; border: .6pt solid #e3d7c6;
       border-left: 3px solid #c6a15b; background: #fbf7f2; page-break-inside: avoid;
     }
-    .purchase-totals__title { color: #8f2942; font-size: 6.3pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .purchase-totals__title { color: #8f2942; font-size: 6.6pt; font-weight: 600; letter-spacing: .1em; text-transform: uppercase; }
     .purchase-total { display: inline-block; margin: 4px 10px 0 0; font-size: 8.2pt; }
-    .purchase-total b { font-size: 9.2pt; }
-    .purchase-warning { margin-top: 4px; color: #762239; font-size: 6.8pt; }
+    .purchase-total b { font-size: 9.4pt; }
+    .purchase-warning { margin-top: 4px; color: #762239; font-size: 7.5pt; }
 
     /* -- summary cards --------------------------------------------------- */
     table.cards { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 12px -6px 0; page-break-inside: avoid; }
-    td.card { width: 33.33%; vertical-align: top; border: 1px solid #e8e2dd; padding: 8px 10px; }
-    .card__title { font-size: 6.3pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8f2942; font-weight: 700; margin-bottom: 4px; }
+    td.card { width: 33.33%; vertical-align: top; border: .6pt solid #e8e2dd; padding: 8px 10px; }
+    .card__title { font-size: 6.6pt; letter-spacing: .12em; text-transform: uppercase; color: #8f2942; font-weight: 600; margin-bottom: 4px; }
     .card__title--follow { margin-top: 8px; }
     table.mini { width: 100%; border-collapse: collapse; }
-    table.mini td { padding: 2.5px 0; font-size: 7.3pt; vertical-align: top; }
-    tr.mini__sub td { border-top: 1px solid #e8e2dd; font-weight: 700; }
-    tr.mini__grand td { border-top: 1.2px solid #1a1614; font-weight: 700; font-size: 8.3pt; padding-top: 4px; }
-    tr.mini__avg td { color: #8a807a; }
-    .note { font-size: 6.7pt; color: #8a807a; margin-top: 4px; }
+    table.mini td { padding: 2.5px 0; font-size: 7.6pt; vertical-align: top; }
+    tr.mini__sub td { border-top: .6pt solid #e8e2dd; font-weight: 600; }
+    tr.mini__grand td { border-top: 1pt solid #30242a; font-weight: 600; font-size: 8.4pt; padding-top: 4px; }
+    tr.mini__avg td { color: #806c70; }
+    /* Notes beside a card row carry figures ("10 % gemiddeld", "16 producten", an original amount). */
+    table.mini .tiny { font-size: 7.5pt; }
+    .note { font-size: 7pt; color: #806c70; margin-top: 4px; }
     .tick {
-      display: inline-block; width: 9px; height: 9px; border: 1px solid #d8d0ca; border-radius: 6px;
-      font-size: 6pt; text-align: center; line-height: 9px; color: #ffffff; margin-right: 2px;
+      display: inline-block; width: 9px; height: 9px; border: .6pt solid #d8d0ca; border-radius: 6px;
+      font-family: "DejaVu Sans"; font-size: 6pt; text-align: center; line-height: 9px; color: #ffffff; margin-right: 2px;
     }
     .tick--done { background: #1b7a4c; border-color: #1b7a4c; }
 
     /* -- diary ----------------------------------------------------------- */
-    .notes { margin-top: 10px; border: 1px solid #e8e2dd; padding: 8px 10px; }
-    .notes__body { white-space: pre-wrap; font-size: 7pt; line-height: 1.55; color: #3d3733; }
+    /* The diary moves to the next page whole rather than leave its title alone at a page foot; one longer
+       than a page still splits. Its entries carry amounts and dates, so it prints at the figures' 7.5 pt. */
+    .notes { margin-top: 10px; border: .6pt solid #e8e2dd; padding: 8px 10px; page-break-inside: avoid; }
+    .notes__body { white-space: pre-wrap; font-size: 7.5pt; line-height: 1.5; color: #382a30; }
 
-    .foot { margin-top: 12px; font-size: 6.6pt; color: #8a807a; border-top: 1px solid #efeae6; padding-top: 5px; page-break-inside: avoid; }
+    .foot { margin-top: 12px; font-size: 6.8pt; color: #806c70; border-top: .6pt solid #efeae6; padding-top: 5px; page-break-inside: avoid; }
   </style>
 </head>
 <body>
@@ -185,7 +215,7 @@
     </td>
     <td class="band__cell" style="width:26%">
       <div class="band__label">Traject</div>
-      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__value">{costLabels.loadingPort} <span class="arrow">→</span> {costLabels.destinationPort}</div>
       <div class="band__sub">{order.containerType.label}{#if order.trackingReference} · {order.trackingReference}{/if}</div>
       {#if costing.containerFill}
         <div class="band__sub">Gevuld {costing.containerFill.usedCbm.amount} van {costing.containerFill.capacityCbm.amount} m³
@@ -206,11 +236,11 @@
       <div class="band__label">Afspraken</div>
       <div class="band__line"><span>Betaling</span> <b>{paymentTermsLabel}</b></div>
       {#if usdRateGoods}
-        <div class="band__line"><span>USD → EUR</span>
+        <div class="band__line"><span>USD <span class="arrow">→</span> EUR</span>
           <b>{usdRateGoods}{#if !unifiedUsdToEur} / {usdRateTransport}{/if}</b></div>
       {/if}
       {#if cnyRate}
-        <div class="band__line"><span>CNY → USD</span> <b>{cnyRate}</b></div>
+        <div class="band__line"><span>CNY <span class="arrow">→</span> USD</span> <b>{cnyRate}</b></div>
       {/if}
     </td>
   </tr>
@@ -226,7 +256,7 @@
     </td>
     <td class="band__cell" style="width:33%">
       <div class="band__label">Traject</div>
-      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__value">{costLabels.loadingPort} <span class="arrow">→</span> {costLabels.destinationPort}</div>
       <div class="band__sub">{order.containerType.label}</div>
     </td>
     <td class="band__cell" style="width:33%">
@@ -239,19 +269,22 @@
 </table>
 {/if}
 
-<table class="lines {#if showRevenue}lines--internal{/if}">
+<table class="lines {#if showRevenue}lines--internal{#if hasExtraColumn && hasSeparateColumn} lines--narrow{/if}{/if}">
   {#if showRevenue}
   <!-- Fixed layout reads its column widths from the first row, which is the
-       group row here; the colgroup pins them for every row instead. -->
+       group row here; the colgroup pins them for every row instead. Jost figures
+       are narrower than DejaVu's, so the number columns give a few mm to the
+       product column and the two widest totals (goods, landed) get room for
+       six-figure sums. 281 mm in all. -->
   <colgroup>
     <col style="width:4mm"/>
-    <col style="width:{landscapeProductMm}mm"/>
-    <col style="width:12mm"/><col style="width:14mm"/><col style="width:12mm"/><col style="width:15mm"/>
-    <col style="width:14mm"/><col style="width:15mm"/>
-    <col style="width:14mm"/><col style="width:14.5mm"/><col style="width:14mm"/><col style="width:16mm"/><col style="width:15.5mm"/>
-    {#if hasExtraColumn}<col style="width:15mm"/>{/if}
-    {#if hasSeparateColumn}<col style="width:15mm"/>{/if}
-    <col style="width:15mm"/><col style="width:13mm"/>
+    <col style="width:{#if hasExtraColumn && hasSeparateColumn}68{#else if hasExtraColumn || hasSeparateColumn}82{#else}96{/if}mm"/>
+    <col style="width:10.5mm"/><col style="width:12.5mm"/><col style="width:10.5mm"/><col style="width:13.5mm"/>
+    <col style="width:13.5mm"/><col style="width:15mm"/>
+    <col style="width:16mm"/><col style="width:14mm"/><col style="width:14mm"/><col style="width:15mm"/><col style="width:15mm"/>
+    {#if hasExtraColumn}<col style="width:14mm"/>{/if}
+    {#if hasSeparateColumn}<col style="width:14mm"/>{/if}
+    <col style="width:16.5mm"/><col style="width:15mm"/>
   </colgroup>
   {/if}
   <thead>
@@ -265,66 +298,60 @@
   {/if}
   <tr class="labelrow">
     <th class="l c-num">#</th>
-    <th class="l" style="{#if showRevenue}width:{landscapeProductMm}mm{#else}width:96mm{/if}">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
-    <th class="w-n">Stuks</th>
-    <th class="w-n">Stuks per karton</th>
-    <th class="w-n">Kartons</th>
-    <th class="w-n">m³</th>
-    <th class="group-l w-m">Inkoop per stuk</th>
-    <th class="w-m">Inkoop totaal</th>
+    <th class="l"{#if !showRevenue} style="width:96mm"{/if}>Product &amp; specificatie</th>
+    <th>Stuks</th>
+    <th>Stuks per karton</th>
+    <th>Kartons</th>
+    <th>m³</th>
+    <th class="group-l">Inkoop per&#160;stuk</th>
+    <th>Inkoop totaal</th>
     {#if showRevenue}
-    <th class="group-l w-n">Goederen</th>
-    <th class="w-n">Oorsprong</th>
-    <th class="w-n">Zeevracht</th>
-    <th class="w-n">Invoerrecht</th>
-    <th class="w-n">Bestemming</th>
-    {#if hasExtraColumn}<th class="w-n">Enrosed</th>{/if}
-    {#if hasSeparateColumn}<th class="w-n">Inspectie &amp; andere</th>{/if}
-    <th class="group-l w-m">Geland totaal</th>
-    <th class="w-n">Geland per stuk</th>
+    <th class="group-l">Goederen</th>
+    <th>Oorsprong</th>
+    <th>Zeevracht</th>
+    <th>Invoerrecht</th>
+    <th>Bestemming</th>
+    {#if hasExtraColumn}<th>Enrosed</th>{/if}
+    {#if hasSeparateColumn}<th>Inspectie &amp; andere</th>{/if}
+    <th class="group-l">Geland totaal</th>
+    <th>Geland per&#160;stuk</th>
     {/if}
   </tr>
+  <tr class="rulerow"><th colspan="{#if !showRevenue}8{#else if hasExtraColumn && hasSeparateColumn}17{#else if hasExtraColumn || hasSeparateColumn}16{#else}15{/if}"></th></tr>
   </thead>
   <tbody>
   {#for line in lines}
-    <tr class="{#if line_even}alt{/if}">
+    {#if line_count.plus(1) == lines.size}</tbody><tbody class="tail">{/if}<tr class="{#if line_even}alt{/if}">
       <td class="c-num">{line_count}</td>
       <td class="c-name">
-        <table class="product-cell"><tr>
-          <td class="product-cell__image">
-            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
-            {#else}<span class="product-photo--empty">EN</span>{/if}
+        <table class="pc"><colgroup><col style="width:{#if showRevenue && hasExtraColumn && hasSeparateColumn}14{#else}16.4{/if}mm"/><col/></colgroup><tr>
+          <td class="pc__photo">
+            {#if line.photoDataUri}<img class="pc__img" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="pc__empty">EN</span>{/if}
           </td>
-          <td><div class="product-name">{line.productName}</div>
-            <div class="product-sku">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.sku || line.ean} · {/if}{line.priceBasis}</div>
+          <td>
+            <div class="pc__name">{line.productName}</div>
+            <div class="pc__codes">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.sku || line.ean} · {/if}{line.priceBasis}</div>
+            {#if line.productSize || line.packagingText || (line.colour && !line.colourInName) || line.cartonSize || line.piecesPerCarton}<div class="pc__spec">{#if line.productSize}<div class="fx"><span class="f f--lead fl">Maat</span><span class="f">{line.productSize}</span></div>{/if}{#if line.packagingText}<div class="fx"><span class="f f--lead fl">Verpakking</span><span class="f">{line.packagingText}</span>{#if line.packagingPieces || line.packagingEan}<div>{#if line.packagingPieces}<span class="f f--sub">{line.packagingPieces}{#if line.packagingEan}&#160;<span class="fs">·</span>{/if}</span>{/if}{#if line.packagingEan}<span class="f f--sub">{line.packagingEan}</span>{/if}</div>{/if}</div>{/if}{#if line.colour && !line.colourInName}<div class="fx"><span class="f f--lead fl">Kleur</span><span class="f">{line.colour}</span></div>{/if}{#if line.cartonSize || line.piecesPerCarton}<div class="fx"><span class="f f--lead fl">Omdoos</span><span class="f">{#if line.piecesPerCarton}{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton{#else}{line.cartonSize}{/if}{#if (line.piecesPerCarton && line.cartonSize) || line.cartonCbmText || line.cartonWeight || line.cartonEan}&#160;<span class="fs">·</span>{/if}</span>{#if (line.piecesPerCarton && line.cartonSize) || line.cartonCbmText || line.cartonWeight}<span class="f f--sub">{#if line.piecesPerCarton && line.cartonSize}{line.cartonSize}{#if line.cartonCbmText || line.cartonWeight}&#160;<span class="fs">·</span> {/if}{/if}{#if line.cartonCbmText}{line.cartonCbmText}{#if line.cartonWeight}&#160;<span class="fs">·</span> {/if}{/if}{#if line.cartonWeight}{line.cartonWeight}{/if}{#if line.cartonEan}&#160;<span class="fs">·</span>{/if}</span>{/if}{#if line.cartonEan}<span class="f f--sub">Karton-EAN {line.cartonEan}</span>{/if}</div>{/if}</div>{/if}
           </td>
-        </tr>
-        {#if line.productSize || line.packagingText || line.colour || line.cartonSize || line.piecesPerCarton}<tr><td colspan="2" class="product-cell__facts">
-          <table class="facts-list">
-            {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
-            {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}{#if line.packagingPieces}<span class="facts-list__sub">{line.packagingPieces}</span>{/if}{#if line.packagingEan}<span class="facts-list__sub facts-list__code">{line.packagingEan}</span>{/if}</td></tr>{/if}
-            {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
-            {#if line.cartonSize || line.piecesPerCarton}<tr><th>Omdoos</th><td>{#if line.piecesPerCarton}{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton{#else}{line.cartonSize}{/if}{#if line.piecesPerCarton && (line.cartonSize || line.cartonCbmText || line.cartonWeight)}<span class="facts-list__sub">{#if line.cartonSize}{line.cartonSize}{/if}{#if line.cartonCbmText}{#if line.cartonSize} · {/if}{line.cartonCbmText}{/if}{#if line.cartonWeight}{#if line.cartonSize || line.cartonCbmText} · {/if}{line.cartonWeight}{/if}</span>{#else if line.cartonCbmText || line.cartonWeight}<span class="facts-list__sub">{#if line.cartonCbmText}{line.cartonCbmText}{/if}{#if line.cartonWeight}{#if line.cartonCbmText} · {/if}{line.cartonWeight}{/if}</span>{/if}{#if line.cartonEan}<span class="facts-list__sub facts-list__code">Karton-EAN {line.cartonEan}</span>{/if}</td></tr>{/if}
-          </table>
-        </td></tr>{/if}
-        </table>
+        </tr></table>
       </td>
       <td class="r">{line.purchaseQuantity}</td>
       <td class="r">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
       <td class="r">{line.purchaseCartons}</td>
       <td class="r">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
-      <td class="r group-l">{#if line.purchasePriceAvailable}<b>{line.purchaseUnitPrice.moneyUnit}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
-      <td class="r">{#if line.purchasePriceAvailable}<b>{line.purchaseLineTotal.money}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r group-l">{#if line.purchasePriceAvailable}<b>{line.purchaseUnitPrice.moneyUnit}</b><span class="sub">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r">{#if line.purchasePriceAvailable}<b>{line.purchaseLineTotal.money}</b><span class="sub">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
       {#if showRevenue}
       <td class="r group-l">{line.goodsEur.money}</td>
       <td class="r">{line.originEur.money}</td>
       <td class="r">{line.freightEur.money}</td>
-      <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
+      <td class="r">{line.dutyEur.money}<span class="sub sub--fig">{line.dutyRatePct.pct}</span></td>
       <td class="r">{line.destinationEur.money}</td>
       {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
       {#if hasSeparateColumn}<td class="r">{line.separateEur.money}</td>{/if}
       <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
-      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<br/><span class="tiny">per display</span><br/><span class="tiny">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<span class="sub">per display</span><span class="sub sub--fig">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
       {/if}
     </tr>
   {/for}
@@ -336,7 +363,7 @@
     <td class="r">{purchaseCartons}</td>
     <td class="r">{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</td>
     <td></td>
-    <td class="r"><span class="tiny">per valuta hieronder</span></td>
+    <td class="note-cell"><span class="tiny">per valuta hieronder</span></td>
     {#if showRevenue}
     <td class="r group-l">{costing.totals.goodsEur.money}</td>
     <td class="r">{costing.totals.originEur.money}</td>
@@ -346,7 +373,7 @@
     {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
     {#if hasSeparateColumn}<td class="r">{costing.totals.separateCostsEur.money}</td>{/if}
     <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
-    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<br/><span class="tiny">per display</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
+    <td class="c-res note-cell">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<span class="sub">per display</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
     {/if}
   </tr>
   </tbody>
