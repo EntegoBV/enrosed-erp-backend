@@ -15,6 +15,7 @@ import be.enrosed.shared.PaymentReference;
 import be.enrosed.shared.PdfFonts;
 import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
+import be.enrosed.catalog.adapter.out.document.CatalogPdfFonts;
 import be.enrosed.catalog.adapter.out.document.PdfImageEncoder;
 import be.enrosed.catalog.application.ProductService;
 import be.enrosed.catalog.domain.Dimensions;
@@ -53,6 +54,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     private final Template quoteTemplate;
     private final Template packingSlipTemplate;
+    /** The pakbon's second design, in the new purchase order's family (Jost, Cormorant Garamond). */
+    private final Template packingSlipV2Template;
+    private final CatalogPdfFonts brandFonts;
     private final Brand brand;
     private final CompanyProfileService company;
     private final PdfFonts fonts;
@@ -89,10 +93,13 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
 
     public PdfQuoteRenderer(@Location("quote.html") Template quoteTemplate,
                             @Location("packing-slip.html") Template packingSlipTemplate,
+                            @Location("packing-slip-v2.html") Template packingSlipV2Template,
                             Brand brand,
-                            CompanyProfileService company, PdfFonts fonts) {
+                            CompanyProfileService company, PdfFonts fonts, CatalogPdfFonts brandFonts) {
         this.quoteTemplate = quoteTemplate;
         this.packingSlipTemplate = packingSlipTemplate;
+        this.packingSlipV2Template = packingSlipV2Template;
+        this.brandFonts = brandFonts;
         this.brand = brand;
         this.company = company;
         this.fonts = fonts;
@@ -802,7 +809,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         SalesPdfOptions options = requestedOptions == null
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         String html = packingSlipHtml(slip, options);
-        return new Document(fileSafe(slip.order().number()) + "-pakbon.pdf", fonts.render(html),
+        byte[] pdf = options.packingSlipV2() ? brandFonts.render(html) : fonts.render(html);
+        return new Document(fileSafe(slip.order().number()) + "-pakbon.pdf", pdf,
                 "application/pdf");
     }
 
@@ -817,7 +825,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         Language slipLanguage = slip.customer() == null ? Language.NL : slip.customer().language();
         Map<String, String> text = DocumentText.of(slipLanguage);
-        return packingSlipTemplate
+        return (options.packingSlipV2() ? packingSlipV2Template : packingSlipTemplate)
                 .data("slip", slip)
                 .data("logo", brand.logoDataUri())
                 .data("company", company.get())

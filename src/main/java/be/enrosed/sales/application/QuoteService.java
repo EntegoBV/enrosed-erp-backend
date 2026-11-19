@@ -88,6 +88,9 @@ public class QuoteService {
     jakarta.enterprise.inject.Instance<WebOrderDeliveries> deliveries;
     @Inject
     jakarta.enterprise.inject.Instance<WebOrderRecipients> recipients;
+    /** The family names the pakbon's second design prints as each product's title. */
+    @Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.port.out.CatalogFamilyReader> families;
 
     public QuoteService(SalesRepositories.Orders orders, SalesRepositories.Revisions revisions,
                         SalesOrderService salesOrders, CustomerService customers,
@@ -196,6 +199,11 @@ public class QuoteService {
         /* The renderer's own rule: the slip leaves in the customer's language. */
         be.enrosed.shared.Language language = customer == null
                 ? be.enrosed.shared.Language.NL : customer.language();
+        /* The second design prints the product apart from its colour and size, under the name the
+           catalogue and the website give it: its family name in the slip's language. A variant's own
+           translated name is often only its colour ("Red", "Rouge"), now and then another variant's. */
+        java.util.Map<Long, String> titles = options.packingSlipV2()
+                ? familyTitles(order, language) : java.util.Map.of();
 
         java.util.Map<Long, Integer> assigned = new java.util.HashMap<>();
         Set<Long> unavailable = order.lines().stream().filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(java.util.stream.Collectors.toSet());
@@ -223,7 +231,7 @@ public class QuoteService {
                 int per = product.carton() == null ? 1
                         : Math.max(1, product.carton().piecesPerCarton());
                 int pieces = pick(unpicked, item.productId(), item.cartons() * per);
-                items.add(packingItem(product, item.cartons(), pieces, options, language));
+                items.add(packingItem(product, item.cartons(), pieces, options, language, titles));
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
             String label = pallet.label() == null || pallet.label().isBlank()
@@ -258,7 +266,8 @@ public class QuoteService {
             countedPackaging = product.packaging();
             int left = cartons - assigned.getOrDefault(line.productId(), 0);
             if (left > 0) {
-                loose.add(packingItem(product, left, pick(unpicked, line.productId(), left * per), options, language));
+                loose.add(packingItem(product, left, pick(unpicked, line.productId(), left * per), options, language,
+                        titles));
             }
         }
         String totalQuantity = countedUnits.isEmpty()
@@ -278,6 +287,26 @@ public class QuoteService {
                 order.loadMode() == LoadMode.LOOSE_CARTONS, totalQuantity), options);
     }
 
+    /** The family name of each product on the order, in the slip's language with the catalogue's fallback. */
+    private java.util.Map<Long, String> familyTitles(SalesOrder order, be.enrosed.shared.Language language) {
+        if (families == null || !families.isResolvable()) return java.util.Map.of();
+        Set<Long> productIds = new HashSet<>();
+        order.lines().forEach(line -> productIds.add(line.productId()));
+        order.pallets().forEach(pallet -> pallet.items().forEach(item -> productIds.add(item.productId())));
+        Set<Long> familyIds = new HashSet<>();
+        for (Long productId : productIds) {
+            if (productId == null) continue;
+            Long familyId = products.get(productId).familyId();
+            if (familyId != null) familyIds.add(familyId);
+        }
+        java.util.Map<Long, String> titles = new java.util.HashMap<>();
+        for (var family : families.get().findByIds(familyIds)) {
+            String name = family.nameIn(language);
+            if (family.id() != null && name != null && !name.isBlank()) titles.put(family.id(), name.strip());
+        }
+        return titles;
+    }
+
     /** Takes up to {@code wanted} pieces of a product from what is still to pick. */
     private static int pick(java.util.Map<Long, Integer> unpicked, Long productId, int wanted) {
         int left = unpicked.getOrDefault(productId, 0);
@@ -288,8 +317,15 @@ public class QuoteService {
 
     private static QuoteDocumentRenderer.PackingItem packingItem(
             Product product, int cartons, int pieces, SalesPdfOptions options,
-            be.enrosed.shared.Language language) {
+            be.enrosed.shared.Language language, java.util.Map<Long, String> titles) {
+        String title = product.familyId() == null ? null : titles.get(product.familyId());
+        String name = firstNonBlank(title, firstNonBlank(product.nameIn(language), product.name()));
+        String colour = firstNonBlank(product.colourIn(language), null);
         boolean includeCarton = options.showOuterCarton() && product.carton() != null;
+        /* v2 leaves out a carton content nobody measured: one piece without any other carton fact is
+           the column's default, not a fact ("1 stuk per doos" would send the picker the wrong way). */
+        boolean contentKnown = includeCarton && (!options.packingSlipV2()
+                || be.enrosed.catalog.domain.OrderSteps.knownPiecesPerCarton(product.carton()) > 0);
         String productBarcode = options.showBarcode()
                 ? firstNonBlank(product.canonicalBarcode(),
                         firstNonBlank(product.packaging().barcode(),
@@ -300,13 +336,15 @@ public class QuoteService {
         return new QuoteDocumentRenderer.PackingItem(
                 product.describe(), cartons, pieces,
                 includeCarton ? printableDimensions(product.carton().dimensions()) : null,
-                includeCarton ? Math.max(1, product.carton().piecesPerCarton()) : null,
+                contentKnown ? Math.max(1, product.carton().piecesPerCarton()) : null,
                 productBarcode, outerBarcode,
                 includeCarton ? be.enrosed.shared.DocumentFormat.cbm(product.carton().cbm()) : null,
                 includeCarton ? be.enrosed.shared.DocumentFormat.kg(product.carton().weightKg()) : null,
                 SalesUnitText.quantity(product.packaging(), pieces, language),
-                includeCarton ? SalesUnitText.cartonContents(product.packaging(),
-                        product.carton().piecesPerCarton(), language) : null);
+                contentKnown ? SalesUnitText.cartonContents(product.packaging(),
+                        product.carton().piecesPerCarton(), language) : null,
+                name, colour, printableDimensions(product.dimensions()), firstNonBlank(product.variantSize(), null),
+                title == null && name != null && colour != null && name.equalsIgnoreCase(colour));
     }
 
     private static String printableDimensions(Dimensions dimensions) {

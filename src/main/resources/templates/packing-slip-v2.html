@@ -1,0 +1,289 @@
+<!DOCTYPE html>
+<html lang="{lang}">
+<head>
+  <meta charset="utf-8"/>
+  <title>{t.packingSlip} {slip.order.number}</title>
+  <style>
+    /* Pakbon v2 (packing-slip-v2.html), in the family of the purchase order v2: white paper, white rounded cards with
+       a warm hairline, Jost for every figure, code and name, Cormorant Garamond only for wordy titles, gold labels, a
+       tick box per line, the totals in the masthead. Every visible word comes from the translated map t or from the
+       data; the rest are numbers, codes and units. Version 1 (packing-slip.html) stays as it is.
+       Per line: the name in the slip's language and one calm spec line of values without labels (size, the colour
+       when the name does not already say it, the Maat, and the EAN when asked), the outer-carton facts under it.
+       Printed in a warehouse on a mono laser: the delivery address in ink at reading size, the colour in 600 so that
+       same-name lines stand apart, the cartons right-aligned so the column adds up, a tick box and a Totaal frame in
+       the dark gold (#85683a), which stay visible in grey.
+       Engine notes (openhtmltopdf 1.1.28): -fs-page-break-min-height is inherited, so only the section table carries
+       it; a fixed cell adds its padding to its width; an inline-block keeps a fact whole while it fits, and the dot that
+       follows a fact sits inside it, so a line breaks after a dot and never starts with one. */
+    @page {
+      size: A4 portrait;
+      margin: 10mm 10mm 14mm;
+      @bottom-center { content: element(slip-footer); vertical-align: top; }
+    }
+    * { box-sizing: border-box; }
+    html, body { background: #ffffff; }
+    body { margin: 0; color: #30242a; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
+    table { width: 100%; border-collapse: collapse; border-spacing: 0; }
+    td, th { padding: 0; vertical-align: top; text-align: left; font-weight: 400; }
+    img { border: 0; }
+    .nowrap { white-space: nowrap; }
+    .serif { font-family: "Cormorant Garamond", "DejaVu Sans", serif; }
+
+    /* Running footer: hangs from the top of the bottom margin. */
+    .slip-footer { position: running(slip-footer); width: 100%; padding-top: 1.8mm; border-top: .2mm solid #e5d9d2; color: #806c70; font-size: 7.5pt; line-height: 1.3; }
+    .slip-footer table { table-layout: fixed; }
+    .slip-footer .f-left { width: 70%; letter-spacing: .2px; }
+    .slip-footer .f-right { width: 30%; text-align: right; color: #59172d; font-size: 7.5pt; font-weight: 500; }
+    .page-number:before { content: counter(page); }
+    .page-total:before { content: counter(pages); }
+
+    /* Masthead: the document's identity card. */
+    .card { background: #ffffff; border: .2mm solid #e5d9d2; border-radius: 3mm; }
+    .mast { padding: 3.3mm 4.6mm 3mm; page-break-inside: avoid; }
+    .mast-top { table-layout: fixed; }
+    .mast-top td { vertical-align: bottom; }
+    .logo { display: block; width: auto; height: 8mm; max-width: 56mm; }
+    .wordmark { color: #4b1024; font-size: 22pt; font-weight: 600; letter-spacing: 1.5px; line-height: 1.2; }
+    .company { margin-top: 1.6mm; color: #806c70; font-size: 7.5pt; line-height: 1.38; }
+    .mast-doc { width: 84mm; text-align: right; }
+    .eyebrow { color: #85683a; font-size: 6.6pt; font-weight: 500; letter-spacing: 1.2px; text-transform: uppercase; line-height: 1.3; }
+    .docno { margin-top: 1.1mm; color: #4b1024; font-size: 19pt; font-weight: 500; letter-spacing: .3px; line-height: 1.08; white-space: nowrap; }
+    .mast-rule { margin: 2.4mm 0 2.1mm; border-top: .25mm solid #d9c39a; }
+
+    /* The facts row: the date with the delivery terms under it, the address (all the width that is left), and the
+       totals box, which shrinks to its figures (width 1 % in an automatic table). */
+    .facts { table-layout: auto; }
+    .facts td { vertical-align: top; padding-right: 3.2mm; }
+    .facts td.f-date { width: 30mm; }
+    .f-terms { margin-top: 2.2mm; }
+    .facts td.f-tot { width: 1%; padding-right: 0; text-align: right; }
+    .lab { color: #85683a; font-size: 6.6pt; font-weight: 500; letter-spacing: .9px; text-transform: uppercase; line-height: 1.3; white-space: nowrap; }
+    .fact-value { margin-top: .6mm; color: #30242a; font-size: 9pt; font-weight: 500; line-height: 1.25; }
+    .party-name { margin-top: .6mm; color: #30242a; font-size: 10pt; font-weight: 500; line-height: 1.25; }
+    .party-lines { margin-top: .4mm; color: #30242a; font-size: 9pt; line-height: 1.32; }
+    .tots { display: inline-block; padding: 1.5mm 0 1.6mm 2.8mm; text-align: left; background: #fbf7f2; border: .2mm solid #eadcc2; border-radius: 2mm; }
+    .tots table { width: auto; table-layout: auto; }
+    .tots td { padding-right: 4mm; }
+    .tot-fig { margin-top: .5mm; color: #30242a; font-size: 10.5pt; font-weight: 500; line-height: 5.4mm; white-space: nowrap; }
+    .tot-fig--main { font-size: 12.5pt; font-weight: 600; }
+
+    /* Sections: one table per pallet and one for the cartons that are not on a pallet. The head repeats on every page,
+       a line never splits, and a section starts on a new page when less than one head and one line would fit. A last
+       section of one or two lines is one row with the closing, so it stays whole: it never leaves its head behind.
+       Heads: a pallet in Jost (a label with a figure); the cartons not on a pallet take the same style next to pallets,
+       and the wordy Cormorant title only when they are the slip's one section. */
+    table.sec { margin-top: 2.6mm; table-layout: fixed; -fs-table-paginate: paginate; -fs-page-break-min-height: 38mm; }
+    table.sec.sec--end-first { page-break-inside: avoid; }
+    table.sec thead, table.sec tbody { -fs-page-break-min-height: 0; }
+    table.sec thead { display: table-header-group; }
+    table.sec tr { page-break-inside: avoid; }
+    table.sec th { padding: 0 0 1.2mm; }
+    table.sec td.slot { padding: 0 0 1.2mm; }
+    .sec-head { padding: 0 1.8mm 1.1mm; }
+    .sec-title { color: #4b1024; font-size: 15.5pt; font-weight: 600; line-height: 1.1; }
+    .sec-name { color: #4b1024; font-size: 13pt; font-weight: 500; line-height: 1.2; }
+    .sec-meta { color: #725e64; font-size: 8.5pt; line-height: 1.2; }
+
+    .cols-wrap { padding: 1.3mm 3.2mm 1.1mm 2.6mm; background: #fbf7f2; border-radius: 1.8mm; }
+    .cols { table-layout: fixed; }
+    .cols td { vertical-align: bottom; color: #725e64; font-size: 6.6pt; font-weight: 500; letter-spacing: .6px; text-transform: uppercase; line-height: 1.25; }
+    .c-lead { width: 10.5mm; }
+    .c-ctn { width: 12.5mm; padding-right: 5.5mm; text-align: right; }
+    .c-qty { width: 34mm; }
+    .no-head { display: inline-block; width: 5.1mm; }
+    .c-what { padding-right: 4mm; }
+
+    /* One card per line: tick box and line number, the name with one calm spec line, the figures on the right. */
+    .line { padding: 1.6mm 3mm 1.7mm 2.4mm; }
+    .line + .line { margin-top: 1.2mm; }
+    .lgrid { table-layout: fixed; }
+    .lgrid td { vertical-align: baseline; }
+    .tick { display: inline-block; width: 3.4mm; height: 3.4mm; margin-right: 1.7mm; border: .3mm solid #85683a; border-radius: .8mm; vertical-align: -.55mm; }
+    .pos { display: inline-block; min-width: 4.6mm; color: #85683a; font-size: 8pt; font-weight: 500; }
+    .pname { color: #4b1024; font-size: 9.8pt; font-weight: 500; line-height: 1.3; }
+    .pspec { margin-top: .4mm; color: #30242a; font-size: 8.5pt; line-height: 1.3; }
+    .pdet { margin-top: .3mm; color: #725e64; font-size: 7.5pt; line-height: 1.32; }
+    .sp { display: inline-block; }
+    .sp:after { content: "\00a0·"; color: #806c70; }
+    .sp:last-child:after { content: ""; }
+    .sl { color: #85683a; }
+    .code { color: #725e64; }
+    .colour { font-weight: 600; }
+    .colour:after { font-weight: 400; }
+    .fig { color: #30242a; font-size: 10pt; font-weight: 500; line-height: 1.15; }
+    .fig--main { font-weight: 600; font-size: 10.5pt; }
+
+    /* The end of the list: the last two lines, the totals and the signatures share one row, so they travel together
+       and a last page never holds the signatures alone. */
+    .tcard { margin-top: 1.2mm; padding: 2mm 2.9mm 2mm 2.3mm; background: #fbf7f2; border: .3mm solid #85683a; }
+    .tcard .fig { font-size: 12pt; }
+    .tcard .fig--main { font-size: 13.5pt; }
+    .tlabel { color: #4b1024; font-size: 15.5pt; font-weight: 600; line-height: 1.1; }
+    .tpal { margin-left: 6mm; white-space: nowrap; }
+    .tpal .lab { display: inline; }
+    .lone-end { margin-top: 2.6mm; }
+    .sign { margin-top: 1.2mm; padding: 3mm 4.6mm 3mm; page-break-inside: avoid; }
+    .check { color: #30242a; font-size: 8pt; line-height: 1.4; }
+    .sigs { margin-top: 2mm; table-layout: fixed; }
+    .sigs td { vertical-align: bottom; }
+    .sigs td.sig-gap { width: 12mm; }
+    .sig-line { height: 15mm; border-bottom: .25mm solid #806c70; }
+    .sig-label { margin-top: 1.4mm; color: #725e64; font-size: 7.5pt; line-height: 1.3; }
+
+    /* Turkish and Greek: no CSS capitals (the engine uppercases without the language rules: Turkish i becomes I,
+       Greek keeps its accents); the labels keep their own case, a little larger. */
+    .lang-tr .lab, .lang-el .lab, .lang-tr .eyebrow, .lang-el .eyebrow, .lang-tr .cols td, .lang-el .cols td { text-transform: none; letter-spacing: .2px; font-size: 7pt; }
+    /* Greek: Jost and Cormorant carry a few Greek letters as maths symbols (Δ Π Ω μ π), which would mix two fonts
+       inside a word; the Greek slip is set in DejaVu Sans throughout, only the order number stays in Jost. */
+    .lang-el, .lang-el .serif { font-family: "DejaVu Sans", sans-serif; }
+    .lang-el .docno { font-family: "Jost", "DejaVu Sans", sans-serif; }
+    .lang-el .sec-title { font-size: 13pt; font-weight: 400; }
+    .lang-el .tlabel { font-size: 13pt; font-weight: 400; }
+    .lang-el .pname { font-size: 9.2pt; }
+    .lang-el .fig { font-size: 9.4pt; }
+    .lang-el .fig--main { font-size: 9.8pt; }
+    .lang-el .fact-value { font-size: 8.6pt; }
+    .lang-el .party-name { font-size: 9.4pt; }
+    .lang-el .party-lines { font-size: 8.6pt; }
+    .lang-el .tot-fig { font-size: 10pt; }
+    .lang-el .tot-fig--main { font-size: 12pt; }
+    .lang-el .pspec { font-size: 8.1pt; }
+    .lang-el .tcard .fig { font-size: 11.2pt; }
+    .lang-el .tcard .fig--main { font-size: 12.6pt; }
+    /* DejaVu Sans comes in 400 and 700 only; the engine fakes a 500 with a stroke. The Greek slip uses the real faces:
+       regular where the other languages use Jost Medium, true bold for the carton figures and the colour (its dot
+       stays regular through .colour:after). */
+    .lang-el .pname, .lang-el .sec-name, .lang-el .fig, .lang-el .fact-value, .lang-el .party-name, .lang-el .tot-fig, .lang-el .pos, .lang-el .lab, .lang-el .eyebrow, .lang-el .cols td, .lang-el .slip-footer .f-right { font-weight: 400; }
+    .lang-el .fig--main, .lang-el .tot-fig--main, .lang-el .colour { font-weight: 700; }
+  </style>
+</head>
+<body class="lang-{lang}">
+{#fragment id=columns rendered=false}
+    <div class="cols-wrap"><table class="cols"><tr>
+      <td class="c-lead"><span class="no-head"></span>#</td>
+      <td class="c-what">{t.description}</td>
+      <td class="c-ctn">{t.cartons}</td>
+      <td class="c-qty">{t.quantity}</td>
+    </tr></table></div>
+{/fragment}
+{#fragment id=line rendered=false}
+    <div class="card line"><table class="lgrid"><tr>
+      <td class="c-lead"><span class="tick"></span><span class="pos">{no}</span></td>
+      <td class="c-what">
+        <div class="pname">{it.name}</div>
+        {#if it.size || (it.colour && !it.colourInName) || it.variantSize || (showBarcode && it.barcode)}<div class="pspec">{#if it.size}<span class="sp nowrap">{it.size}</span> {/if}{#if it.colour && !it.colourInName}<span class="sp colour">{it.colour}</span> {/if}{#if it.variantSize}<span class="sp">{it.variantSize}</span> {/if}{#if showBarcode && it.barcode}<span class="sp code">EAN {it.barcode}</span>{/if}</div>{/if}
+        {#if showOuterCarton && (it.outerCartonDimensions || it.cartonContentsText || it.piecesPerOuterCarton || it.outerCartonVolume || it.outerCartonWeight || (showBarcode && it.outerCartonBarcode))}<div class="pdet"><span class="sl">{t.catalogCarton}</span> {#if it.outerCartonDimensions}<span class="sp">{it.outerCartonDimensions}</span> {/if}{#if it.cartonContentsText}<span class="sp">{it.cartonContentsText}</span> {#else if it.piecesPerOuterCarton}<span class="sp">{it.piecesPerOuterCarton} {t.piecesPerCarton}</span> {/if}{#if it.outerCartonVolume}<span class="sp">{it.outerCartonVolume}</span> {/if}{#if it.outerCartonWeight}<span class="sp">{it.outerCartonWeight}</span> {/if}{#if showBarcode && it.outerCartonBarcode}<span class="sp">EAN {it.outerCartonBarcode}</span>{/if}</div>{/if}
+      </td>
+      <td class="c-ctn"><span class="fig fig--main">{it.cartons}</span></td>
+      <td class="c-qty"><span class="fig">{#if it.quantityText}{it.quantityText}{#else}{it.pieces}{/if}</span></td>
+    </tr></table></div>
+{/fragment}
+{#fragment id=closing rendered=false}
+    <div class="card tcard"><table class="lgrid"><tr>
+      <td class="c-lead"></td>
+      <td class="c-what"><span class="tlabel serif">{t.total}</span>{#if slip.pallets}<span class="tpal"><span class="lab">{t.pallets}</span>&#160;<span class="fig">{slip.pallets.size}</span></span>{/if}</td>
+      <td class="c-ctn"><span class="fig fig--main">{slip.totalCartons}</span></td>
+      <td class="c-qty">{#if slip.totalQuantityText}<span class="fig">{slip.totalQuantityText}</span>{/if}</td>
+    </tr></table></div>
+    <div class="card sign">
+      <div class="check">{t.loadCheck}</div>
+      <table class="sigs"><tr>
+        <td><div class="sig-line"></div><div class="sig-label">{t.loadedByDate}</div></td>
+        <td class="sig-gap"></td>
+        <td><div class="sig-line"></div><div class="sig-label">{t.receivedByDate}</div></td>
+      </tr></table>
+    </div>
+{/fragment}
+
+<div class="slip-footer"><table><tr>
+  <td class="f-left">{slip.order.number}  ·  {t.packingSlip}</td>
+  <td class="f-right">{t.page} <span class="page-number"></span> / <span class="page-total"></span></td>
+</tr></table></div>
+
+<div class="card mast">
+  <table class="mast-top"><tr>
+    <td>
+      {#if logo}<img class="logo" src="{logo}" alt="Enrosed"/>{#else}<div class="wordmark serif">ENROSED</div>{/if}
+      <div class="company">
+        {#if company.legalName}{company.legalName}{#else}{company.name}{/if}{#if company.addressOneLine} · {company.addressOneLine}{/if}{#if company.vatNumber} · {t.vat} {company.vatNumber}{/if}<br/>
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}{#if company.website} · {company.website}{/if}
+      </div>
+    </td>
+    <td class="mast-doc">
+      <div class="eyebrow">{t.packingSlip}</div>
+      <div class="docno">{slip.order.number}</div>
+    </td>
+  </tr></table>
+  <div class="mast-rule"></div>
+  <table class="facts"><tr>
+    <td class="f-date"><div class="lab">{t.date}</div><div class="fact-value nowrap">{date}</div>
+      <div class="f-terms"><div class="lab">{t.delivery}</div><div class="fact-value">{slip.order.incoterm}</div></div></td>
+    <td class="f-addr">
+      <div class="lab">{t.deliveryAddress}</div>
+      {#if slip.customer}
+      <div class="party-name">{slip.customer.company}</div>
+      <div class="party-lines">
+        {#if slip.customer.contact}{slip.customer.contact}<br/>{/if}
+        {#if slip.customer.address}{slip.customer.address}<br/>{/if}
+        {#if slip.customer.city}{slip.customer.postalCode} {slip.customer.city}{/if}{#if slip.customer.countryCode} ({slip.customer.countryCode}){/if}
+      </div>
+      {#else}<div class="party-name">-</div>{/if}
+    </td>
+    <td class="f-tot"><div class="tots"><table><tr>
+      <td><div class="lab">{t.cartons}</div><div class="tot-fig tot-fig--main">{slip.totalCartons}</div></td>
+      {#if slip.pallets}<td><div class="lab">{t.pallets}</div><div class="tot-fig">{slip.pallets.size}</div></td>{/if}
+      {#if slip.totalQuantityText}<td><div class="lab">{t.quantity}</div><div class="tot-fig">{slip.totalQuantityText}</div></td>{/if}
+    </tr></table></div></td>
+  </tr></table>
+</div>
+
+{#for pallet in slip.pallets}
+<table class="sec{#if !pallet_hasNext && !slip.loose && pallet.items.size <= 2} sec--end-first{/if}">
+  <thead><tr><th>
+    <div class="sec-head"><span class="sec-name">{pallet.label}</span>&#160;&#160;<span class="sec-meta">{#if pallet.type}{pallet.type}{#if pallet.heightCm} · {/if}{/if}{#if pallet.heightCm}{pallet.heightCm} cm {t.height}{/if}</span></div>
+    {#include $columns /}
+  </th></tr></thead>
+  <tbody>
+  {#for item in pallet.items}
+  {#if !pallet_hasNext && !slip.loose && item_count == pallet.items.size.minus(1)}<tr class="end"><td class="slot">
+    {#include $line it=item no=item_count /}
+  {#else if !pallet_hasNext && !slip.loose && !item_hasNext}{#if pallet.items.size == 1}<tr class="end"><td class="slot">{/if}
+    {#include $line it=item no=item_count /}
+    {#include $closing /}
+  </td></tr>
+  {#else}<tr><td class="slot">
+    {#include $line it=item no=item_count /}
+  </td></tr>{/if}
+  {/for}
+  {#if !pallet.items && !pallet_hasNext && !slip.loose}<tr><td class="slot">{#include $closing /}</td></tr>{/if}
+  </tbody>
+</table>
+{/for}
+
+{#if slip.loose}
+<table class="sec{#if slip.loose.size <= 2} sec--end-first{/if}">
+  <thead><tr><th>
+    <div class="sec-head"><span class="{#if slip.pallets}sec-name{#else}sec-title serif{/if}">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{t.notOnPallet}{#else}{t.contents}{/if}</span></div>
+    {#include $columns /}
+  </th></tr></thead>
+  <tbody>
+  {#for item in slip.loose}
+  {#if item_count == slip.loose.size.minus(1)}<tr class="end"><td class="slot">
+    {#include $line it=item no=item_count /}
+  {#else if !item_hasNext}{#if slip.loose.size == 1}<tr class="end"><td class="slot">{/if}
+    {#include $line it=item no=item_count /}
+    {#include $closing /}
+  </td></tr>
+  {#else}<tr><td class="slot">
+    {#include $line it=item no=item_count /}
+  </td></tr>{/if}
+  {/for}
+  </tbody>
+</table>
+{/if}
+
+{#if !slip.pallets && !slip.loose}<div class="lone-end">{#include $closing /}</div>{/if}
+
+</body>
+</html>

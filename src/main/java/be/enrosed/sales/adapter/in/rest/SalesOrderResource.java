@@ -801,7 +801,7 @@ public class SalesOrderResource {
         return view(reopened);
     }
 
-    /** The packing slip: pallets when laid out, plain lines otherwise. */
+    /** The packing slip: pallets when laid out, plain lines otherwise; {@code design=v2} prints its second design. */
     @GET
     @Path("/{id}/packing-slip")
     @Produces("application/pdf")
@@ -809,9 +809,10 @@ public class SalesOrderResource {
                                 @QueryParam("showOuterCarton") @DefaultValue("false")
                                 boolean showOuterCarton,
                                 @QueryParam("showBarcode") @DefaultValue("false")
-                                boolean showBarcode) {
+                                boolean showBarcode,
+                                @QueryParam("design") String design) {
         QuoteDocumentRenderer.Document document = quotes.packingSlip(id,
-                SalesPdfOptions.forPackingSlip(showOuterCarton, showBarcode));
+                SalesPdfOptions.forPackingSlip(showOuterCarton, showBarcode, "v2".equalsIgnoreCase(design)));
         return Response.ok(document.content())
                 .header("Content-Disposition", "inline; filename=" + document.filename())
                 .build();
@@ -819,7 +820,7 @@ public class SalesOrderResource {
 
     /** Java-call compatibility for callers predating packing-slip options. */
     public Response packingSlip(long id) {
-        return packingSlip(id, false, false);
+        return packingSlip(id, false, false, null);
     }
 
     @GET

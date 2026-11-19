@@ -34,7 +34,26 @@ public interface QuoteDocumentRenderer {
                        String outerCartonDimensions, Integer piecesPerOuterCarton,
                        String barcode, String outerCartonBarcode,
                        String outerCartonVolume, String outerCartonWeight,
-                       String quantityText, String cartonContentsText) {
+                       String quantityText, String cartonContentsText,
+                       /* The parts the v2 pakbon prints apart, in the slip's language: the product's name
+                          (its family name when it has one), its colour, the product size without its
+                          "B × D × H:" label, and the Maat. */
+                       String name, String colour, String size, String variantSize,
+                       /* The name is the colour itself, so the slip does not print it twice. Never so for a
+                          family name: all colours of a family share it, and "Rose" / "Rosa" names the
+                          flower as well as the colour. */
+                       boolean colourInName) {
+        /** Compatibility for callers written before the description was split into its parts. */
+        public PackingItem(String description, int cartons, int pieces,
+                           String outerCartonDimensions, Integer piecesPerOuterCarton,
+                           String barcode, String outerCartonBarcode,
+                           String outerCartonVolume, String outerCartonWeight,
+                           String quantityText, String cartonContentsText) {
+            this(description, cartons, pieces, outerCartonDimensions, piecesPerOuterCarton,
+                    barcode, outerCartonBarcode, outerCartonVolume, outerCartonWeight,
+                    quantityText, cartonContentsText, description, null, null, null, false);
+        }
+
         /** Compatibility for callers that only need the operational quantities. */
         public PackingItem(String description, int cartons, int pieces) {
             this(description, cartons, pieces, null, null, null, null, null, null);

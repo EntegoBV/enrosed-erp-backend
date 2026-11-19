@@ -471,6 +471,26 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     glyph they lack). openhtmltopdf: a fixed cell's padding adds to its width; a collapsed-border
     table ignores its own padding; `page-break-before: avoid` on rows stops the thead repeating, so
     the last two cards and the totals are kept together in one unbreakable group instead.
+- **Sales pakbon v2 (2026-11-19, Emre: "Maak design bij inkoop order de nieuwe als optie v2")**:
+  `GET /api/sales-orders/{id}/packing-slip?design=v2` renders `packing-slip-v2.html` through
+  `CatalogPdfFonts`; without `design` (or any other value) it is `packing-slip.html`, unchanged
+  (`SalesPdfOptions.packingSlipV2`, default false in every older constructor).
+  - Per line: the name, one spec line of values without labels (size · colour · Maat · EAN when asked),
+    the outer-carton facts under it; no "B × D × H:" title. `PackingItem` carries `name`, `colour`,
+    `size`, `variantSize` and `colourInName`; `description` is version 1's one-string Dutch title.
+  - The colour always prints under a family name (`colourInName` is true only when a product without
+    a family is named by its colour alone). A whole-word check would hide it: "Rose" / "Rosa" is the
+    flower in the family name and the pink colour in French, Spanish and Portuguese.
+  - v2 leaves out a carton content nobody measured (`OrderSteps.knownPiecesPerCarton` 0: the one-piece
+    default) and an outer-carton line without any fact; version 1 still prints "1 stuk per doos".
+  - **The v2 name is the product's family name in the slip's language** (`CatalogFamilyReader`, the
+    catalogue's language fallback), loaded only for v2. A variant's own translated name is often just
+    its colour ("Red", "Rouge", "Kırmızı") and in several products another variant's colour, so it is
+    never the v2 title; products without a family fall back to `nameIn(language)`.
+  - Turkish and Greek labels keep their own case (the engine uppercases without language rules); the
+    Greek slip is set in DejaVu Sans because Jost and Cormorant lack Greek letters.
+  - Pagination: lines never split, a section head never stays alone at a page foot, and the last two
+    lines, the Totaal card and the signatures form one unbreakable group.
 - Container payments carry an optional **bank euro amount** (2026-09-25):
   `PaymentRequest.amountEur` on POST/PUT `/purchase-orders/{id}/payments`.
   Absent, the order's frozen rates convert as before (and a PUT that

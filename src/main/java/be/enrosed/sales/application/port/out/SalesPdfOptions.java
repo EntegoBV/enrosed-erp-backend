@@ -21,8 +21,19 @@ public record SalesPdfOptions(
         boolean showOuterCarton,
         boolean showBarcode,
         boolean includePaymentDetails,
-        boolean includeReceipts
+        boolean includeReceipts,
+        /* The pakbon in its second design (the purchase order's family); only the packing slip reads it. */
+        boolean packingSlipV2
 ) {
+    /** Every caller from before the second pakbon design prints the first one. */
+    public SalesPdfOptions(boolean includePhotos, boolean includeProductDetails,
+                           boolean includeLogistics, boolean includeTerms,
+                           boolean showOuterCarton, boolean showBarcode,
+                           boolean includePaymentDetails, boolean includeReceipts) {
+        this(includePhotos, includeProductDetails, includeLogistics, includeTerms,
+                showOuterCarton, showBarcode, includePaymentDetails, includeReceipts, false);
+    }
+
     /** Every download from before the account copy keeps showing how the document stands today. */
     public SalesPdfOptions(boolean includePhotos, boolean includeProductDetails,
                            boolean includeLogistics, boolean includeTerms,
@@ -59,7 +70,13 @@ public record SalesPdfOptions(
     /** The packing slip only consumes the two price-free product-data switches. */
     public static SalesPdfOptions forPackingSlip(boolean showOuterCarton,
                                                   boolean showBarcode) {
+        return forPackingSlip(showOuterCarton, showBarcode, false);
+    }
+
+    /** The packing slip in its first (v1) or second (v2) design, with the same two switches. */
+    public static SalesPdfOptions forPackingSlip(boolean showOuterCarton,
+                                                  boolean showBarcode, boolean v2) {
         return new SalesPdfOptions(false, false, false, false,
-                showOuterCarton, showBarcode);
+                showOuterCarton, showBarcode, true, true, v2);
     }
 }
