@@ -473,6 +473,8 @@ public class SourcingResource {
      *                        included in standard portrait product details.
      * @param showBarcode whether product and packaging barcodes are included
      *                    in standard portrait product details.
+     * @param design {@code v1} for the classic design of before 2026-11-18 ("Klassiek");
+     *               anything else, or nothing, prints the current design.
      */
     @GET
     @Path("/purchase-orders/{id}/pdf")
@@ -500,7 +502,8 @@ public class SourcingResource {
                                 @QueryParam("showBarcode") @DefaultValue("false")
                                 boolean showBarcode,
                                 @QueryParam("showSeparateCosts") @DefaultValue("true")
-                                boolean showSeparateCosts) {
+                                boolean showSeparateCosts,
+                                @QueryParam("design") String design) {
         PdfPurchaseRenderer.Layout resolvedLayout = PdfPurchaseRenderer.Layout.parse(layout);
         PdfPurchaseRenderer.Audience resolvedAudience =
                 PdfPurchaseRenderer.Audience.parse(audience);
@@ -519,12 +522,28 @@ public class SourcingResource {
                 new PdfPurchaseRenderer.PdfOptions(showSupplier, showPrices, showEur, eurOnly,
                         showFreight, includeFreight, includeEnrosedCost, includeUnitPrice,
                         includeEnrosedUnitCost, showPaymentTerms, showOuterCarton, showBarcode,
-                        showSeparateCosts), purchaseOrders.reconciliation(order, costing, recorded));
+                        showSeparateCosts), purchaseOrders.reconciliation(order, costing, recorded),
+                /* design=v1 prints the classic design of before 2026-11-18; without it, the current one. */
+                PdfPurchaseRenderer.Design.parse(design));
 
         return Response.ok(document.content())
                 .header("Content-Disposition",
                         "attachment; filename=\"" + document.filename() + "\"")
                 .build();
+    }
+
+    /** Java-call compatibility for callers predating the design choice: the current design. */
+    public Response purchasePdf(long id, boolean showRevenue, String layout, String audience,
+                                boolean showSupplier, boolean showPrices, boolean showEur,
+                                boolean eurOnly, boolean showFreight, boolean includeFreight,
+                                boolean includeEnrosedCost, boolean includeUnitPrice,
+                                boolean includeEnrosedUnitCost, boolean showPaymentTerms,
+                                boolean showOuterCarton, boolean showBarcode,
+                                boolean showSeparateCosts) {
+        return purchasePdf(id, showRevenue, layout, audience, showSupplier, showPrices,
+                showEur, eurOnly, showFreight, includeFreight, includeEnrosedCost,
+                includeUnitPrice, includeEnrosedUnitCost, showPaymentTerms,
+                showOuterCarton, showBarcode, showSeparateCosts, null);
     }
 
     /** Inspector-facing worksheet: no costing calculation or payment ledger enters the export. */

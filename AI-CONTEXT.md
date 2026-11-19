@@ -471,6 +471,13 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     glyph they lack). openhtmltopdf: a fixed cell's padding adds to its width; a collapsed-border
     table ignores its own padding; `page-break-before: avoid` on rows stops the thead repeating, so
     the last two cards and the totals are kept together in one unbreakable group instead.
+- **Purchase PDF Klassiek / v2 (2026-11-19, Emre: "inkooporder i meant v1/v2")**: the design of
+  before 2026-11-18 is kept as a choice. `GET /api/purchase-orders/{id}/pdf?design=v1` renders
+  `purchase-v1.html` / `purchase-portrait-v1.html` (the templates of 14d1d59b, unchanged) through
+  `PdfFonts` (DejaVu Sans), as they printed then; without `design`, or any other value, it is the
+  current design above (`PdfPurchaseRenderer.Design`). It covers all three outputs (Staande
+  inkooporder, Leveranciersorder, Interne calculatie), not the inspection file. Both designs read the
+  same template data: a renamed or removed data key must be changed in both template pairs.
 - **Sales pakbon v2 (2026-11-19, Emre: "Maak design bij inkoop order de nieuwe als optie v2")**:
   `GET /api/sales-orders/{id}/packing-slip?design=v2` renders `packing-slip-v2.html` through
   `CatalogPdfFonts`; without `design` (or any other value) it is `packing-slip.html`, unchanged

@@ -16,6 +16,7 @@ import be.enrosed.shared.Currency;
 import be.enrosed.shared.DocumentFormat;
 import be.enrosed.shared.Money;
 import be.enrosed.shared.Language;
+import be.enrosed.shared.PdfFonts;
 import be.enrosed.catalog.adapter.out.document.CatalogPdfFonts;
 import be.enrosed.shared.UnitNames;
 import be.enrosed.shared.company.CompanyProfileService;
@@ -126,8 +127,26 @@ public class PdfPurchaseRenderer {
         }
     }
 
+    /**
+     * The purchase order's two designs. {@link #V2} went live on 2026-11-18 (white cards, the
+     * catalogue's typefaces); {@link #V1} is the design before it, kept as the "Klassiek" choice.
+     */
+    public enum Design {
+        V1,
+        V2;
+
+        /** "v1" asks for the classic design; anything else, or nothing, keeps the current one. */
+        public static Design parse(String value) {
+            return value != null && value.strip().equalsIgnoreCase("v1") ? V1 : V2;
+        }
+    }
+
     private final Template landscapeTemplate;
     private final Template portraitTemplate;
+    /* The design before 2026-11-18 (Design.V1): its own templates, set in DejaVu Sans as it always was. */
+    private final Template classicLandscapeTemplate;
+    private final Template classicPortraitTemplate;
+    private final PdfFonts classicFonts;
     private final Brand brand;
     private final CompanyProfileService company;
     /** The brand typefaces (Jost, Cormorant Garamond) the catalogue uses, with DejaVu Sans for every glyph they lack. */
@@ -156,7 +175,10 @@ public class PdfPurchaseRenderer {
 
     public PdfPurchaseRenderer(@Location("purchase.html") Template landscapeTemplate,
                                @Location("purchase-portrait.html") Template portraitTemplate,
+                               @Location("purchase-v1.html") Template classicLandscapeTemplate,
+                               @Location("purchase-portrait-v1.html") Template classicPortraitTemplate,
                                Brand brand, CompanyProfileService company, CatalogPdfFonts fonts,
+                               PdfFonts classicFonts,
                                ProductService products, PdfImageEncoder imageEncoder,
                                CurrencyConverter currencies, LandedCostCalculator landedCosts,
                                ProductSupplierAgreementPhotoService supplierAgreementPhotos,
@@ -164,6 +186,9 @@ public class PdfPurchaseRenderer {
         this.orders = orders;
         this.landscapeTemplate = landscapeTemplate;
         this.portraitTemplate = portraitTemplate;
+        this.classicLandscapeTemplate = classicLandscapeTemplate;
+        this.classicPortraitTemplate = classicPortraitTemplate;
+        this.classicFonts = classicFonts;
         this.brand = brand;
         this.company = company;
         this.fonts = fonts;
@@ -528,6 +553,20 @@ public class PdfPurchaseRenderer {
                            PurchaseOrderService.Payable payable, Layout requestedLayout,
                            Audience requestedAudience, PdfOptions requestedOptions,
                            PurchaseReconciliation reconciliation) {
+        return render(order, costing, supplier, showRevenue, payments, payable, requestedLayout,
+                requestedAudience, requestedOptions, reconciliation, Design.V2);
+    }
+
+    /**
+     * The same document in the chosen design. Both designs read the same data; V1 renders the
+     * templates of before 2026-11-18 in DejaVu Sans, exactly as they printed then.
+     */
+    public Document render(PurchaseOrder order, LandedCost costing, Supplier supplier,
+                           boolean showRevenue, List<PurchasePayment> payments,
+                           PurchaseOrderService.Payable payable, Layout requestedLayout,
+                           Audience requestedAudience, PdfOptions requestedOptions,
+                           PurchaseReconciliation reconciliation, Design requestedDesign) {
+        boolean classic = requestedDesign == Design.V1;
         Layout layout = requestedLayout == null ? Layout.LANDSCAPE : requestedLayout;
         Audience audience = requestedAudience == null ? Audience.STANDARD : requestedAudience;
         audience.validate(layout);
@@ -539,7 +578,9 @@ public class PdfPurchaseRenderer {
                 order, supplier, receivingLocationName(order));
         String notes = order.notes() == null || order.notes().isBlank()
                 ? null : order.notes().strip();
-        Template template = layout == Layout.PORTRAIT ? portraitTemplate : landscapeTemplate;
+        Template template = layout == Layout.PORTRAIT
+                ? (classic ? classicPortraitTemplate : portraitTemplate)
+                : (classic ? classicLandscapeTemplate : landscapeTemplate);
         TemplateInstance instance = template
                 .data("order", supplierAudience ? SupplierOrderView.from(order) : order)
                 .data("supplierName", supplier == null ? "-" : supplier.name())
@@ -632,8 +673,8 @@ public class PdfPurchaseRenderer {
                 : layout == Layout.PORTRAIT
                 ? "-inkooporder-verticaal"
                 : internal ? "-interne-calculatie" : "-inkooporder-horizontaal";
-        return new Document(order.number() + suffix + ".pdf", fonts.render(html),
-                "application/pdf");
+        return new Document(order.number() + suffix + ".pdf",
+                classic ? classicFonts.render(html) : fonts.render(html), "application/pdf");
     }
 
     private SupplierPrepared prepareSupplier(PurchaseOrder order, LandedCost costing) {

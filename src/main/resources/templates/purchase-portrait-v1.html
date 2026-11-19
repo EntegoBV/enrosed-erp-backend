@@ -1,0 +1,792 @@
+<!DOCTYPE html>
+<html lang="{#if supplierMode}en{#else}nl{/if}">
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    @page {
+      size: A4 portrait; margin: 12mm 10mm 14mm;
+      @bottom-left {
+        content: "{order.number} - {#if supplierMode}Purchase Order Agreement{#else}ENROSED{/if}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 7pt; color: #8b8179;
+      }
+      @bottom-center {
+        content: "{#if supplierMode}Buyer initials: ______   Supplier initials: ______{/if}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.2pt; color: #8b8179;
+      }
+      @bottom-right {
+        content: "{#if supplierMode}Page {#else}Pagina {/if}" counter(page) " {#if supplierMode}/{#else}van{/if} " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.2pt; color: #8b8179;
+      }
+    }
+
+    body {
+      margin: 0; color: #1c1715; font-family: "DejaVu Sans", Helvetica, Arial, sans-serif;
+      font-size: 9.5pt; line-height: 1.38;
+    }
+    .top-rule { height: 1.4mm; margin: 0 0 6mm; background: #8f2942; border-bottom: .7mm solid #c6a15b; }
+    table { width: 100%; border-collapse: collapse; }
+    td, th { vertical-align: top; }
+    .muted { color: #8b8179; }
+
+    /* Header */
+    .head { page-break-inside: avoid; }
+    .head td { padding: 0; }
+    .logo { display: block; width: auto; height: 11mm; max-width: 78mm; }
+    .company-line { margin-top: 2mm; color: #8b8179; font-size: 7.5pt; }
+    .doc-meta { text-align: right; }
+    .doc-kicker { color: #8f2942; font-size: 8pt; font-weight: 700; letter-spacing: .16em; text-transform: uppercase; }
+    .doc-number { margin-top: .8mm; font-size: 22pt; font-weight: 700; letter-spacing: -.025em; }
+    .badges { margin-top: 2mm; }
+    .badge {
+      display: inline-block; margin-left: 1mm; padding: 1.2mm 2.4mm; border: .35pt solid #c6a15b;
+      border-radius: 8mm; color: #744f12; font-size: 6.5pt; font-weight: 700;
+      letter-spacing: .08em; text-transform: uppercase;
+    }
+
+    /* Parties */
+    .parties { margin-top: 7mm; border: .35pt solid #e3d7c6; border-top: 1pt solid #c6a15b; }
+    .parties td { width: 50%; padding: 4.2mm; background: #fdfaf6; }
+    .parties--single td { width: 100%; }
+    .parties td + td { border-left: .35pt solid #e3d7c6; }
+    .label { margin-bottom: 1.5mm; color: #8f2942; font-size: 6.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .party-name { font-size: 10.5pt; font-weight: 700; }
+    .party-lines { margin-top: 1mm; color: #645b55; font-size: 8pt; line-height: 1.45; }
+
+    /* Order facts */
+    .facts { margin-top: 4mm; table-layout: fixed; }
+    .facts td { padding: 3mm 3.2mm; background: #2a211e; color: #ffffff; }
+    .facts td + td { border-left: .35pt solid #564944; }
+    .facts__label { color: #d8bd89; font-size: 6.3pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .facts__value { margin-top: 1mm; font-size: 8.4pt; font-weight: 700; }
+    .facts__sub { margin-top: .5mm; color: #d6cfcb; font-size: 6.9pt; }
+
+    /* Product rows */
+    .section-title { margin-top: 7mm; padding-bottom: 1.5mm; border-bottom: .7pt solid #c6a15b; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .13em; text-transform: uppercase; }
+    .lines { margin-top: 2mm; -fs-table-paginate: paginate; }
+    .lines thead { display: table-header-group; }
+    .lines tr { page-break-inside: avoid; }
+    .lines th {
+      padding: 2mm 1.5mm; border-bottom: .7pt solid #2a211e; color: #8b8179;
+      font-size: 6.5pt; font-weight: 700; letter-spacing: .06em; text-align: right; text-transform: uppercase;
+    }
+    .lines th:first-child { padding-left: 0; text-align: left; }
+    .lines th:last-child { padding-right: 0; }
+    .lines td { padding: 2.7mm 1.5mm; border-bottom: .35pt solid #e8ded1; text-align: right; vertical-align: middle; }
+    .lines tr.alt td { background: #fdfaf6; }
+    .lines td:first-child { padding-left: 0; text-align: left; }
+    .lines td:last-child { padding-right: 0; }
+    .product { table-layout: fixed; }
+    .product td { border: 0; padding: 0; background: transparent; text-align: left; vertical-align: middle; }
+    .product__photo-cell { width: 27mm; padding-right: 3mm !important; }
+    .product-photo {
+      display: block; width: auto; height: 24mm; max-width: 24mm;
+      border: .35pt solid #d9c6a6; border-radius: 2.5mm;
+    }
+    .product-photo--empty {
+      display: block; width: 24mm; height: 24mm; line-height: 24mm; text-align: center;
+      border: .35pt solid #d9c6a6; border-radius: 2.5mm; background: #f7efe3;
+      color: #8f2942; font-size: 6.5pt; font-weight: 700;
+    }
+    .product__name { font-size: 8.5pt; font-weight: 700; line-height: 1.25; }
+    .product__meta { margin-top: .8mm; color: #8b8179; font-size: 6.6pt; }
+    .product__specs { margin-top: 1mm; color: #584d47; font-size: 6.2pt; line-height: 1.3; }
+    .product__spec {
+      display: table; width: 100%; margin: 0; padding: .35mm 0;
+      border-top: .25pt solid #ece3d6; page-break-inside: avoid;
+    }
+    .product__spec:first-child { border-top: 0; }
+    .product__spec-label {
+      display: table-cell; width: 27mm; padding-right: 1mm; color: #8f2942; font-size: 5.2pt; font-weight: 700;
+      letter-spacing: 0; text-transform: uppercase; vertical-align: top; white-space: nowrap;
+    }
+    .product__spec-value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .spec-part { white-space: nowrap; }
+    .spec-sep { margin: 0 .7mm; color: #8b8179; }
+    .spec-code { color: #6b5f58; font-variant-numeric: tabular-nums; }
+    .product__copy { vertical-align: top; }
+    table.product, table.supplier-product { width: 100%; border-collapse: collapse; }
+    table.product td, table.supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
+    .product-photo--empty { width: 18mm; height: 18mm; line-height: 18mm; }
+    .product__specs-cell { padding-top: 1mm; }
+    .product__specs-cell .product__specs { margin-top: 0; }
+    .section-title__legend { float: right; color: #8b8179; font-size: 6.2pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    table.lines tr.sum td { border-top: 1pt solid #1a1614; border-bottom: .35pt solid #e8ded1; background: #f7f1e8; padding-top: 1.8mm; padding-bottom: 1.8mm; font-size: 8.5pt; }
+    table.lines tr.sum td:first-child { padding-left: 1.5mm; }
+    .standard-lines .col-cbm { width: 18mm; }
+    /* Agreed instructions: one block per product, paginating line by line
+       with the product header repeated on every page. */
+    .agreements-title { margin-top: 0; page-break-before: always; }
+    table.agreement {
+      margin-top: 3mm; border: .35pt solid #e3d7c6; border-top: 1pt solid #c6a15b;
+      -fs-table-paginate: paginate; page-break-inside: auto;
+    }
+    table.agreement thead { display: table-header-group; }
+    table.agreement tr { page-break-inside: avoid; }
+    table.agreement th {
+      padding: 2.4mm 3mm; background: #fdfaf6; border-bottom: .35pt solid #e3d7c6;
+      text-align: left; font-weight: 400;
+    }
+    table.agreement td { padding: 0 3mm; border: 0; text-align: left; vertical-align: top; }
+    table.agreement-head { width: 100%; border-collapse: collapse; }
+    table.agreement-head td { padding: 0; border: 0; background: transparent; vertical-align: middle; }
+    .agreement-head__photo { width: 16.5mm; }
+    .agreement-head__img {
+      display: block; width: 13mm; height: 13mm; border: .35pt solid #d9c6a6; border-radius: 2mm;
+      background: #ffffff;
+    }
+    .agreement-head__img--empty { line-height: 13mm; text-align: center; background: #f7efe3; color: #8f2942; font-size: 6pt; font-weight: 700; }
+    .agreement-head__kicker { color: #8f2942; font-size: 5.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .agreement-head__name { margin-top: .4mm; font-size: 9pt; font-weight: 700; line-height: 1.2; }
+    .agreement-head__meta { margin-top: .4mm; color: #8b8179; font-size: 6.4pt; }
+    .agreement-cell { color: #3f3631; font-size: 7.6pt; line-height: 1.45; }
+    tbody tr:first-child .agreement-cell { padding-top: 1.8mm; }
+    .agreement-cell .note-p { padding: .5mm 0; }
+    .agreement-cell .note-li { position: relative; padding: .3mm 0 .3mm 4mm; }
+    .agreement-cell .note-li::before { content: '\2022'; position: absolute; left: .8mm; color: #8f2942; }
+    .agreement-cell .note-li--sub { padding-left: 8.5mm; color: #6b5f58; }
+    .agreement-cell .note-li--sub::before { content: '\2013'; left: 5mm; color: #8b8179; }
+    table.agreement tbody tr:last-child td { padding-bottom: 2mm; }
+    .prior-issues {
+      margin: 2mm 0 1.5mm; padding: 2.4mm 3mm; border: .6pt solid #d29baa; border-left: 1.4pt solid #8f2942;
+      border-radius: 1.5mm; background: #fff6f8; color: #4b2a33;
+    }
+    .prior-issues__title { margin-bottom: 1.2mm; color: #8f2942; font-size: 6.2pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .prior-issue { padding: .8mm 0; border-top: .35pt solid #ecd3da; font-size: 7.2pt; line-height: 1.4; }
+    .prior-issue:first-of-type { border-top: 0; }
+    .prior-issue__when { display: block; color: #762239; font-weight: 700; }
+    .prior-issue__facts { display: block; }
+    .prior-issue__facts b { color: #8f2942; }
+    .prior-issue__note { display: block; margin-top: .4mm; color: #5b4b4f; font-style: italic; }
+    .prior-issues__ask { margin-top: 1.6mm; padding-top: 1.4mm; border-top: .35pt solid #ecd3da; font-size: 6.8pt; font-weight: 700; color: #762239; }
+    .number { white-space: nowrap; }
+    .price-main { font-weight: 700; }
+    .price-sub { color: #8b8179; font-size: 6.4pt; }
+    .price-eur { color: #9b928c; font-size: 5.9pt; font-weight: 400; }
+    .standard-lines { margin-top: 1mm; table-layout: fixed; }
+    .standard-lines th, .standard-lines td { box-sizing: border-box; }
+    .standard-lines th { padding: 1.7mm 1.4mm; text-align: right; font-size: 6pt; letter-spacing: .04em; line-height: 1.25; }
+    .standard-sheet .standard-lines td { padding-left: 1.4mm; padding-right: 1.4mm; }
+    .standard-lines th:first-child { text-align: left; }
+    .standard-lines td.number { font-size: 8.8pt; }
+    /* Fixed numeric widths keep the product column as the flexible remainder.
+       This remains balanced with zero, one or both all-in cost columns. */
+    .standard-lines th.col-no, .standard-lines th.col-product, .standard-lines th.col-packing { text-align: left; }
+    .standard-sheet .standard-lines td { vertical-align: top; }
+    .standard-lines td.col-no { padding-left: 0; color: #8b8179; font-size: 7pt; text-align: left; }
+    .standard-lines td.col-product { text-align: left; }
+    .standard-lines td.col-packing { text-align: left; border-left: .35pt solid #ede4d8; }
+    .standard-lines .product td { text-align: left; vertical-align: top; }
+    .standard-lines .product__ids { margin-top: .6mm; color: #6b5f58; font-size: 6.6pt; font-variant-numeric: tabular-nums; }
+    .standard-lines--narrow .product__photo-cell { width: 16mm !important; padding-right: 2mm !important; }
+    .standard-lines--narrow .product-photo, .standard-lines--narrow .product-photo--empty { width: 14mm; height: 14mm; max-width: 14mm; line-height: 14mm; }
+    .enrosed-cost { background: #f7efe3; border-left: .5pt solid #dbc59d; }
+    .enrosed-cost .price-main { color: #762239; }
+    .cost-value + .cost-value { margin-top: 1.5mm; padding-top: 1.5mm; border-top: .35pt solid #dbc59d; }
+    .cost-hint { margin-top: .5mm; color: #8b8179; font-size: 5.8pt; font-weight: 400; letter-spacing: 0; text-transform: none; }
+    .cost-definition { margin-top: 2mm; color: #756b65; font-size: 5.9pt; line-height: 1.4; }
+    .cost-definition--inline {
+      margin-top: 1.5mm; padding: 1.5mm 2.2mm; border-left: .8pt solid #c6a15b;
+      background: #fdfaf6;
+    }
+
+    /* Totals and footer note */
+    .closing { margin-top: 3.5mm; page-break-inside: avoid; }
+    .closing td { vertical-align: top; }
+    .closing__copy { padding: 4mm; border: .35pt solid #e3d7c6; color: #645b55; font-size: 7.5pt; }
+    .closing__total { width: 72mm; padding-left: 5mm; }
+    .total-box { padding: 4mm; background: #f7efe3; border-top: 1.1pt solid #c6a15b; }
+    .total-row { width: 100%; }
+    .total-row td { padding: 1mm 0; font-size: 8.5pt; }
+    .total-row td:last-child { text-align: right; font-size: 10pt; font-weight: 700; white-space: nowrap; }
+    .combined-total td { padding-top: 2.2mm; border-top: .7pt solid #c6a15b; }
+    .combined-total td:first-child { color: #762239; font-weight: 700; }
+    .combined-total td:last-child { color: #762239; font-size: 11pt; }
+    .warning { margin-top: 2.5mm; padding: 2.5mm 3mm; border: .35pt solid #d29baa; background: #fff6f8; color: #762239; font-size: 7.3pt; }
+    .footnote { margin-top: 4mm; padding-top: 2mm; border-top: .35pt solid #e3d7c6; color: #8b8179; font-size: 6.5pt; text-align: center; }
+
+    /* The normal portrait export is a dense desktop work document. */
+    .standard-sheet .top-rule { margin-bottom: 4mm; }
+    .standard-sheet .company-line { margin-top: 1.2mm; font-size: 6.7pt; line-height: 1.3; }
+    .standard-sheet .doc-number { font-size: 18pt; }
+    .standard-sheet .badges { margin-top: 1mm; }
+    .standard-sheet .parties { margin-top: 3.2mm; }
+    .standard-sheet .parties td { padding: 2.6mm 3mm; }
+    .standard-sheet .party-name { font-size: 9pt; }
+    .standard-sheet .party-lines { margin-top: .6mm; font-size: 7pt; line-height: 1.35; }
+    .standard-sheet .facts { margin-top: 3mm; }
+    .standard-sheet .facts td { padding: 2.3mm 2.6mm; }
+    .standard-sheet .section-title { margin-top: 4mm; }
+    .standard-sheet .lines td { padding-top: 2.2mm; padding-bottom: 2.2mm; }
+    /* Portrait leaves the product column room: the photo is the thing you
+       recognise a line by, so it gets a proper thumbnail instead of a stamp. */
+    .standard-sheet .product-photo,
+    .standard-sheet .product-photo--empty { width: 19mm; height: 19mm; max-width: 19mm; }
+    .standard-sheet .product-photo--empty { line-height: 19mm; }
+    .standard-sheet .product__photo-cell { width: 22.5mm; padding-right: 2.5mm !important; }
+
+    /* Supplier agreement: intentionally separate from the internal Dutch read copy. */
+    .supplier-sheet .top-rule { margin-bottom: 10.8mm; }
+    .supplier-sheet .company-line { margin-top: 1.1mm; font-size: 6.7pt; line-height: 1.35; }
+    .supplier-sheet .doc-number { margin-top: .5mm; font-size: 18pt; }
+    .supplier-doc-label { margin-top: .8mm; color: #8f2942; font-size: 6.4pt; font-weight: 700; letter-spacing: .14em; text-transform: uppercase; }
+    .supplier-sheet .parties { margin-top: 4mm; }
+    .supplier-sheet .parties td { padding: 2.7mm 3.2mm; }
+    .supplier-sheet .party-name { font-size: 9pt; }
+    .supplier-sheet .party-lines { margin-top: .6mm; font-size: 7pt; line-height: 1.35; }
+    .supplier-sheet .facts { margin-top: 3mm; }
+    .supplier-sheet .facts td { padding: 2.5mm 2.7mm; }
+    .supplier-sheet .section-title { margin-top: 4.5mm; }
+    .supplier-sheet .lines { margin-top: 1.5mm; table-layout: fixed; }
+    .supplier-sheet .lines th { box-sizing: border-box; padding: 1.7mm 1.1mm; font-size: 5.7pt; white-space: normal; }
+    .supplier-sheet .lines td { box-sizing: border-box; padding: 2.2mm 1.1mm; font-size: 7.4pt; }
+    .supplier-sheet .lines th:last-child, .supplier-sheet .lines td:last-child { padding-left: 2.5mm; text-align: left; }
+    .supplier-sheet .supplier-product { table-layout: fixed; }
+    .supplier-sheet .supplier-product td { padding: 0; border: 0; background: transparent; text-align: left; }
+    .supplier-sheet .product__photo-cell { width: 26mm; }
+    .supplier-sheet .product-photo { width: 23mm; height: auto; max-width: 23mm; }
+    .supplier-sheet .product-photo--empty { width: 23mm; height: 23mm; line-height: 23mm; }
+    .supplier-sheet .product__name { font-size: 7.8pt; }
+    .supplier-sheet .product__meta, .supplier-sheet .product__specs { font-size: 5.8pt; }
+    .supplier-sheet .product__spec {
+      display: table; width: 100%; margin: 0; padding: .35mm 0;
+      border: 0; border-top: .25pt solid #e8ded1; border-radius: 0; background: transparent;
+    }
+    .supplier-sheet .product__spec-label {
+      display: table-cell; width: 27mm; padding-right: 1mm; font-size: 5pt;
+    }
+    .supplier-sheet .product__spec-value { display: table-cell; }
+    table.agreement td.agreement-gallery { padding: 2mm 3mm 1mm; border-top: .35pt solid #ece3d6; }
+    .agreement-gallery__title { margin-bottom: 1.5mm; color: #8f2942; font-size: 5.8pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    /* Reference images are letterboxed 3:2 at encode time, so a row of three
+       fixed frames is always 37 mm tall and paginates predictably. */
+    .agreement-photo {
+      display: inline-block; width: 56mm; margin: 0 3mm 2mm 0; vertical-align: top;
+      page-break-inside: avoid;
+    }
+    .agreement-photo img {
+      display: block; width: 56mm; height: 37.3mm;
+      border: .35pt solid #d9c6a6; border-radius: 1.5mm; background: #ffffff;
+    }
+    .agreement-photo__caption { margin-top: 1mm; color: #584d47; font-size: 6pt; line-height: 1.3; }
+    .supplier-closing {
+      margin-top: 3.5mm; padding: 3mm 3.4mm; border: .35pt solid #e3d7c6;
+      border-left: 1.2pt solid #c6a15b; color: #584d47; font-size: 7pt; line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    .agreement-page { page-break-before: always; }
+    .agreement-title { margin: 0; color: #1c1715; font-size: 15pt; line-height: 1.15; }
+    .agreement-lead { margin: 2.5mm 0 4mm; color: #584d47; font-size: 7.7pt; line-height: 1.45; }
+    .term-grid { table-layout: fixed; }
+    .term-grid td { width: 50%; padding: 0 3mm 3mm 0; }
+    .term-grid td + td { padding-right: 0; padding-left: 3mm; border-left: .35pt solid #e3d7c6; }
+    .term { page-break-inside: avoid; }
+    .term + .term { margin-top: 3mm; }
+    .term__number {
+      display: inline-block; min-width: 5mm; margin-right: 1.2mm; color: #8f2942;
+      font-size: 7pt; font-weight: 700;
+    }
+    .term b { font-size: 7.4pt; }
+    .term p { margin: .7mm 0 0 6.7mm; color: #584d47; font-size: 6.8pt; line-height: 1.45; }
+    .acceptance {
+      margin-top: 2mm; padding: 3mm 3.4mm; border: .7pt solid #c6a15b;
+      background: #fdfaf6; color: #4b403b; font-size: 7pt; line-height: 1.45;
+      page-break-inside: avoid;
+    }
+    .signature-title { margin-top: 4mm; color: #8f2942; font-size: 7pt; font-weight: 700; letter-spacing: .12em; text-transform: uppercase; }
+    .signatures { margin-top: 2mm; table-layout: fixed; page-break-inside: avoid; }
+    .signatures td { width: 50%; padding-right: 5mm; }
+    .signatures td + td { padding-right: 0; padding-left: 5mm; }
+    .signature-party { font-size: 8.2pt; font-weight: 700; }
+    .signature-line { height: 12mm; border-bottom: .45pt solid #8b8179; }
+    .signature-meta { margin-top: 1.5mm; color: #8b8179; font-size: 6.2pt; line-height: 1.7; }
+    .agreement-footer { margin-top: 3mm; color: #8b8179; font-size: 5.9pt; text-align: center; }
+      table.lines .product-photo--empty, .standard-lines .product-photo--empty { width: 16mm; height: 16mm; line-height: 16mm; }
+    table.lines td { vertical-align: middle; }
+    /* Supplier product table: one product per row, packing in its own column,
+       every number under a header that names its unit. */
+    .supplier-lines { table-layout: fixed; }
+    .supplier-lines th, .supplier-lines td { box-sizing: border-box; }
+    .supplier-sheet .supplier-lines th { padding: 1.8mm 1.2mm; font-size: 5.9pt; line-height: 1.25; text-align: right; }
+    .supplier-sheet .supplier-lines th.col-no, .supplier-sheet .supplier-lines th.col-product, .supplier-sheet .supplier-lines th.col-packing { text-align: left; }
+    .supplier-sheet .supplier-lines th:first-child { padding-left: 0; }
+    .supplier-sheet .supplier-lines > thead > tr > th:last-child, .supplier-sheet .supplier-lines > tbody > tr > td:last-child { padding-left: 1.2mm; padding-right: 0; text-align: right; }
+    .th-unit { font-weight: 400; color: #8b8179; letter-spacing: 0; text-transform: none; }
+    .supplier-sheet .supplier-lines td { padding: 2.4mm 1.2mm; font-size: 7.4pt; vertical-align: top; }
+    .supplier-sheet .supplier-lines td.col-no { padding-left: 0; color: #8b8179; font-size: 7pt; text-align: left; }
+    .supplier-sheet .supplier-lines td.col-product { text-align: left; }
+    .supplier-sheet .supplier-lines td.col-packing { text-align: left; border-left: .35pt solid #ede4d8; }
+    .supplier-lines .supplier-product td { padding: 0; text-align: left; vertical-align: top; }
+    .supplier-lines .supplier-product td.product__photo-cell { padding-right: 2.4mm; }
+    .supplier-lines .product__name { font-size: 8.2pt; font-weight: 700; line-height: 1.25; }
+    .supplier-lines .product__ids { margin-top: .6mm; color: #6b5f58; font-size: 6.6pt; font-variant-numeric: tabular-nums; }
+    .product__facts-cell { padding-top: 1.4mm !important; }
+    table.facts-list { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    /* Label column wide enough for VERPAKKING at this size, so a value never starts glued to its label. */
+    table.facts-list th { width: 19.5mm; padding: .35mm 1.2mm .35mm 0 !important; border: 0; background: transparent; color: #8f2942; font-size: 5.6pt; font-weight: 700; letter-spacing: .08em; text-align: left !important; text-transform: uppercase; vertical-align: top; white-space: nowrap; }
+    table.facts-list td { padding: .35mm 0 !important; border: 0; background: transparent; color: #3f3631; font-size: 6.6pt; line-height: 1.35; text-align: left !important; vertical-align: top; }
+    /* Pieces per display and the EAN each get a small line of their own under the packaging. */
+    .facts-list__sub { display: block; margin-top: .15mm; color: #6b5f58; font-size: 6pt; line-height: 1.3; }
+    .facts-list__code { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    .packing__count { font-size: 7.6pt; font-weight: 700; }
+    .packing__line { margin-top: .5mm; color: #3f3631; font-size: 6.8pt; line-height: 1.35; font-variant-numeric: tabular-nums; }
+    .supplier-sheet .supplier-lines tr.sum td { vertical-align: top; }
+    /* General packing specification: rules on the left, the carton label to copy on the right. */
+    .packing-spec { page-break-before: always; }
+    .packing-spec .section-title { margin-top: 0; }
+    .packing-grid { margin-top: 3mm; table-layout: fixed; }
+    .packing-grid td { vertical-align: top; }
+    .packing-grid td.packing-rules { width: 50%; padding-right: 5mm; }
+    .packing-grid td.packing-rules--second { padding-right: 0; padding-left: 5mm; border-left: .35pt solid #e3d7c6; }
+</style>
+</head>
+<body class="{#if supplierMode}supplier-sheet{#else}standard-sheet{/if}">
+
+<div class="top-rule"></div>
+
+<table class="head">
+  <tr>
+    <td>
+      {#if supplierMode}<div class="doc-number">ENROSED</div>
+      {#else if logo}<img class="logo" src="{logo}" alt="Enrosed"/>
+      {#else}<b style="font-size:18pt">ENROSED</b>{/if}
+      <div class="company-line">
+        {company.legalName}{#if company.addressOneLine} · {company.addressOneLine}{/if}
+        {#if company.vatNumber} · {#if supplierMode}VAT{#else}BTW{/if} {company.vatNumber}{/if}<br/>
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}{#if company.website} · {company.website}{/if}
+      </div>
+    </td>
+    <td class="doc-meta">
+      {#if !supplierMode}<div class="doc-kicker">Inkooporder</div>{/if}
+      <div class="doc-number">{order.number}</div>
+      {#if supplierMode}<div class="supplier-doc-label">Production · Supply · Acceptance</div>{/if}
+      {#if !supplierMode}<div class="badges"><span class="badge">{statusLabel}</span></div>{/if}
+    </td>
+  </tr>
+</table>
+
+{#if supplierMode || showSupplier}<table class="parties">
+  <tr>
+    <td>
+      <div class="label">{#if supplierMode}Buyer{#else}Van{/if}</div>
+      <div class="party-name">{company.legalName}</div>
+      <div class="party-lines">
+        {#if company.addressOneLine}{company.addressOneLine}<br/>{/if}
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}
+      </div>
+    </td>
+    <td>
+      <div class="label">{#if supplierMode}Supplier{#else}Aan leverancier{/if}</div>
+      <div class="party-name">{supplierName}</div>
+      <div class="party-lines">
+        {#for addressLine in supplierAddressLines}{addressLine}<br/>{/for}
+        {#if supplierContactLine}{supplierContactLine}{/if}
+      </div>
+    </td>
+  </tr>
+</table>{/if}
+
+<table class="facts">
+  {#if supplierMode}
+  <tr>
+    <td style="width:20%"><div class="facts__label">PO date</div><div class="facts__value">{orderDate}</div></td>
+    <td style="width:38%"><div class="facts__label">Shipping route</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}</div></td>
+    <td style="width:20%"><div class="facts__label">Trade term</div><div class="facts__value">{supplierTradeTerm}</div></td>
+    <td style="width:22%"><div class="facts__label">Required arrival</div><div class="facts__value">{#if order.expectedArrival}{order.expectedArrival.be}{#else}To confirm{/if}</div></td>
+  </tr>
+  {#else}
+  <tr class="facts--standard">
+    <td><div class="facts__label">Orderdatum</div><div class="facts__value">{orderDate}</div></td>
+    <td><div class="facts__label">Route &amp; levering</div><div class="facts__value">{costLabels.loadingPort} &#8594; {costLabels.destinationPort}</div><div class="facts__sub">{order.containerType.label}{#if order.expectedArrival} · verwacht {order.expectedArrival.be}{/if}{#if order.trackingReference} · {order.trackingReference}{/if}</div></td>
+    {#if showPrices}<td><div class="facts__label">Prijsbasis</div><div class="facts__value">{priceBasis}</div></td>{/if}
+    {#if showPaymentTerms}<td><div class="facts__label">Betalingsafspraak</div><div class="facts__value">{paymentTermsLabel}</div></td>{/if}
+  </tr>
+  {/if}
+</table>
+
+<div class="section-title">{#if supplierMode}Products and agreed specifications{#else}Producten{/if}<span class="section-title__legend">{#if supplierMode}sizes W × D × H in cm · volumes in m³{#else}maten B × D × H in cm · volumes in m³{/if}</span></div>
+{#if supplierMode}
+<table class="lines supplier-lines">
+  <colgroup>
+    <col style="width:7mm"/><col style="width:72mm"/><col style="width:40mm"/><col style="width:16mm"/>
+    <col style="width:14mm"/><col style="width:18mm"/><col style="width:23mm"/>
+  </colgroup>
+  <thead>
+  <tr>
+    <th class="col-no">#</th>
+    <th class="col-product">Product</th>
+    <th class="col-packing">Packing per carton</th>
+    <th>Quantity<br/><span class="th-unit">pcs</span></th>
+    <th>Cartons</th>
+    <th>Total volume<br/><span class="th-unit">m³</span></th>
+    <th>Agreed unit price</th>
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in supplierLines}
+    <tr class="{#if line_even}alt{/if}">
+      <td class="col-no number">{line.position}</td>
+      <td class="col-product">
+        <table class="supplier-product"><tr>
+          <td class="product__photo-cell">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td class="product__copy">
+            <div class="product__name">{line.productName}</div>
+            <div class="product__ids">{#if line.sku}SKU {line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.supplierReference}{#if line.sku || line.ean} · {/if}Your ref. {line.supplierReference}{/if}</div>
+          </td>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour}<tr><td colspan="2" class="product__facts-cell">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Size</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Packaging</th><td>{line.packagingText}{#if line.packagingPieces}<span class="facts-list__sub">{line.packagingPieces}</span>{/if}{#if line.packagingEan}<span class="facts-list__sub facts-list__code">{line.packagingEan}</span>{/if}</td></tr>{/if}
+            {#if line.colour}<tr><th>Colour</th><td>{line.colour}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
+      </td>
+      <td class="col-packing">
+        {#if line.piecesPerCarton}<div class="packing__count">{line.piecesPerCarton} {#if line.piecesPerCarton == 1}piece{#else}pieces{/if} per carton</div>{#else}<div class="packing__count muted">Pieces per carton to confirm</div>{/if}
+        {#if line.cartonSize}<div class="packing__line">{line.cartonSize}</div>{/if}
+        {#if line.cartonCbm || line.cartonWeight}<div class="packing__line">{#if line.cartonCbm}{line.cartonCbm} m³{/if}{#if line.cartonCbm && line.cartonWeight} · {/if}{#if line.cartonWeight}{line.cartonWeight}{/if}</div>{/if}
+        {#if line.cartonEan}<div class="packing__line muted">Carton EAN {line.cartonEan}</div>{/if}
+      </td>
+      <td class="number"><b>{line.orderedQuantity}</b></td>
+      <td class="number">{line.orderedCartons}</td>
+      <td class="number">{#if line.lineCbm}{line.lineCbm}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="number">
+        {#if line.priceAvailable}<span class="price-main">{line.agreedUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.currency} · {line.priceBasis}</span>
+        {#else}<span class="muted">-</span>{/if}
+      </td>
+    </tr>
+  {/for}
+  <tr class="sum">
+    <td></td>
+    <td><b>Total</b></td>
+    <td></td>
+    <td class="number"><b>{supplierTotals.pieces}</b></td>
+    <td class="number"><b>{supplierTotals.cartons}</b></td>
+    <td class="number"><b>{#if supplierTotals.cbm}{supplierTotals.cbm}{#else}-{/if}</b></td>
+    <td></td>
+  </tr>
+  </tbody>
+</table>
+{#if hasAgreements}
+<div class="section-title agreements-title">Agreed product instructions and reference images<span class="section-title__legend">a specific instruction takes precedence over the general terms</span></div>
+{#for agreement in supplierAgreements}
+<table class="agreement"><thead><tr><th>
+  <div class="agreement-head__kicker">Agreed product instruction {agreement.reference}</div>
+  <div class="agreement-head__name">Applies to these ordered variants</div>
+  <div class="agreement-head__meta">{agreement.firstVariant}</div>
+</th></tr></thead><tbody>
+{#for variant in agreement.appliesTo}<tr><td class="agreement-cell">{variant}</td></tr>{/for}
+{#for item in agreement.noteLines}
+<tr><td class="agreement-cell">{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}</td></tr>
+{/for}
+{#for photo in agreement.photos}<tr><td class="agreement-gallery"><div class="agreement-photo"><img src="{photo.dataUri}" alt=""/><div class="agreement-photo__caption"><b>{agreement.reference} · Reference {photo.position}</b>{#if photo.caption}<br/>{photo.caption}{/if}</div></div></td></tr>{/for}
+</tbody></table>
+{/for}
+{#for line in supplierLines}
+{#if line.hasAgreement}
+<table class="agreement">
+  <thead>
+  <tr><th>
+    <table class="agreement-head"><tr>
+      <td class="agreement-head__photo">{#if line.photoDataUri}<img class="agreement-head__img" src="{line.photoDataUri}" alt=""/>{#else}<span class="agreement-head__img agreement-head__img--empty">EN</span>{/if}</td>
+      <td>
+        <div class="agreement-head__kicker">Agreed product instruction</div>
+        <div class="agreement-head__name">{line.productName}</div>
+        <div class="agreement-head__meta">{#if line.sku}SKU {line.sku} · {/if}{#if line.ean}EAN {line.ean} · {/if}{#if line.supplierReference}Your ref. {line.supplierReference} · {/if}{line.orderedQuantity} pcs · {line.orderedCartons} cartons{#if line.lineCbm} · {line.lineCbm}{/if}</div>
+      </td>
+    </tr></table>
+  </th></tr>
+  </thead>
+  <tbody>
+  {#if !line.priorIssues.isEmpty}
+  <tr><td class="agreement-cell">
+    <div class="prior-issues">
+      <div class="prior-issues__title">Attention · earlier deliveries of this product arrived short or damaged</div>
+      {#for issue in line.priorIssues}
+        <div class="prior-issue">
+          <span class="prior-issue__when">{issue.orderNumber}{#if issue.receivedOn} · received {issue.receivedOn.be}{/if}</span>
+          <span class="prior-issue__facts">{issue.ordered} ordered · {issue.received} received{#if issue.damaged > 0} · <b>{issue.damaged} damaged</b>{/if}{#if issue.missing > 0} · <b>{issue.missing} short</b>{/if}{#if issue.hasLaterReports} · found while unpacking: {#if issue.laterDamaged > 0}<b>{issue.laterDamaged} damaged</b>{/if}{#if issue.laterDamaged > 0 && issue.laterMissing > 0}, {/if}{#if issue.laterMissing > 0}<b>{issue.laterMissing} short</b>{/if}{/if}</span>
+          {#if issue.note}<span class="prior-issue__note">{issue.note}</span>{/if}
+          {#if issue.laterNote}<span class="prior-issue__note">{issue.laterNote}</span>{/if}
+        </div>
+      {/for}
+      <div class="prior-issues__ask">Please pack and count this product with extra care and confirm the corrective measures in writing before production.</div>
+    </div>
+  </td></tr>
+  {/if}
+  {#for item in line.supplierNoteLines}
+  <tr><td class="agreement-cell">{#if item.level == 0}<div class="note-p">{item.text}</div>{#else if item.level == 1}<div class="note-li">{item.text}</div>{#else}<div class="note-li note-li--sub">{item.text}</div>{/if}</td></tr>
+  {/for}
+  {#if !line.agreementPhotos.isEmpty}
+  <tr><td class="agreement-gallery">
+    <div class="agreement-gallery__title">Reference images{#if !line.supplierNoteLines.isEmpty} · numbered as referred to in the instruction{/if}</div>
+    {#for agreementPhoto in line.agreementPhotos}<div class="agreement-photo"><img src="{agreementPhoto.dataUri}" alt=""/><div class="agreement-photo__caption"><b>Reference {agreementPhoto.position}</b>{#if agreementPhoto.caption}<br/>{agreementPhoto.caption}{/if}</div></div>{/for}
+  </td></tr>
+  {/if}
+  </tbody>
+</table>
+{/if}
+{/for}
+{/if}
+{#else}
+<table class="lines standard-lines{#if productColumnMm < 62} standard-lines--narrow{/if}">
+  <!-- Fixed layout: pin every column, or the renderer spreads the spare width
+       over all of them and the product column ends up narrowest. -->
+  <colgroup>
+    <col style="width:6mm"/>
+    <col style="width:{productColumnMm}mm"/>
+    <col style="width:26mm"/><col style="width:13mm"/><col style="width:14mm"/><col style="width:17mm"/>
+    {#if showPrices}{#if showUnitPrice}<col style="width:19mm"/>{/if}<col style="width:21mm"/>{/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<col style="width:24mm"/>{/if}
+  </colgroup>
+  <thead>
+  <tr>
+    <th class="col-no">#</th>
+    <th class="col-product">Product</th>
+    <th class="col-packing">Verpakking per karton</th>
+    <th class="col-quantity">Stuks</th>
+    <th class="col-cartons">Kartons</th>
+    <th class="col-cbm">Volume<br/><span class="th-unit">m³</span></th>
+    {#if showPrices}
+    {#if showUnitPrice}<th class="col-unit">Per stuk</th>{/if}
+    <th class="col-line-total">Regeltotaal</th>
+    {/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<th class="col-enrosed enrosed-cost">Totale kost<div class="cost-hint">{#if showEnrosedUnitCost}{#if showEnrosedCost}per stuk + regel{#else}per stuk{/if}{#else}per regel{/if} · t/m levering</div></th>{/if}
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in lines}
+    <tr class="{#if line_even}alt{/if}">
+      <td class="col-no number">{line.position}</td>
+      <td class="col-product">
+        <table class="product"><tr>
+          <td class="product__photo-cell">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td class="product__copy">
+            <div class="product__name">{line.productName}</div>
+            <div class="product__ids">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if showPrices}{#if line.sku || line.ean} · {/if}{line.priceBasis}{/if}</div>
+          </td>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour}<tr><td colspan="2" class="product__facts-cell">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}{#if line.packagingPieces}<span class="facts-list__sub">{line.packagingPieces}</span>{/if}{#if line.packagingEan}<span class="facts-list__sub facts-list__code">{line.packagingEan}</span>{/if}</td></tr>{/if}
+            {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
+      </td>
+      <td class="col-packing">
+        {#if line.piecesPerCarton}<div class="packing__count">{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton</div>{#else}<div class="packing__count muted">Stuks per karton onbekend</div>{/if}
+        {#if line.cartonSize}<div class="packing__line">{line.cartonSize}</div>{/if}
+        {#if line.cartonCbmText || line.cartonWeight}<div class="packing__line">{#if line.cartonCbmText}{line.cartonCbmText}{/if}{#if line.cartonCbmText && line.cartonWeight} · {/if}{#if line.cartonWeight}{line.cartonWeight}{/if}</div>{/if}
+        {#if line.cartonEan}<div class="packing__line muted">Karton-EAN {line.cartonEan}</div>{/if}
+      </td>
+      <td class="number"><b>{line.purchaseQuantity}</b></td>
+      <td class="number">{line.purchaseCartons}</td>
+      <td class="number">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
+      {#if showPrices}
+      {#if showUnitPrice}<td class="number">
+        {#if eurOnly}
+          {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseUnitEur.moneyUnit}</span><br/><span class="price-sub">EUR · {line.priceBasis}</span>
+          {#else}<span class="muted">EUR niet beschikbaar</span>{/if}
+        {#else if line.purchasePriceAvailable}<span class="price-main">{line.purchaseUnitPrice.moneyUnit}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+          {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseUnitEur.moneyUnit} EUR</span>{/if}
+        {#else}<span class="muted">-</span>{/if}
+      </td>
+      {/if}
+      <td class="number">
+        {#if eurOnly}
+          {#if line.eurPriceAvailable}<span class="price-main">{line.purchaseLineTotalEur.money}</span><br/><span class="price-sub">EUR</span>
+          {#else}<span class="muted">EUR niet beschikbaar</span>{/if}
+        {#else if line.purchasePriceAvailable}<span class="price-main">{line.purchaseLineTotal.money}</span><br/><span class="price-sub">{line.purchaseCurrency}</span>
+          {#if showEur && line.eurEquivalentAvailable}<br/><span class="price-eur">ca. {line.purchaseLineTotalEur.money} EUR</span>{/if}
+        {#else}<span class="muted">-</span>{/if}
+      </td>{/if}
+      {#if showEnrosedCost || showEnrosedUnitCost}<td class="number enrosed-cost">
+        {#if showEnrosedUnitCost}<div class="cost-value">{#if line.totalDeliveryUnitCostEur}<span class="price-main">{line.totalDeliveryUnitCostEur.moneyUnit}</span><br/><span class="price-sub">EUR / stuk</span>{#else}<span class="muted">- / stuk</span>{/if}</div>{/if}
+        {#if showEnrosedCost}<div class="cost-value">{#if line.totalDeliveryCostEur}<span class="price-main">{line.totalDeliveryCostEur.money}</span><br/><span class="price-sub">EUR / regel</span>{#else}<span class="muted">- / regel</span>{/if}</div>{/if}
+      </td>{/if}
+    </tr>
+  {/for}
+  <tr class="sum">
+    <td></td>
+    <td><b>Totaal</b></td>
+    <td></td>
+    <td class="number"><b>{purchasePieces}</b></td>
+    <td class="number"><b>{purchaseCartons}</b></td>
+    <td class="number"><b>{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</b></td>
+    {#if showPrices}
+    {#if showUnitPrice}<td></td>{/if}
+    <td class="number">
+      {#if eurOnly}{#if purchaseTotalEurAvailable}<b>{purchaseTotalEur.money}</b><br/><span class="price-sub">EUR</span>{#else}<span class="muted">-</span>{/if}
+      {#else}{#for total in purchaseTotals}<b>{total.amount}</b><br/><span class="price-sub">{total.currency}</span>{#if total_hasNext}<br/>{/if}{/for}{#if purchaseTotals.isEmpty}<span class="muted">-</span>{/if}{/if}
+    </td>
+    {/if}
+    {#if showEnrosedCost || showEnrosedUnitCost}<td class="number enrosed-cost">{#if showEnrosedCost}<b>{totalDeliveryCostEur.money}</b><br/><span class="price-sub">EUR t/m levering</span>{/if}</td>{/if}
+  </tr>
+  </tbody>
+</table>
+{/if}
+
+{#if supplierMode}
+<div class="supplier-closing">
+  <b>Shipping instruction.</b> Planned route: {costLabels.loadingPort} to {costLabels.destinationPort}
+  ({order.containerType.label}).{#if order.expectedArrival} Required arrival: {order.expectedArrival.be}.{/if}
+  The supplier must obtain ENROSED's written approval before any change to the agreed product,
+  packing, quantity, timing, route or transport booking.
+</div>
+{#else if showPrices || showEnrosedCost}
+<table class="closing">
+  <tr>
+    <td class="closing__copy">
+      <div class="label">Levering</div>
+      <b>{costLabels.loadingPort} naar {costLabels.destinationPort}</b><br/>
+      {order.containerType.label}{#if order.trackingReference} - {order.trackingReference}{/if}<br/>
+      {#if order.expectedArrival}Verwachte aankomst: {order.expectedArrival.be}{/if}
+    </td>
+    {#if !supplierMode && (showPrices || showEnrosedCost)}<td class="closing__total">
+      <div class="total-box">
+        <div class="label">{#if showPrices}{#if eurOnly}Ordertotaal in EUR{#else}Ordertotaal per valuta{/if}{#else}Totale orderkost t/m levering{/if}</div>
+        <table class="total-row">
+          {#if showPrices}
+            {#if eurOnly}
+              {#if purchaseTotalEurAvailable}<tr><td>EUR</td><td>{purchaseTotalEur.money} EUR</td></tr>
+              {#else}<tr><td colspan="2" class="muted">EUR-totaal niet volledig beschikbaar</td></tr>{/if}
+            {#else}{#for total in purchaseTotals}<tr><td>{total.currency}</td><td>{total.amount} {total.currency}</td></tr>{/for}
+              {#if purchaseTotals.isEmpty}<tr><td colspan="2" class="muted">Nog geen prijs ingevuld</td></tr>{/if}
+            {/if}
+          {/if}
+          {#if showEnrosedCost}{#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label}<br/><span class="price-sub">{cost.note}</span></td><td>{cost.amount.money} EUR</td></tr>{/for}{/if}
+            <tr class="combined-total"><td>Totale kost<br/><span class="price-sub">t/m levering{#if hasSeparateCosts}, incl. de kosten hierboven{/if}</span></td><td>{totalDeliveryCostEur.money} EUR</td></tr>{/if}
+        </table>
+      </div>
+      {#if showPrices && missingDisplayedPrices > 0}
+        <div class="warning">Bij {missingDisplayedPrices} productregel(s) ontbreekt nog een eenduidige inkoopprijs, valuta of benodigde wisselkoers.</div>
+      {/if}
+    </td>{/if}
+  </tr>
+</table>
+{/if}
+
+{#if supplierMode}
+<section class="packing-spec">
+  <div class="section-title">General packing specification<span class="section-title__legend">applies to every outer carton of this order · a specific product instruction above takes precedence</span></div>
+  <table class="packing-grid"><tr>
+    <td class="packing-rules">
+      <div class="term"><span class="term__number">P1</span><b>ENROSED logo on every outer carton</b>
+        <p>Print the ENROSED logo in black on two adjacent sides of every outer carton, at least 80 mm wide.
+          No supplier name, other brand or advertising on the outside of the carton.</p>
+      </div>
+      <div class="term"><span class="term__number">P2</span><b>One carton label with the contents</b>
+        <p>Every outer carton carries one printed label on a short side, at least 100 × 70 mm: the product exactly
+          as named in this order, SKU and EAN, the colour, the number of pieces inside, the carton number out of
+          the total for that product, and this PO number.</p>
+      </div>
+    </td>
+    <td class="packing-rules packing-rules--second">
+      <div class="term"><span class="term__number">P3</span><b>One product, one colour per carton</b>
+        <p>Never mix products or colours in one carton. Pieces per carton and carton size must match the packing
+          column of this order. A partial or mixed carton needs ENROSED's written approval and its own label
+          stating the exact contents.</p>
+      </div>
+      <div class="term"><span class="term__number">P4</span><b>Marks that survive the voyage</b>
+        <p>Export-grade double-wall cartons, taped shut, labels and logo facing outwards and readable when stacked.
+          Glass, domes and displays carry the "fragile" and "this side up" symbols. The packing list must match the
+          labels carton by carton.</p>
+      </div>
+    </td>
+  </tr></table>
+</section>
+
+<section class="agreement-page">
+  <div class="doc-kicker">Binding order terms</div>
+  <h1 class="agreement-title">Purchase Order Agreement</h1>
+  <p class="agreement-lead">
+    This Purchase Order Agreement forms the complete production and supply instruction for
+    <b>{order.number}</b>. By signing this document, confirming it in writing, or commencing
+    production, the Supplier accepts the product lines, reference images, product instructions
+    and terms below. A specific written product instruction takes precedence over a general term.
+  </p>
+
+  <table class="term-grid"><tr>
+    <td>
+      <div class="term"><span class="term__number">01</span><b>Approved specification only</b>
+        <p>No substitution or change in material, colour, dimensions, construction, finish, scent,
+          packaging, EAN, carton quantity or labelling is permitted without ENROSED's prior written approval.</p>
+      </div>
+      <div class="term"><span class="term__number">02</span><b>Quality and 1% maximum tolerance</b>
+        <p>Products must be new, clean, saleable and compliant with every instruction and reference image.
+          ENROSED accepts no more than 1% damaged, defective, incomplete or non-conforming units per SKU.
+          Any amount above 1% must, at ENROSED's choice, be replaced or credited by the Supplier.</p>
+      </div>
+      <div class="term"><span class="term__number">03</span><b>Quantity and packing accuracy</b>
+        <p>Ordered quantities, pieces per carton, carton dimensions and CBM must be checked before production.
+          Short shipment, over shipment, mixed packing, unauthorised split shipment or incorrect carton marks
+          require prior written approval. The Supplier remains responsible for resulting reasonable direct costs.</p>
+      </div>
+      <div class="term"><span class="term__number">04</span><b>Inspection and remedy</b>
+        <p>ENROSED may inspect before shipment and after receipt. Payment, inspection or receipt does not waive
+          hidden defects. A claim may be supported by counts, photographs or video. The agreed remedy must be
+          completed promptly and without disrupting the next shipment.</p>
+      </div>
+    </td>
+    <td>
+      <div class="term"><span class="term__number">05</span><b>Shipping schedule and deviations</b>
+        <p>The Supplier must immediately report any risk to production completion, booking, departure, route or
+          arrival. No shipment may leave earlier, later, partially or by a different route or mode without
+          ENROSED's written approval. Unauthorised deviations remain for the Supplier's account.</p>
+      </div>
+      <div class="term"><span class="term__number">06</span><b>Pre-shipment confirmation</b>
+        <p>Before release, the Supplier must provide final carton count, gross and net weight, measurements, CBM,
+          packing list and clear production and packing photographs. Commercial invoice and labels must match this PO.</p>
+      </div>
+      <div class="term"><span class="term__number">07</span><b>Safe packing and transport protection</b>
+        <p>The Supplier must use export-worthy packing suitable for the agreed transport and protect the goods
+          against pressure, moisture, movement, breakage and contamination. Approval of a packing photo does not
+          release the Supplier from responsibility for inadequate packing.</p>
+      </div>
+      <div class="term"><span class="term__number">08</span><b>Written changes and records</b>
+        <p>Only changes confirmed in writing by ENROSED are valid. The Supplier must retain the approved samples,
+          specifications and production records needed to trace any deviation. English text in this agreement
+          governs the supplier-facing order.</p>
+      </div>
+    </td>
+  </tr></table>
+
+  <div class="acceptance">
+    <b>Acceptance.</b> The parties confirm that the prices shown are the agreed purchase prices for this PO.
+    Signing below confirms authority to accept this Purchase Order Agreement. Electronic confirmation and the
+    start of production have the same acceptance effect for operational purposes.
+  </div>
+
+  <div class="signature-title">Authorised signatures</div>
+  <table class="signatures"><tr>
+    <td>
+      <div class="signature-party">For {company.legalName}</div>
+      <div class="signature-line"></div>
+      <div class="signature-meta">Name / title: __________________________________<br/>Date: __________________ &#160; Signature / stamp</div>
+    </td>
+    <td>
+      <div class="signature-party">For {supplierName}</div>
+      <div class="signature-line"></div>
+      <div class="signature-meta">Name / title: __________________________________<br/>Date: __________________ &#160; Signature / stamp</div>
+    </td>
+  </tr></table>
+  <div class="agreement-footer">{order.number} · Buyer and Supplier must initial every page.</div>
+</section>
+{/if}
+
+{#if !supplierMode}<div class="footnote">
+  {company.legalName}{#if company.vatNumber} - BTW {company.vatNumber}{/if}
+  {#if company.email} - {company.email}{/if}{#if company.phone} - {company.phone}{/if}
+</div>{/if}
+
+</body>
+</html>

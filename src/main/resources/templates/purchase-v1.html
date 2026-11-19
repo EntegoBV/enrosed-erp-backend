@@ -1,0 +1,459 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    /* Wide purchase order. Internal cost components stay in the summary
+       below instead of being repeated as a dense wall of line columns. */
+    @page {
+      size: A4 landscape; margin: 11mm 8mm 13mm;
+      @bottom-left {
+        content: "{order.number}{#if showRevenue} · interne calculatie{#else} · inkooporder horizontaal{/if}";
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+      }
+      @bottom-right {
+        content: "Pagina " counter(page) " van " counter(pages);
+        font-family: "DejaVu Sans", sans-serif; font-size: 6.5pt; color: #8a807a;
+      }
+    }
+    body { font-family: "DejaVu Sans", Helvetica, Arial, sans-serif; font-size: 8pt; color: #1c1715; margin: 0; }
+    h1 { font-size: 15pt; margin: 0; }
+    .muted { color: #8a807a; }
+    .tiny { font-size: 6.2pt; color: #8a807a; font-weight: 400; }
+
+    /* -- head ------------------------------------------------------------ */
+    table.head { width: 100%; border-collapse: collapse; page-break-inside: avoid; }
+    table.head td { vertical-align: top; padding: 0; }
+    .head__company { font-size: 7pt; color: #8a807a; margin-top: 4px; }
+    .head__meta { text-align: right; }
+    .doc-kicker { font-size: 6.5pt; letter-spacing: 0.14em; text-transform: uppercase; color: #8f2942; font-weight: 700; }
+    .doc-number { font-size: 15pt; font-weight: 700; margin-top: 1px; }
+    .doc-alias { font-size: 7.5pt; color: #8a807a; margin-top: 1px; }
+    .doc-badges { margin-top: 4px; }
+    .badge {
+      display: inline-block; padding: 2px 7px; border: 1px solid #d8d0ca; border-radius: 3px;
+      font-size: 6.3pt; letter-spacing: 0.1em; text-transform: uppercase; font-weight: 700;
+    }
+    .badge--status { border-color: #b99143; color: #744f12; }
+    .badge--intern { background: #1a1614; border-color: #1a1614; color: #ffffff; margin-left: 3px; }
+
+    /* -- facts band ------------------------------------------------------ */
+    table.band { width: 100%; border-collapse: collapse; margin-top: 9px; page-break-inside: avoid; }
+    td.band__cell {
+      vertical-align: top; background: #fbf7f2; border: 1px solid #e7dccd;
+      padding: 6px 9px;
+    }
+    .band__label { font-size: 6pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8a807a; margin-bottom: 3px; }
+    .band__value { font-size: 8.5pt; font-weight: 700; }
+    .band__sub { font-size: 6.9pt; color: #8a807a; margin-top: 1px; }
+    .band__line { font-size: 7.2pt; margin-top: 1px; }
+    .band__line span { color: #8a807a; }
+    .band__line b { float: right; }
+
+    /* -- lines table ----------------------------------------------------- */
+    table.lines {
+      width: 100%; border-collapse: collapse; margin-top: 10px;
+      -fs-table-paginate: paginate;
+    }
+    table.lines thead { display: table-header-group; }
+    table.lines tr { page-break-inside: avoid; }
+    table.lines th {
+      text-align: right; font-size: 6pt; letter-spacing: 0.05em; text-transform: uppercase;
+      color: #8a807a; padding: 3px 3.5px; white-space: nowrap;
+    }
+    /* Sixteen internal columns: fixed narrow number columns, headers may wrap,
+       the product column takes what remains. */
+    table.lines--internal { table-layout: fixed; }
+    table.lines--internal th { white-space: normal; font-size: 5.2pt; letter-spacing: 0; padding-left: 2px; padding-right: 2px; vertical-align: bottom; }
+    table.lines--internal tr.grouprow th { white-space: nowrap; font-size: 6pt; letter-spacing: 0.12em; }
+    table.lines--internal th.c-num, table.lines--internal td.c-num { width: 4mm; padding-left: 0; padding-right: 1mm; }
+    table.lines--internal td { padding-left: 2px; padding-right: 2px; }
+    table.lines--internal th.w-n { width: 12mm; }
+    table.lines--internal th.w-m { width: 13.5mm; }
+    table.lines--internal td.c-name { padding-right: 4px; }
+    tr.grouprow th {
+      text-align: left; color: #8f2942; font-weight: 700; letter-spacing: 0.12em;
+      border-bottom: 1px solid #d8d0ca; padding-bottom: 2px;
+    }
+    tr.labelrow th { border-bottom: 1px solid #1a1614; }
+    table.lines th.l { text-align: left; }
+    table.lines td { padding: 4.5px 3.5px; border-bottom: 1px solid #efeae6; font-size: 7.3pt; }
+    tr.alt td { background: #faf8f7; }
+    .group-l { border-left: 1px solid #d8d0ca; }
+    table.lines td.c-res { background: #f7efe3; }
+    .r { text-align: right; white-space: nowrap; }
+    .c-num { color: #8a807a; font-size: 6.5pt; }
+    .c-name { font-weight: 700; }
+    table.product-cell { width: 100%; border-collapse: collapse; }
+    table.product-cell td { border: 0; padding: 0; vertical-align: middle; background: transparent; }
+    table.product-cell td.product-cell__image { width: 15mm; padding-right: 2.2mm; }
+    .product-photo { display: block; width: auto; height: 12mm; max-width: 12mm; border: .35pt solid #d9c6a6; border-radius: 2mm; }
+    .product-photo--empty { display: block; width: 12mm; height: 12mm; line-height: 12mm; text-align: center; background: #f7efe3; color: #8f2942; border: .35pt solid #d9c6a6; border-radius: 2mm; font-size: 6pt; font-weight: 700; }
+    .product-name { font-weight: 700; line-height: 1.25; }
+    .product-sku { margin-top: 1px; color: #8a807a; font-size: 6pt; letter-spacing: .05em; }
+    .product-cell__facts { padding-top: 1.2mm !important; }
+    table.facts-list { width: 100%; border-collapse: collapse; table-layout: fixed; }
+    /* Label column wide enough for VERPAKKING at this size, so a value never starts glued to its label. */
+    table.facts-list th { width: 17mm; padding: .25mm 1mm .25mm 0 !important; border: 0; background: transparent; color: #8f2942; font-size: 5.2pt; font-weight: 700; letter-spacing: .08em; text-align: left; text-transform: uppercase; vertical-align: top; white-space: nowrap; }
+    table.facts-list td { padding: .25mm 0 !important; border: 0; background: transparent; color: #3f3631; font-size: 5.9pt; font-weight: 400; line-height: 1.35; text-align: left; vertical-align: top; }
+    /* Pieces per display, carton facts and codes each on a small line of their own. */
+    .facts-list__sub { display: block; margin-top: .1mm; color: #6b5f58; font-size: 5.4pt; line-height: 1.3; }
+    .facts-list__code { font-variant-numeric: tabular-nums; letter-spacing: .02em; }
+    .product-specs { margin-top: 2px; color: #584d47; font-size: 5.9pt; line-height: 1.35; font-weight: 400; }
+    .product-spec {
+      display: table; width: 100%; margin-top: 1px; padding-top: 1px;
+      border-top: .25pt solid #e8ded1; page-break-inside: avoid;
+    }
+    .product-spec__label {
+      display: table-cell; width: 29mm; padding-right: 3px;
+      color: #8f2942; font-size: 5.2pt; font-weight: 700;
+      letter-spacing: .05em; text-transform: uppercase;
+    }
+    .product-spec__value { display: table-cell; font-variant-numeric: tabular-nums; }
+    .spec-part { white-space: nowrap; }
+    .spec-sep { margin: 0 2px; color: #8b8179; }
+    .spec-code { color: #6b5f58; }
+    tr.sumrow td {
+      border-top: 1.2px solid #1a1614; border-bottom: none; font-weight: 700;
+      padding-top: 5px; background: none;
+    }
+
+    .purchase-totals {
+      margin-top: 8px; padding: 7px 9px; border: 1px solid #e3d7c6;
+      border-left: 3px solid #c6a15b; background: #fbf7f2; page-break-inside: avoid;
+    }
+    .purchase-totals__title { color: #8f2942; font-size: 6.3pt; font-weight: 700; letter-spacing: .1em; text-transform: uppercase; }
+    .purchase-total { display: inline-block; margin: 4px 10px 0 0; font-size: 8.2pt; }
+    .purchase-total b { font-size: 9.2pt; }
+    .purchase-warning { margin-top: 4px; color: #762239; font-size: 6.8pt; }
+
+    /* -- summary cards --------------------------------------------------- */
+    table.cards { width: 100%; border-collapse: separate; border-spacing: 6px 0; margin: 12px -6px 0; page-break-inside: avoid; }
+    td.card { width: 33.33%; vertical-align: top; border: 1px solid #e8e2dd; padding: 8px 10px; }
+    .card__title { font-size: 6.3pt; letter-spacing: 0.12em; text-transform: uppercase; color: #8f2942; font-weight: 700; margin-bottom: 4px; }
+    .card__title--follow { margin-top: 8px; }
+    table.mini { width: 100%; border-collapse: collapse; }
+    table.mini td { padding: 2.5px 0; font-size: 7.3pt; vertical-align: top; }
+    tr.mini__sub td { border-top: 1px solid #e8e2dd; font-weight: 700; }
+    tr.mini__grand td { border-top: 1.2px solid #1a1614; font-weight: 700; font-size: 8.3pt; padding-top: 4px; }
+    tr.mini__avg td { color: #8a807a; }
+    .note { font-size: 6.7pt; color: #8a807a; margin-top: 4px; }
+    .tick {
+      display: inline-block; width: 9px; height: 9px; border: 1px solid #d8d0ca; border-radius: 6px;
+      font-size: 6pt; text-align: center; line-height: 9px; color: #ffffff; margin-right: 2px;
+    }
+    .tick--done { background: #1b7a4c; border-color: #1b7a4c; }
+
+    /* -- diary ----------------------------------------------------------- */
+    .notes { margin-top: 10px; border: 1px solid #e8e2dd; padding: 8px 10px; }
+    .notes__body { white-space: pre-wrap; font-size: 7pt; line-height: 1.55; color: #3d3733; }
+
+    .foot { margin-top: 12px; font-size: 6.6pt; color: #8a807a; border-top: 1px solid #efeae6; padding-top: 5px; page-break-inside: avoid; }
+  </style>
+</head>
+<body>
+
+<table class="head">
+  <tr>
+    <td>
+      {#if logo}<img src="{logo}" alt="Enrosed" style="display:block;width:auto;height:24px;max-width:70mm"/>{#else}<h1>ENROSED</h1>{/if}
+      <div class="head__company">
+        <b>{company.name}</b>
+        {#if company.vatNumber} · BTW {company.vatNumber}{/if}
+      </div>
+    </td>
+    <td class="head__meta">
+      <div class="doc-kicker">{#if showRevenue}Interne calculatie{#else}Inkooporder - horizontaal{/if}</div>
+      <div class="doc-number">{order.number}</div>
+      {#if showRevenue && order.alias}<div class="doc-alias">{order.alias}</div>{/if}
+      <div class="doc-badges">
+        <span class="badge badge--status">{statusLabel}</span>
+        {#if showRevenue}<span class="badge badge--intern">Intern</span>{#else}<span class="badge">A4 liggend</span>{/if}
+      </div>
+    </td>
+  </tr>
+</table>
+
+{#if showRevenue}
+<table class="band">
+  <tr>
+    <td class="band__cell" style="width:28%">
+      <div class="band__label">Leverancier</div>
+      <div class="band__value">{supplierName}</div>
+      {#for addressLine in supplierAddressLines}<div class="band__sub">{addressLine}</div>{/for}
+      {#if supplierContactLine}<div class="band__sub">{supplierContactLine}</div>{/if}
+    </td>
+    <td class="band__cell" style="width:26%">
+      <div class="band__label">Traject</div>
+      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__sub">{order.containerType.label}{#if order.trackingReference} · {order.trackingReference}{/if}</div>
+      {#if costing.containerFill}
+        <div class="band__sub">Gevuld {costing.containerFill.usedCbm.amount} van {costing.containerFill.capacityCbm.amount} m³
+          ({costing.containerFill.fillPercent.pct}){#if costing.containerFill.fillPercent > 105}
+          · minimaal {costing.containerFill.minimumContainerCount} containers{/if}</div>
+      {/if}
+    </td>
+    <td class="band__cell" style="width:22%">
+      <div class="band__label">Momenten</div>
+      {#if createdBy}
+        <div class="band__line"><span>Aangemaakt door</span> <b>{createdBy.displayName}</b></div>
+      {/if}
+      {#for moment in timeline}
+        <div class="band__line"><span>{moment.label}</span> <b>{moment.date}</b></div>
+      {/for}
+    </td>
+    <td class="band__cell" style="width:24%">
+      <div class="band__label">Afspraken</div>
+      <div class="band__line"><span>Betaling</span> <b>{paymentTermsLabel}</b></div>
+      {#if usdRateGoods}
+        <div class="band__line"><span>USD → EUR</span>
+          <b>{usdRateGoods}{#if !unifiedUsdToEur} / {usdRateTransport}{/if}</b></div>
+      {/if}
+      {#if cnyRate}
+        <div class="band__line"><span>CNY → USD</span> <b>{cnyRate}</b></div>
+      {/if}
+    </td>
+  </tr>
+</table>
+{#else}
+<table class="band">
+  <tr>
+    <td class="band__cell" style="width:34%">
+      <div class="band__label">Leverancier</div>
+      <div class="band__value">{supplierName}</div>
+      {#for addressLine in supplierAddressLines}<div class="band__sub">{addressLine}</div>{/for}
+      {#if supplierContactLine}<div class="band__sub">{supplierContactLine}</div>{/if}
+    </td>
+    <td class="band__cell" style="width:33%">
+      <div class="band__label">Traject</div>
+      <div class="band__value">{costLabels.loadingPort} → {costLabels.destinationPort}</div>
+      <div class="band__sub">{order.containerType.label}</div>
+    </td>
+    <td class="band__cell" style="width:33%">
+      <div class="band__label">Momenten</div>
+      {#for moment in timeline}
+        <div class="band__line"><span>{moment.label}</span> <b>{moment.date}</b></div>
+      {/for}
+    </td>
+  </tr>
+</table>
+{/if}
+
+<table class="lines {#if showRevenue}lines--internal{/if}">
+  {#if showRevenue}
+  <!-- Fixed layout reads its column widths from the first row, which is the
+       group row here; the colgroup pins them for every row instead. -->
+  <colgroup>
+    <col style="width:4mm"/>
+    <col style="width:{landscapeProductMm}mm"/>
+    <col style="width:12mm"/><col style="width:14mm"/><col style="width:12mm"/><col style="width:15mm"/>
+    <col style="width:14mm"/><col style="width:15mm"/>
+    <col style="width:14mm"/><col style="width:14.5mm"/><col style="width:14mm"/><col style="width:16mm"/><col style="width:15.5mm"/>
+    {#if hasExtraColumn}<col style="width:15mm"/>{/if}
+    {#if hasSeparateColumn}<col style="width:15mm"/>{/if}
+    <col style="width:15mm"/><col style="width:13mm"/>
+  </colgroup>
+  {/if}
+  <thead>
+  {#if showRevenue}
+  <tr class="grouprow">
+    <th colspan="6">Lading</th>
+    <th class="group-l" colspan="2">Inkoopprijs</th>
+    <th class="group-l" colspan="{breakdownColumns}">Kostenopbouw per regel · EUR</th>
+    <th class="group-l" colspan="2">Geland · EUR</th>
+  </tr>
+  {/if}
+  <tr class="labelrow">
+    <th class="l c-num">#</th>
+    <th class="l" style="{#if showRevenue}width:{landscapeProductMm}mm{#else}width:96mm{/if}">Product &amp; specificatie <span class="tiny">maten B × D × H in cm</span></th>
+    <th class="w-n">Stuks</th>
+    <th class="w-n">Stuks per karton</th>
+    <th class="w-n">Kartons</th>
+    <th class="w-n">m³</th>
+    <th class="group-l w-m">Inkoop per stuk</th>
+    <th class="w-m">Inkoop totaal</th>
+    {#if showRevenue}
+    <th class="group-l w-n">Goederen</th>
+    <th class="w-n">Oorsprong</th>
+    <th class="w-n">Zeevracht</th>
+    <th class="w-n">Invoerrecht</th>
+    <th class="w-n">Bestemming</th>
+    {#if hasExtraColumn}<th class="w-n">Enrosed</th>{/if}
+    {#if hasSeparateColumn}<th class="w-n">Inspectie &amp; andere</th>{/if}
+    <th class="group-l w-m">Geland totaal</th>
+    <th class="w-n">Geland per stuk</th>
+    {/if}
+  </tr>
+  </thead>
+  <tbody>
+  {#for line in lines}
+    <tr class="{#if line_even}alt{/if}">
+      <td class="c-num">{line_count}</td>
+      <td class="c-name">
+        <table class="product-cell"><tr>
+          <td class="product-cell__image">
+            {#if line.photoDataUri}<img class="product-photo" src="{line.photoDataUri}" alt=""/>
+            {#else}<span class="product-photo--empty">EN</span>{/if}
+          </td>
+          <td><div class="product-name">{line.productName}</div>
+            <div class="product-sku">{#if line.sku}{line.sku}{/if}{#if line.ean}{#if line.sku} · {/if}EAN {line.ean}{/if}{#if line.sku || line.ean} · {/if}{line.priceBasis}</div>
+          </td>
+        </tr>
+        {#if line.productSize || line.packagingText || line.colour || line.cartonSize || line.piecesPerCarton}<tr><td colspan="2" class="product-cell__facts">
+          <table class="facts-list">
+            {#if line.productSize}<tr><th>Maat</th><td>{line.productSize}</td></tr>{/if}
+            {#if line.packagingText}<tr><th>Verpakking</th><td>{line.packagingText}{#if line.packagingPieces}<span class="facts-list__sub">{line.packagingPieces}</span>{/if}{#if line.packagingEan}<span class="facts-list__sub facts-list__code">{line.packagingEan}</span>{/if}</td></tr>{/if}
+            {#if line.colour}<tr><th>Kleur</th><td>{line.colour}</td></tr>{/if}
+            {#if line.cartonSize || line.piecesPerCarton}<tr><th>Omdoos</th><td>{#if line.piecesPerCarton}{line.piecesPerCarton} {#if line.piecesPerCarton == 1}stuk{#else}stuks{/if} per karton{#else}{line.cartonSize}{/if}{#if line.piecesPerCarton && (line.cartonSize || line.cartonCbmText || line.cartonWeight)}<span class="facts-list__sub">{#if line.cartonSize}{line.cartonSize}{/if}{#if line.cartonCbmText}{#if line.cartonSize} · {/if}{line.cartonCbmText}{/if}{#if line.cartonWeight}{#if line.cartonSize || line.cartonCbmText} · {/if}{line.cartonWeight}{/if}</span>{#else if line.cartonCbmText || line.cartonWeight}<span class="facts-list__sub">{#if line.cartonCbmText}{line.cartonCbmText}{/if}{#if line.cartonWeight}{#if line.cartonCbmText} · {/if}{line.cartonWeight}{/if}</span>{/if}{#if line.cartonEan}<span class="facts-list__sub facts-list__code">Karton-EAN {line.cartonEan}</span>{/if}</td></tr>{/if}
+          </table>
+        </td></tr>{/if}
+        </table>
+      </td>
+      <td class="r">{line.purchaseQuantity}</td>
+      <td class="r">{#if line.piecesPerCarton}{line.piecesPerCarton}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r">{line.purchaseCartons}</td>
+      <td class="r">{#if line.cbmText}{line.cbmText}{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r group-l">{#if line.purchasePriceAvailable}<b>{line.purchaseUnitPrice.moneyUnit}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      <td class="r">{#if line.purchasePriceAvailable}<b>{line.purchaseLineTotal.money}</b><br/><span class="tiny">{line.purchaseCurrency}</span>{#else}<span class="muted">-</span>{/if}</td>
+      {#if showRevenue}
+      <td class="r group-l">{line.goodsEur.money}</td>
+      <td class="r">{line.originEur.money}</td>
+      <td class="r">{line.freightEur.money}</td>
+      <td class="r">{line.dutyEur.money} <span class="tiny">{line.dutyRatePct.pct}</span></td>
+      <td class="r">{line.destinationEur.money}</td>
+      {#if hasExtraColumn}<td class="r">{line.extraRevenueEur.money}</td>{/if}
+      {#if hasSeparateColumn}<td class="r">{line.separateEur.money}</td>{/if}
+      <td class="r c-res group-l"><b>{line.totalEur.money}</b></td>
+      <td class="r c-res"><b>{line.landedUnitEur.moneyUnit}</b>{#if line.landedPieceEur}<br/><span class="tiny">per display</span><br/><span class="tiny">{line.landedPieceEur.moneyUnit} /stuk</span>{/if}</td>
+      {/if}
+    </tr>
+  {/for}
+  <tr class="sumrow">
+    <td></td>
+    <td>Totaal</td>
+    <td class="r">{purchasePieces}</td>
+    <td></td>
+    <td class="r">{purchaseCartons}</td>
+    <td class="r">{#if purchaseCbm}{purchaseCbm}{#else}-{/if}</td>
+    <td></td>
+    <td class="r"><span class="tiny">per valuta hieronder</span></td>
+    {#if showRevenue}
+    <td class="r group-l">{costing.totals.goodsEur.money}</td>
+    <td class="r">{costing.totals.originEur.money}</td>
+    <td class="r">{costing.totals.freightEur.money}</td>
+    <td class="r">{costing.totals.dutyEur.money}</td>
+    <td class="r">{costing.totals.destinationEur.money}</td>
+    {#if hasExtraColumn}<td class="r">{costing.totals.extraRevenueEur.money}</td>{/if}
+    {#if hasSeparateColumn}<td class="r">{costing.totals.separateCostsEur.money}</td>{/if}
+    <td class="r c-res group-l">{costing.totals.totalEur.money}</td>
+    <td class="r c-res">{#if containerAverage}{costing.totals.averageUnitEur.moneyUnit}{#if containerPerSet}<br/><span class="tiny">per display</span>{/if}{#else}<span class="tiny">per product</span>{/if}</td>
+    {/if}
+  </tr>
+  </tbody>
+</table>
+
+<div class="purchase-totals">
+  <div class="purchase-totals__title">Afgesproken inkoopwaarde</div>
+  {#for total in purchaseTotals}<span class="purchase-total"><b>{total.amount}</b> {total.currency}</span>{/for}
+  {#if purchaseTotals.isEmpty}<span class="purchase-total muted">Nog geen prijs ingevuld</span>{/if}
+  {#if missingPurchasePrices > 0}<div class="purchase-warning">{missingPurchasePrices} productregel(s) missen nog een eenduidige inkoopprijs of valuta.</div>{/if}
+</div>
+
+{#if showRevenue}
+<table class="cards">
+  <tr>
+    <td class="card">
+      <div class="card__title">Kostenopbouw</div>
+      <table class="mini">
+        <tr><td>Goederenwaarde</td><td class="r">{costing.totals.goodsEur.eur}</td></tr>
+        <tr><td>{costLabels.originCostsLabel} <span class="tiny">{costLabels.originRoute}</span></td>
+            <td class="r">{costing.totals.originEur.eur}</td></tr>
+        <tr><td>{costLabels.seaFreightLabel} <span class="tiny">{costLabels.seaFreightRoute}</span></td>
+            <td class="r">{costing.totals.freightEur.eur}</td></tr>
+        <tr class="mini__sub"><td>Douanewaarde</td><td class="r">{costing.totals.customsValueEur.eur}</td></tr>
+        <tr><td>Invoerrechten <span class="tiny">{#if dutyRateRange}{dutyRateRange}{#else}{costing.totals.effectiveDutyPct.pct} gemiddeld{/if}</span></td>
+            <td class="r">{costing.totals.dutyEur.eur}</td></tr>
+        <tr><td>{costLabels.destinationCostsLabel}</td><td class="r">{costing.totals.destinationEur.eur}</td></tr>
+        <tr><td>Enrosed kost</td><td class="r">{costing.totals.extraRevenueEur.eur}</td></tr>
+        {#if hasSeparateCosts}{#for cost in separateCosts}<tr><td>{cost.label} <span class="tiny">{cost.note}</span></td><td class="r">{cost.amount.eur}</td></tr>{/for}{/if}
+        <tr class="mini__grand"><td>{#if hasSeparateCosts}{separateCostsTotalLabel}{#else}Totaal geland{/if}</td><td class="r">{totalWithSeparateCostsEur.eur}</td></tr>
+        {#for row in unitRows}<tr class="mini__avg"><td>{row.label}{#if row.note} <span class="tiny">{row.note}</span>{/if}</td><td class="r">{row.value}</td></tr>{/for}
+      </table>
+    </td>
+    <td class="card">
+      <div class="card__title">Te betalen</div>
+      {#if payableView}
+      <table class="mini">
+        <tr><td>Leverancier <span class="tiny">{#if payableView.cif}goederen + zeevracht{#else}goederen{/if}</span></td><td class="r">{payableView.supplier}</td></tr>
+        <tr><td>Douane &amp; transport</td><td class="r">{payableView.logistics}</td></tr>
+        <tr><td>Enrosed kost</td><td class="r">{payableView.enrosed}</td></tr>
+      </table>
+      {#if payableView.ddp}<div class="note">DDP: de leverancier draagt transport en invoer.</div>
+      {#else if payableView.cif}<div class="note">CIF: zeevracht via de leverancier; invoerrechten en lokale kosten aankomst via Douane &amp; transport.</div>{/if}
+      <div class="card__title card__title--follow">Stand</div>
+      <table class="mini">
+        <tr><td>Betaald aan leverancier</td><td class="r">{payableView.paidSupplier}</td></tr>
+        {#if payableView.paidInspectionViaSupplier}<tr><td>Inspectie via leverancier <span class="tiny">zelfde transactie</span></td><td class="r">{payableView.paidInspectionViaSupplier}</td></tr>{/if}
+        <tr><td>Betaald douane &amp; transport</td><td class="r">{payableView.paidLogistics}</td></tr>
+        <tr class="mini__grand">
+          <td>{#if payableView.overpaid}Te veel betaald{#else}Open bij leverancier{/if}</td>
+          <td class="r">{payableView.openSupplier}</td>
+        </tr>
+      </table>
+      {/if}
+    </td>
+    <td class="card">
+      <div class="card__title">Betaalplan · {paymentTermsLabel}</div>
+      <table class="mini">
+        {#for step in schedule}
+          <tr>
+            <td><span class="tick {#if step.done}tick--done{/if}">{#if step.done}✓{/if}</span> {step.label}</td>
+            <td class="r">{step.amount}</td>
+          </tr>
+        {/for}
+      </table>
+      {#if paymentRows}
+        <div class="card__title card__title--follow">Geregistreerde betalingen</div>
+        <table class="mini">
+          {#for payment in paymentRows}
+            <tr>
+              <td>{payment.date} · {payment.label}
+                <span class="tiny">{payment.payee}{#if payment.original} · {payment.original}{/if}</span></td>
+              <td class="r">{payment.amount}</td>
+            </tr>
+          {/for}
+        </table>
+      {#else}
+        <div class="note">Nog geen betalingen geregistreerd.</div>
+      {/if}
+    </td>
+  </tr>
+</table>
+{/if}
+
+{#if notesText}
+<div class="notes">
+  <div class="card__title">Dagboek &amp; notities</div>
+  <div class="notes__body">{notesText}</div>
+</div>
+{/if}
+
+<div class="foot">
+  {#if showRevenue}
+    Interne calculatie: elke productregel toont de volledige kostenopbouw tot de gelande stukprijs;
+    de samenvatting telt dezelfde componenten één keer op. Niet bedoeld om buiten het bedrijf te delen.
+    {#if unifiedUsdToEur}
+      Koers: 1 USD = {usdRateGoods} EUR
+    {#else}
+      Historische koersen: 1 USD = {usdRateGoods} EUR (goederen),
+      {usdRateTransport} EUR (transport)
+    {/if}{#if cnyRate},
+    1 CNY = {cnyRate} USD{/if}. Samenvattingsbedragen zijn in euro.
+  {#else}
+    Horizontale inkooporder uit het actuele dossier. Product-, karton- en leveranciersgegevens
+    zijn nog geen onveranderlijke uitgiftesnapshot. Controleer voor verzending.
+  {/if}
+</div>
+
+</body>
+</html>
