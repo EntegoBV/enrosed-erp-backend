@@ -22,12 +22,28 @@ import java.util.List;
  * and how many layers stay under the maximum height and weight. A volume
  * division always gives too many, because cartons do not spread over a
  * pallet like a liquid.
+ *
+ * A carton stands upright. Only a carton that fits no pallet upright (too
+ * wide or too high) is laid down: on its long side or on its end, whichever
+ * takes the most cartons, the lower load on a tie (Emre, 2026-11-20, about
+ * 81 x 81 cm half hearts on a Euro pallet: tip "alleen als het moet").
+ * Palletberekening's palletFit counts the same way.
  */
 @ApplicationScoped
 public class PalletCalculator {
 
+    /**
+     * {@code layerHeightCm}: the carton's size that stands up, one layer's height; null when nothing fits.
+     * {@code up}: which size stands up, as Palletberekening writes it: "h" upright, "w" on its long side
+     * (the width stands), "l" on its end (the length stands).
+     */
     public record Fit(int perLayer, int layers, int cartonsPerPallet,
-                      BigDecimal fullPalletHeightCm, String limitedBy) {
+                      BigDecimal fullPalletHeightCm, String limitedBy, BigDecimal layerHeightCm, String up) {
+        /** An upright fit as it was counted before cartons could be laid down. */
+        public Fit(int perLayer, int layers, int cartonsPerPallet, BigDecimal fullPalletHeightCm, String limitedBy) {
+            this(perLayer, layers, cartonsPerPallet, fullPalletHeightCm, limitedBy, null, "h");
+        }
+
         public static Fit none(String reason) {
             return new Fit(0, 0, 0, BigDecimal.ZERO, reason);
         }
@@ -39,7 +55,23 @@ public class PalletCalculator {
         if (isBlank(box.lengthCm()) || isBlank(box.widthCm()) || isBlank(box.heightCm())) {
             return Fit.none("afmetingen ontbreken");
         }
+        Fit upright = standing(box.lengthCm(), box.widthCm(), box.heightCm(), "h", carton, pallet);
+        if (upright.cartonsPerPallet() > 0) return upright;
+        /* Laid down only because upright fits no pallet; the weight is the same on every side. */
+        Fit best = upright;
+        for (Fit laid : List.of(standing(box.lengthCm(), box.heightCm(), box.widthCm(), "w", carton, pallet),
+                standing(box.heightCm(), box.widthCm(), box.lengthCm(), "l", carton, pallet))) {
+            boolean more = laid.cartonsPerPallet() > best.cartonsPerPallet()
+                    || (laid.cartonsPerPallet() == best.cartonsPerPallet() && laid.cartonsPerPallet() > 0
+                        && laid.fullPalletHeightCm().compareTo(best.fullPalletHeightCm()) < 0);
+            if (more) best = laid;
+        }
+        return best;
+    }
 
+    /** The fit of the carton standing on one side: {@code length} x {@code width} on the pallet, {@code height} up. */
+    private static Fit standing(BigDecimal length, BigDecimal width, BigDecimal height, String up,
+                                Carton carton, PalletSpec pallet) {
         /* A layer may mix both orientations. For example, 58.5 x 40 cm
            cartons on a 120 x 100 pallet fit as one 40 cm deep row of two
            plus one 58.5 cm deep rotated row of three: five, not four.
@@ -47,12 +79,12 @@ public class PalletCalculator {
            common warehouse pattern without pretending this is a generic
            free-form rectangle-packing solver. */
         int perLayer = Math.max(
-                bestRows(pallet.lengthCm(), pallet.widthCm(), box.lengthCm(), box.widthCm()),
-                bestRows(pallet.widthCm(), pallet.lengthCm(), box.lengthCm(), box.widthCm()));
+                bestRows(pallet.lengthCm(), pallet.widthCm(), length, width),
+                bestRows(pallet.widthCm(), pallet.lengthCm(), length, width));
         if (perLayer <= 0) return Fit.none("doos past niet op de pallet");
 
         BigDecimal usableHeight = pallet.maxHeightCm().subtract(pallet.baseHeightCm());
-        int layersByHeight = Math.max(0, floorDiv(usableHeight, box.heightCm()));
+        int layersByHeight = Math.max(0, floorDiv(usableHeight, height));
 
         int heightCapacity = perLayer * layersByHeight;
         BigDecimal weight = Money.nz(carton.weightKg());
@@ -66,9 +98,10 @@ public class PalletCalculator {
                 ? "te hoog of te zwaar"
                 : (weightCapacity < heightCapacity ? "gewicht" : "hoogte");
         BigDecimal fullHeight = layers == 0 ? BigDecimal.ZERO
-                : pallet.baseHeightCm().add(box.heightCm().multiply(BigDecimal.valueOf(layers)));
+                : pallet.baseHeightCm().add(height.multiply(BigDecimal.valueOf(layers)));
 
-        return new Fit(perLayer, layers, cartonsPerPallet, fullHeight, limitedBy);
+        return new Fit(perLayer, layers, cartonsPerPallet, fullHeight, limitedBy,
+                cartonsPerPallet > 0 ? height : null, up);
     }
 
     /** Number of pallets for a number of cartons. */

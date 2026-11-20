@@ -182,11 +182,14 @@ public class SalesPricingCalculator {
             }
             int linePallets = palletised
                     ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
+            /* One layer's height: the size that stands up, also when the carton had to be laid down. */
+            BigDecimal layerHeight = fit.layerHeightCm() != null ? fit.layerHeightCm()
+                    : carton.dimensions() == null ? null : carton.dimensions().heightCm();
             if (palletised) palletInput.add(new PalletCalculator.Load(product.id(), cartons, fit,
-                    carton.dimensions() == null ? null : carton.dimensions().heightCm(), carton.weightKg()));
+                    layerHeight, carton.weightKg()));
             int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
             BigDecimal calculatedPalletHeight = palletised
-                    ? calculatedPalletHeight(carton, context.pallet(), usedPalletLayers)
+                    ? calculatedPalletHeight(layerHeight, context.pallet(), usedPalletLayers)
                     : BigDecimal.ZERO;
 
             /* Keep exact carton volume for totals and per-CBM freight. Only
@@ -571,15 +574,10 @@ public class SalesPricingCalculator {
         return (onTallestPallet + fit.perLayer() - 1) / fit.perLayer();
     }
 
-    /** Tallest pallet needed by this line, not always a completely full pallet. */
-    private static BigDecimal calculatedPalletHeight(Carton carton, PalletSpec pallet,
-                                                     int usedLayers) {
-        if (usedLayers <= 0 || carton == null || carton.dimensions() == null
-                || !positive(carton.dimensions().heightCm())) {
-            return BigDecimal.ZERO;
-        }
-        return pallet.baseHeightCm().add(carton.dimensions().heightCm()
-                .multiply(BigDecimal.valueOf(usedLayers)));
+    /** Tallest pallet needed by this line, not always a completely full pallet; {@code layerHeight} as the fit stands it. */
+    private static BigDecimal calculatedPalletHeight(BigDecimal layerHeight, PalletSpec pallet, int usedLayers) {
+        if (usedLayers <= 0 || !positive(layerHeight)) return BigDecimal.ZERO;
+        return pallet.baseHeightCm().add(layerHeight.multiply(BigDecimal.valueOf(usedLayers)));
     }
 
     /**
