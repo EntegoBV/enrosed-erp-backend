@@ -12,6 +12,7 @@ import com.microsoft.playwright.options.AriaRole;
 import com.microsoft.playwright.options.SelectOption;
 import com.microsoft.playwright.options.LoadState;
 import com.microsoft.playwright.options.ServiceWorkerPolicy;
+import com.microsoft.playwright.options.WaitForSelectorState;
 import com.microsoft.playwright.options.WaitUntilState;
 
 import java.io.DataInputStream;
@@ -37,9 +38,15 @@ public final class TicaPortalWorker {
     private static final String PORTAL = "https://exposant.tica.nl";
     private static final Set<String> HOSTS = Set.of("exposant.tica.nl", "auth.pwmarkets.beeyond.nl", "pwmarkets.beeyond.nl");
     private static final DateTimeFormatter DUTCH_DATE = DateTimeFormatter.ofPattern("EEEE d MMMM yyyy", Locale.forLanguageTag("nl-NL"));
-    private static final String DATE_FROM = "[id='tableFilters.date.date_from']";
-    private static final String DATE_TO = "[id='tableFilters.date.date_until']";
-    private static final String EXHIBITOR = "[id='tableFilters.exhibitor_id.value']";
+    // Filament 5 (portal upgrade of 2026-11-19): the list page binds its applied filters to ?filters[...],
+    // and the deferred filter form takes its element ids from the schema key tableFiltersForm.
+    private static final String FROM_PARAM = "filters[date][date_from]";
+    private static final String TO_PARAM = "filters[date][date_until]";
+    private static final String EXHIBITOR_PARAM = "filters[exhibitor_id][value]";
+    private static final String DATE_FROM = "[id='tableFiltersForm.date.date_from']";
+    private static final String DATE_TO = "[id='tableFiltersForm.date.date_until']";
+    private static final String EXHIBITOR = "[id='tableFiltersForm.exhibitor_id.value']";
+    private static final String FILE_TYPE = "[id='mountedActionSchema0.file_type']:visible";
     private static final int MAX_DOWNLOADS = 1;
     private static final int MAX_LINES = 100_001;
 
@@ -129,7 +136,7 @@ public final class TicaPortalWorker {
             page.getByRole(AriaRole.HEADING, new Page.GetByRoleOptions().setName("Export Transacties").setExact(true))
                     .waitFor(new Locator.WaitForOptions().setTimeout(Math.min(20_000,remaining(deadline))));
             stage="EXPORT_SELECT_TYPE";
-            Locator type = page.locator("[id='mountedActionsData.0.file_type']:visible");
+            Locator type = page.locator(FILE_TYPE);
             type.selectOption(new SelectOption().setLabel("CSV"));
             if (!type.locator("option:checked").innerText().trim().equals("CSV"))
                 throw new TicaPortalException("EXPORT_TYPE_INVALID");
@@ -226,21 +233,29 @@ public final class TicaPortalWorker {
     private static void prepareDates(Page page, String username, LocalDate from, LocalDate to, long deadline) {
         String stage="FILTER_NAVIGATE";
         try {
-        page.navigate(dateUrl(from, to), new Page.NavigateOptions().setTimeout(remaining(deadline))
+        page.navigate(dateUrl(from, to, null), new Page.NavigateOptions().setTimeout(remaining(deadline))
                 .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
         if (!isDates(page.url())) throw new TicaPortalException("AUTH_FAILED");
         verifyAccount(page, username);
         verifyDateFilters(page, from, to);
         stage="FILTER_EXHIBITOR";
-        Locator exhibitor = page.locator(EXHIBITOR);
         String number = username.substring(3);
         // The visible exhibitor number is not its option value (TT_2132 currently has value 843).
-        exhibitor.selectOption(new SelectOption().setLabel(number));
-        String selectedValue = exhibitor.inputValue();
-        if (selectedValue.isBlank() || !exhibitor.locator("option:checked").innerText().trim().equals(number))
-            throw new TicaPortalException("ACCOUNT_MISMATCH");
-        page.waitForCondition(() -> selectedValue.equals(queryValue(page.url(), "tableFilters[exhibitor_id][value]")),
-                new Page.WaitForConditionOptions().setTimeout(Math.min(20_000,remaining(deadline))));
+        String value = exhibitorValue(page.locator(EXHIBITOR), number);
+        // Filament 5 defers filter edits until "Filters toepassen". Apply the exhibitor through the
+        // same URL binding as the dates, then verify what the portal rendered from it.
+        page.navigate(dateUrl(from, to, value), new Page.NavigateOptions().setTimeout(remaining(deadline))
+                .setWaitUntil(WaitUntilState.DOMCONTENTLOADED));
+        if (!isDates(page.url())) throw new TicaPortalException("AUTH_FAILED");
+        verifyAccount(page, username);
+        if (!value.equals(queryValue(page.url(), EXHIBITOR_PARAM))) throw new TicaPortalException("ACCOUNT_MISMATCH");
+        verifyDateFilters(page, from, to);
+        Locator exhibitor = page.locator(EXHIBITOR);
+        try {
+            page.waitForCondition(() -> value.equals(exhibitor.inputValue())
+                            && number.equals(exhibitor.locator("option:checked").textContent().trim()),
+                    new Page.WaitForConditionOptions().setTimeout(Math.min(10_000, remaining(deadline))));
+        } catch (TimeoutError mismatch) { throw new TicaPortalException("ACCOUNT_MISMATCH"); }
         stage="FILTER_SETTLE";
         page.waitForLoadState(LoadState.NETWORKIDLE, new Page.WaitForLoadStateOptions()
                 .setTimeout(Math.min(10_000, remaining(deadline))));
@@ -249,24 +264,49 @@ public final class TicaPortalWorker {
         catch(RuntimeException failure) {throw new TicaPortalException(stage);}
     }
 
-    static String dateUrl(LocalDate from, LocalDate to) {
-        return PORTAL + "/dates?tableFilters[date][date_from]=" + encode(from + " 00:00:00")
-                + "&tableFilters[date][date_until]=" + encode(to + " 23:59:59");
+    static String dateUrl(LocalDate from, LocalDate to, String exhibitor) {
+        String url = PORTAL + "/dates?" + FROM_PARAM + "=" + encode(from + " 00:00:00")
+                + "&" + TO_PARAM + "=" + encode(to + " 23:59:59");
+        return exhibitor == null ? url : url + "&" + EXHIBITOR_PARAM + "=" + encode(exhibitor);
     }
 
     private static void verifyDateFilters(Page page, LocalDate from, LocalDate to) {
         if (!isDates(page.url()))throw new TicaPortalException("AUTH_FAILED");
-        if (!(from + " 00:00:00").equals(queryValue(page.url(), "tableFilters[date][date_from]")))
+        if (!(from + " 00:00:00").equals(queryValue(page.url(), FROM_PARAM)))
             throw new TicaPortalException("FILTER_FROM_URL_INVALID");
-        if (!(to + " 23:59:59").equals(queryValue(page.url(), "tableFilters[date][date_until]")))
+        if (!(to + " 23:59:59").equals(queryValue(page.url(), TO_PARAM)))
             throw new TicaPortalException("FILTER_TO_URL_INVALID");
-        // Alpine initializes these display-only inputs after DOMContentLoaded; wait for the actual values.
-        try {page.waitForCondition(()->from.format(DUTCH_DATE).equals(page.locator(DATE_FROM).inputValue()),
+        // Alpine loads the date picker after DOMContentLoaded; wait for the field, then its display value.
+        Locator fromInput = single(page.locator(DATE_FROM), "FILTER_FROM_MISSING");
+        Locator toInput = single(page.locator(DATE_TO), "FILTER_TO_MISSING");
+        try {page.waitForCondition(()->from.format(DUTCH_DATE).equals(fromInput.inputValue()),
                 new Page.WaitForConditionOptions().setTimeout(10_000));}
         catch(TimeoutError mismatch) {throw new TicaPortalException("FILTER_FROM_VALUE_INVALID");}
-        try {page.waitForCondition(()->to.format(DUTCH_DATE).equals(page.locator(DATE_TO).inputValue()),
+        try {page.waitForCondition(()->to.format(DUTCH_DATE).equals(toInput.inputValue()),
                 new Page.WaitForConditionOptions().setTimeout(10_000));}
         catch(TimeoutError mismatch) {throw new TicaPortalException("FILTER_TO_VALUE_INVALID");}
+    }
+
+    /** The option value of the one exhibitor whose visible number matches the account. */
+    private static String exhibitorValue(Locator select, String number) {
+        single(select, "FILTER_EXHIBITOR_MISSING");
+        String value = null;
+        for (Locator option : select.locator("option").all()) {
+            if (!number.equals(option.textContent().trim())) continue;
+            if (value != null) throw new TicaPortalException("ACCOUNT_MISMATCH"); // ambiguous numbers fail closed
+            value = option.getAttribute("value");
+        }
+        if (value == null || value.isBlank() || value.length() > 64) throw new TicaPortalException("ACCOUNT_MISMATCH");
+        return value;
+    }
+
+    /** Waits until exactly one element matches; a renamed portal field reports its own code. */
+    private static Locator single(Locator candidates, String missing) {
+        try {
+            candidates.first().waitFor(new Locator.WaitForOptions().setState(WaitForSelectorState.ATTACHED).setTimeout(10_000));
+        } catch (TimeoutError absent) { throw new TicaPortalException(missing); }
+        if (candidates.count() != 1) throw new TicaPortalException(missing);
+        return candidates;
     }
 
     private static void verifyAccount(Page page, String username) {

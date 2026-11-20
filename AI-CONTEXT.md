@@ -3535,3 +3535,22 @@ AI-CONTEXT, same title.
   against the saved Voydar feed of EVER ALLY and the real bills. Expected at the first ship check after deploy:
   PO-2026-004 goes from 30/11 to 15/11, PO-2026-006 gets 15/11. Look at the sheet on PO-2026-007 and PO-2026-011
   (wrong and unrecognised references) on the first deploy.
+
+## TICA-portaal op Filament 5 (2026-11-20)
+
+- On 2026-11-19 around 10:40 UTC exposant.tica.nl moved to Filament 5.10 (asset query `?v=5.10.1.0`). From then
+  every sync failed with `FILTER_FROM_VALUE_INVALID`: login and the avatar check still passed, but the worker
+  looked for Filament 3's fields. What changed for `TicaPortalWorker`:
+  - applied filters live in the URL as `filters[...]` (was `tableFilters[...]`; `ListRecords` binds
+    `#[Url(as: 'filters')]`);
+  - field ids follow the schema key: `tableFiltersForm.date.date_from`, `tableFiltersForm.date.date_until`,
+    `tableFiltersForm.exhibitor_id.value` (were `tableFilters.*`); the export modal's type field is
+    `mountedActionSchema0.file_type` (was `mountedActionsData.0.file_type`);
+  - filters are deferred by default: changing the exhibitor select changes nothing until "Filters toepassen".
+    The worker therefore reads the exhibitor's option value (843 for 2132) from the select, then opens the
+    URL with dates and exhibitor together and checks the URL, both date fields and the selected option.
+- A field that is gone now fails with its own code (`FILTER_FROM_MISSING`, `FILTER_TO_MISSING`,
+  `FILTER_EXHIBITOR_MISSING`) instead of timing out as `*_VALUE_INVALID`, so the next portal change shows where
+  it broke. The date display is still checked as Dutch `EEEE d MMMM yyyy` ("zaterdag 14 november 2026").
+- Checked by build and by the worker's filter steps against a mocked Filament 5 page (route-fulfilled, nothing
+  left the machine), not against the real portal: the first real proof is the next sync after deploy.
