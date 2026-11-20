@@ -66,6 +66,10 @@ public class PublicQuoteService {
     @Inject
     jakarta.enterprise.inject.Instance<CustomerPriceService> customerPrices;
 
+    /** The website price switch, to store with a visitor's request whether it showed them prices; absent means not known. */
+    @Inject
+    jakarta.enterprise.inject.Instance<be.enrosed.catalog.application.WebsitePriceVisibility> websitePrices;
+
     public PublicQuoteService(ProductService products, StockService stock,
                               CountryService countries,
                               CustomerService customers, SalesOrderService salesOrders,
@@ -206,7 +210,7 @@ public class PublicQuoteService {
         Stored stored = store(request, prepared, buyer.id(), loginRequested
                 ? List.of(WebsiteQuoteLoginRequested.NOTE_MARKER
                         + " De klant vraagt ook een login; goedkeuren bij Login-aanvragen.")
-                : List.of());
+                : List.of(), visitorSeesPrices());
         /* Observed after the commit only: a login request never rolls back the quote, and a
            rolled-back quote leaves no login request. */
         if (loginRequested && loginRequestedEvent != null) {
@@ -252,7 +256,16 @@ public class PublicQuoteService {
             notes.add("Contact op aanvraag: " + withoutBrackets(contact)
                     + (phone == null ? "" : " · " + withoutBrackets(phone)));
         }
-        return store(request, prepared, buyer.id(), notes).response;
+        /* A logged-in customer always sees prices: their own, else the list (CustomerQuoteResource ignores the switch). */
+        return store(request, prepared, buyer.id(), notes, true).response;
+    }
+
+    /**
+     * Whether the quote page shows a visitor without login prices right now: the website price switch, as
+     * PublicQuoteResource applies it to every anonymous answer. Null when the switch cannot be read.
+     */
+    private Boolean visitorSeesPrices() {
+        return websitePrices == null || !websitePrices.isResolvable() ? null : websitePrices.get().pricesVisible();
     }
 
     /**
@@ -333,7 +346,8 @@ public class PublicQuoteService {
                 prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP");
         SalesOrder saved = salesOrders.updateByCustomer(created.id(),
                 orderDocument(created, request, prepared, buyer, accountEmail, Map.of()));
-        salesOrders.captureCustomerRequest(created.id());
+        /* A logged-in customer orders at the prices the order page showed them. */
+        salesOrders.captureCustomerRequest(created.id(), true);
         return saved;
     }
 
@@ -490,9 +504,12 @@ public class PublicQuoteService {
                 .getOptionalValue("enrosed.website.ordering.enabled", Boolean.class).orElse(true);
     }
 
-    /** Turns a validated request into the ERP draft quote of one customer, with frozen public prices. */
+    /**
+     * Turns a validated request into the ERP draft quote of one customer, with frozen public prices.
+     * {@code pricesShown}: whether the website showed the customer prices (null: not known), stored with the request.
+     */
     private Stored store(SubmitRequest request, Prepared prepared, long customerId,
-                         List<String> extraInternalNotes) {
+                         List<String> extraInternalNotes, Boolean pricesShown) {
         SalesOrder created = salesOrders.createWebsiteRequest(customerId, prepared.country.code(),
                 prepared.fulfillment == Fulfillment.PICKUP ? "EXW" : "DAP");
         Map<Long, PricedOrder.Line> pricedLines = prepared.priced.lines().stream()
@@ -533,7 +550,7 @@ public class PublicQuoteService {
                 DocumentType.OFFERTE, null, null, null, null, frozenLines, List.of(),
                 pickupSnapshot(prepared.pickupLocation));
         salesOrders.updateWebsiteRequest(created.id(), changes);
-        salesOrders.captureCustomerRequest(created.id());
+        salesOrders.captureCustomerRequest(created.id(), pricesShown);
         websiteQuoteReady.fire(new WebsiteQuotePushNotifier.Ready(
                 created.id(), created.number()));
         return new Stored(created, new SubmissionResponse(created.number(), "RECEIVED",

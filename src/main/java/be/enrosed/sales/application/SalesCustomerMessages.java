@@ -12,17 +12,30 @@ import java.util.Objects;
 /** Customer-authored website messages remain distinct from staff document notes and channels. */
 @ApplicationScoped
 public class SalesCustomerMessages {
-    public record Message(boolean readonly, String text) {}
+    /** {@code pricesShown}: whether the website showed the customer prices when they sent the request; null when not known. */
+    public record Message(boolean readonly, String text, Boolean pricesShown) {
+        public Message(boolean readonly, String text) { this(readonly, text, null); }
+    }
     @Inject EntityManager entities;
     public Message find(SalesOrder order) {
         var stored = order.id() == null ? null : entities.find(SalesCustomerMessageEntity.class, order.id());
-        return stored != null ? new Message(true, stored.message)
+        return stored != null ? new Message(true, stored.message, stored.pricesShown)
                 : website(order) ? new Message(true, order.notes()) : new Message(false, null);
     }
     @Transactional(Transactional.TxType.MANDATORY)
     public void capture(SalesOrder order) {
-        if (order.id() == null || !website(order) || entities.find(SalesCustomerMessageEntity.class, order.id()) != null) return;
-        save(order.id(), order.notes());
+        capture(order, null);
+    }
+    /**
+     * At the website intake: also whether the website showed the customer prices (null: not known). A website
+     * order's own customer save already stored its message (replace), so an existing row only gets what it lacks.
+     */
+    @Transactional(Transactional.TxType.MANDATORY)
+    public void capture(SalesOrder order, Boolean pricesShown) {
+        if (order.id() == null || !website(order)) return;
+        var stored = entities.find(SalesCustomerMessageEntity.class, order.id());
+        if (stored == null) save(order.id(), order.notes(), pricesShown);
+        else if (stored.pricesShown == null && pricesShown != null) stored.pricesShown = pricesShown;
     }
     void requireUpdate(SalesOrder before, SalesOrder after) {
         // The public intake creates and fills its empty draft in one transaction, then explicitly captures it.
@@ -37,17 +50,19 @@ public class SalesCustomerMessages {
     void replace(SalesOrder saved) {
         if (saved.id() == null) return;
         var stored = entities.find(SalesCustomerMessageEntity.class, saved.id());
-        if (stored == null) { save(saved.id(), saved.notes()); return; }
+        if (stored == null) { save(saved.id(), saved.notes(), null); return; }
         stored.message = saved.notes(); stored.capturedAt = Instant.now();
     }
     void copy(SalesOrder source, SalesOrder target) {
         Message message = find(source);
-        if (message.readonly() && entities.find(SalesCustomerMessageEntity.class, target.id()) == null) save(target.id(), message.text());
+        if (message.readonly() && entities.find(SalesCustomerMessageEntity.class, target.id()) == null)
+            save(target.id(), message.text(), message.pricesShown());
     }
-    private void save(long id, String message) {
+    private void save(long id, String message, Boolean pricesShown) {
         var entity = new SalesCustomerMessageEntity(); entity.salesOrderId = id;
         entity.order = entities.getReference(SalesEntities.SalesOrderEntity.class, id);
-        entity.message = message; entity.capturedAt = Instant.now(); entities.persist(entity);
+        entity.message = message; entity.capturedAt = Instant.now(); entity.pricesShown = pricesShown;
+        entities.persist(entity);
     }
     static boolean website(SalesOrder order) {
         return "WEBSITE".equalsIgnoreCase(order.salesChannel()) || order.internalNotes() != null

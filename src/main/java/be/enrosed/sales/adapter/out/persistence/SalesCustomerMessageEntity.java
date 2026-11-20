@@ -9,4 +9,10 @@ public class SalesCustomerMessageEntity {
     public SalesEntities.SalesOrderEntity order;
     @Column(length = 2000) public String message;
     @Column(name = "captured_at", nullable = false) public Instant capturedAt;
+    /**
+     * Whether the website showed the customer prices when they sent this request or order, stored at the intake:
+     * a visitor without login only while the website price switch was on, a logged-in customer always (their own
+     * price or the list). Null: not known (older requests, documents staff made).
+     */
+    @Column(name = "prices_shown") public Boolean pricesShown;
 }

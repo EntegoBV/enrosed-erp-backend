@@ -173,7 +173,12 @@ public class SalesOrderService {
     }
 
     public void captureCustomerRequest(long id) {
-        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().capture(get(id));
+        captureCustomerRequest(id, null);
+    }
+
+    /** The website intake: the customer's message, and whether the website showed them prices (null: not known). */
+    public void captureCustomerRequest(long id, Boolean pricesShown) {
+        if (customerMessages != null && customerMessages.isResolvable()) customerMessages.get().capture(get(id), pricesShown);
     }
 
     void copyCustomerRequest(SalesOrder source, SalesOrder target) {

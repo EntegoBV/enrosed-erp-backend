@@ -178,4 +178,5 @@ exec psql \
     --file=/app/migrations/purchase-order-arrivals-postgresql.sql \
     --file=/app/migrations/customer-login-activity-postgresql.sql \
     --file=/app/migrations/purchase-order-bill-and-port-arrival-postgresql.sql \
-    --file=/app/migrations/purchase-order-departure-by-hand-postgresql.sql
+    --file=/app/migrations/purchase-order-departure-by-hand-postgresql.sql \
+    --file=/app/migrations/sales-request-prices-shown-postgresql.sql
