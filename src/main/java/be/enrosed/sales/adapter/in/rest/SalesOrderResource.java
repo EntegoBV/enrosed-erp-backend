@@ -640,11 +640,18 @@ public class SalesOrderResource {
                 .build();
     }
 
+    /**
+     * {@code agreedOutsideLink}: staff confirmed that the customer agreed outside the quote link. A sent
+     * quote without an answer, or a website order whose figures the customer never approved, needs it.
+     */
+    public record InvoiceRequest(Boolean agreedOutsideLink) {}
+
     /** Creates an unsent draft invoice and archives its quote; retries return the same active invoice. */
     @POST
     @Path("/{id}/invoice")
-    public OrderView createInvoice(@PathParam("id") long id) {
-        SalesOrder invoice = salesOrders.createInvoiceFrom(id);
+    public OrderView createInvoice(@PathParam("id") long id, InvoiceRequest request) {
+        SalesOrder invoice = salesOrders.createInvoiceFrom(id,
+                request != null && Boolean.TRUE.equals(request.agreedOutsideLink()));
         return view(invoice);
     }
 

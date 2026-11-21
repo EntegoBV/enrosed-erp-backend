@@ -582,6 +582,23 @@ public record SalesOrder(
 
 
 
+    /**
+     * Accepted at this moment without a signature: staff noted that the customer agreed outside the
+     * quote link. The name of a signature stays as it was (none), so nothing reads it as signed online.
+     */
+    public SalesOrder withAcceptance(Instant at) {
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, QuoteStatus.GEACCEPTEERD, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, at,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel,
+                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt);
+    }
+
     public SalesOrder withPaymentState(QuoteStatus value, Instant at) {
         return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, value, incoterm,
                 paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,

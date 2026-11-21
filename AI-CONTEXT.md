@@ -3554,3 +3554,23 @@ AI-CONTEXT, same title.
   it broke. The date display is still checked as Dutch `EEEE d MMMM yyyy` ("zaterdag 14 november 2026").
 - Checked by build and by the worker's filter steps against a mocked Filament 5 page (route-fulfilled, nothing
   left the machine), not against the real portal: the first real proof is the next sync after deploy.
+
+## Factuur maken achteraf: akkoord buiten de link (2026-11-20)
+Emre wanted to invoice ENR-2026-0028 (id 114), a taken website order sent for approval on 2026-11-15 that the
+customer never opened. `createInvoiceFrom` had no status check for ordinary quotes (the ERP only offered Concept and
+Geaccepteerd), and `WebOrders.requireInvoiceable` refused every website order whose figures were not the ordered or
+approved ones.
+- `POST /api/sales-orders/{id}/invoice` takes an optional body `{ "agreedOutsideLink": true }` (`InvoiceRequest`):
+  staff confirmed that the customer agreed outside the quote link (phone, mail, fair). `{}` or no body is the old call.
+- `SalesOrderService.createInvoiceFrom(id, agreedOutsideLink)`: a quote that waits for the customer's answer
+  (Verzonden, Bekeken), or a website order where `WebOrders.agreementOutsideLinkFits` (Concept, Verzonden or Bekeken
+  with a terms state other than ORDER_EQUAL / APPROVED), is invoiced only with the flag; without it the old refusal
+  stays (`requireInvoiceable`'s sentence for a website order, "De klant heeft deze offerte nog niet aanvaard. …"
+  otherwise). With it, `noteAgreementOutsideLink` runs in the same transaction, right before the invoice is created:
+  the quote becomes Geaccepteerd with `decidedAt` = now and no `signedByName` (`SalesOrder.withAcceptance`), a website
+  order's `acceptedTerms` become the current fingerprint (`requireIssuable` then holds the invoice to it, as after an
+  approval through the link), a GETEKEND event with byCustomer=false and the staff name ("Akkoord van de klant buiten
+  de link genoteerd"), and an activity line. No mail and no push; the quote is archived with the invoice, so the bell
+  never shows it. The link then answers as accepted; "Mijn bestellingen" shows Bevestigd (order) / Aanvaard (quote).
+- Unchanged: an approved website order whose figures moved (GEACCEPTEERD + RESEND_REQUIRED) is still refused, flag or
+  not; advance invoices on a website order still go through `requireInvoiceable` only.

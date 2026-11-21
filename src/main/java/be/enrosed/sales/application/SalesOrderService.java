@@ -546,6 +546,17 @@ public class SalesOrderService {
      */
     @Transactional
     public SalesOrder createInvoiceFrom(long quoteId) {
+        return createInvoiceFrom(quoteId, false);
+    }
+
+    /**
+     * {@link #createInvoiceFrom(long)}, also afterwards: {@code agreedOutsideLink} says staff confirmed
+     * that the customer agreed outside the quote link (by phone, by mail, at a fair). A quote sent and
+     * not answered, or a website order whose figures the customer never approved, is invoiced only
+     * with it; the quote then stands as accepted, unsigned, and its history says who noted it.
+     */
+    @Transactional
+    public SalesOrder createInvoiceFrom(long quoteId, boolean agreedOutsideLink) {
         lockDocumentForMutation(quoteId);
         SalesOrder source = get(quoteId);
         if (source.isCreditNote()) throw new BusinessRuleException("Van een creditnota maak je geen factuur");
@@ -563,8 +574,18 @@ public class SalesOrderService {
             archive(quoteId);
             return existing;
         }
-        /* A website order is invoiced unsent only while it is what the customer ordered, or approved. */
-        if (webOrders() != null && webOrders().find(quoteId).isPresent()) webOrders().requireInvoiceable(source, price(source));
+        /* A website order is invoiced unsent only while it is what the customer ordered, or approved,
+           or once staff note that the customer agreed outside the link to the figures it holds now. */
+        boolean webOrder = webOrders() != null && webOrders().find(quoteId).isPresent();
+        PricedOrder pricedSource = webOrder ? price(source) : null;
+        boolean awaitsAnswer = source.status() == QuoteStatus.VERZONDEN || source.status() == QuoteStatus.BEKEKEN;
+        boolean noteAgreement = webOrder
+                ? WebOrders.agreementOutsideLinkFits(source, webOrders().termsState(source, pricedSource))
+                : awaitsAnswer;
+        if (webOrder && !(noteAgreement && agreedOutsideLink)) webOrders().requireInvoiceable(source, pricedSource);
+        if (noteAgreement && !agreedOutsideLink)
+            throw new BusinessRuleException("De klant heeft deze offerte nog niet aanvaard. "
+                    + "Bevestig dat de klant buiten de link akkoord ging om ze toch te factureren.");
         if (source.isPartnerAdvance() && orders.findAll().stream().anyMatch(order -> order.isInvoice()
                 && order.isPartnerAdvance() && PartnerFinancingService.live(order)
                 && Objects.equals(order.linkedPurchaseOrderId(), source.linkedPurchaseOrderId())))
@@ -605,6 +626,7 @@ public class SalesOrderService {
            Overnemen do: a layout its lines outgrew (an omdoos content changed after acceptance) is
            refused by name, so an invoice never bills fewer hand pallets than its quote unannounced. */
         validateForSave(invoice);
+        if (noteAgreement) noteAgreementOutsideLink(source, webOrder ? WebOrderTerms.of(pricedSource) : null, creator);
         /* The invoice, a slotfactuur included, bills the pallets its quote counted. */
         SalesOrder created = orders.create(invoice, palletRule(source));
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().copyToInvoice(source, created);
@@ -623,6 +645,21 @@ public class SalesOrderService {
         fireCreationPush(SalesCreationPushNotifier.Ready.invoiceFromQuoteCreated(
                 created.id(), created.number(), source.number(), creator));
         return created;
+    }
+
+    /**
+     * The customer agreed outside the quote link and staff note it while making the invoice: the quote
+     * stands as accepted from now, without a signature, so its link takes no second answer and the
+     * customer reads it as confirmed. A website order keeps these figures as the approved ones, which
+     * its invoice is held to when it is issued. No mail leaves; the history names who noted it.
+     */
+    private void noteAgreementOutsideLink(SalesOrder quote, String webOrderTerms, ActorRef by) {
+        Instant now = Instant.now();
+        SalesOrder accepted = orders.save(quote.withAcceptance(now));
+        if (webOrderTerms != null) webOrders().recordAccepted(quote.id(), webOrderTerms);
+        events.add(new QuoteEvent(null, quote.id(), QuoteEvent.Type.GETEKEND, now, by.displayName(), false,
+                "Akkoord van de klant buiten de link genoteerd", null));
+        recordActivity(ActivityLogService.ACTION_UPDATED, accepted, "Akkoord van de klant buiten de link genoteerd");
     }
 
     /** What the sheet asks for when a container becomes a quote: whose, at which prices, with which of its costs. */

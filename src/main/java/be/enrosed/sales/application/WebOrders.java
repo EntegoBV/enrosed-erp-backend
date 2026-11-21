@@ -231,6 +231,26 @@ public class WebOrders {
         return row.orderedTerms().equals(currentTerms) ? TermsState.ORDER_EQUAL : TermsState.ORDER_DIFFERENT;
     }
 
+    /**
+     * Where this order's figures stand now; null when the document is no website order or its status
+     * has no state.
+     */
+    public TermsState termsState(SalesOrder quote, PricedOrder priced) {
+        Row row = quote.id() == null ? null : find(quote.id()).orElse(null);
+        return row == null ? null : termsState(quote, row, WebOrderTerms.of(priced));
+    }
+
+    /**
+     * Staff may note that the customer agreed outside the link to figures the customer never approved
+     * there: on an order that is still a concept or waits for the customer's answer. An approved
+     * version whose figures moved since is not one of them; it goes out again as a new copy.
+     */
+    public static boolean agreementOutsideLinkFits(SalesOrder quote, TermsState state) {
+        if (state == null || state == TermsState.ORDER_EQUAL || state == TermsState.APPROVED) return false;
+        QuoteStatus status = quote.status();
+        return status == QuoteStatus.CONCEPT || status == QuoteStatus.VERZONDEN || status == QuoteStatus.BEKEKEN;
+    }
+
     /** An invoice is made only from an order that is unchanged, or from the version the customer approved. */
     public void requireInvoiceable(SalesOrder quote, PricedOrder priced) {
         Row row = quote.id() == null ? null : find(quote.id()).orElse(null);
