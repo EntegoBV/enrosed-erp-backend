@@ -520,6 +520,21 @@ public class SalesOrderResource {
         return view(salesOrders.get(id));
     }
 
+    /** How the customer agreed (only needed when the figures are not the ordered ones) and the personal message of the mail. */
+    public record WebOrderInvoiceRequest(QuoteService.CustomerAgreement agreedVia, String message) {}
+
+    /**
+     * "Factuur versturen" on a website order: the invoice is made and mailed
+     * in one go, after recording how the customer agreed when the figures
+     * differ from the order. Answers the invoice.
+     */
+    @POST
+    @Path("/{id}/web-order/invoice")
+    public OrderView invoiceWebOrder(@PathParam("id") long id, WebOrderInvoiceRequest request) {
+        return view(quotes.invoiceWebOrder(id, request == null ? null : request.agreedVia(),
+                request == null ? null : request.message()));
+    }
+
     /** The address staff confirmed in "Leveradres overnemen": the server refuses when the delivery reads otherwise by now. */
     public record CustomerAddressRequest(String address, String postalCode, String city) {}
 

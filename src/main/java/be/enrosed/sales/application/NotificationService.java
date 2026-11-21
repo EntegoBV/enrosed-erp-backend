@@ -169,7 +169,7 @@ public class NotificationService {
                 } else if (order.status() == QuoteStatus.CONCEPT) {
                     items.add(new Notification(Kind.WEBSITE_AANVRAAG, order.id(), order.number(), who,
                             "Websitebestelling in verwerking",
-                            "Ongewijzigd: factuur maken. Gewijzigd: versturen ter goedkeuring.",
+                            "Klant akkoord of ongewijzigd: factuur versturen. Anders ter goedkeuring.",
                             true, webOrder.processingStartedAt()));
                 } else if (resendRequired(order, webOrder)) {
                     /* The customer's link refuses these figures until they are mailed again; nobody else is told. */

@@ -470,6 +470,60 @@ public class QuoteService {
         return sent;
     }
 
+    /** How a customer agreed to a website order outside the approval link, as staff record it. */
+    public enum CustomerAgreement {
+        TELEFOON("telefonisch"), EMAIL("per e-mail"), WHATSAPP("via WhatsApp"), TER_PLAATSE("ter plaatse");
+
+        private final String words;
+
+        CustomerAgreement(String words) { this.words = words; }
+
+        /** "telefonisch", "per e-mail": how the history and the activity log say it. */
+        public String words() { return words; }
+    }
+
+    /**
+     * "Factuur versturen" on a website order: the customer already agreed, so
+     * the invoice leaves instead of a request for approval. An order that is
+     * what the customer ordered needs nothing more. Other figures (changed by
+     * staff, open when ordered, or a version still waiting for the link)
+     * need the way the customer agreed; {@link SalesOrderService#createInvoiceFrom(long, boolean, String)}
+     * notes it as the agreement outside the link, the same rule "Factuur maken"
+     * uses, and makes the invoice; then it is mailed. One transaction: when the
+     * invoice or its mail is refused, nothing is noted, no invoice is left
+     * behind and the order stays as it was.
+     */
+    @Transactional
+    public SalesOrder invoiceWebOrder(long orderId, CustomerAgreement agreedVia, String personalMessage) {
+        requireMessageLength(personalMessage);
+        /* The staff gate first: a screen the customer has since overtaken is refused before anything is decided. */
+        salesOrders.lockDocumentForMutation(orderId);
+        SalesOrder order = salesOrders.get(orderId);
+        WebOrders web = webOrders != null && webOrders.isResolvable() ? webOrders.get() : null;
+        WebOrders.Row row = web == null ? null : web.find(orderId).orElse(null);
+        if (row == null)
+            throw new BusinessRuleException("Alleen een websitebestelling vertrekt zo als factuur. Maak de factuur vanuit de offerte.");
+        if (row.customerCancelledAt() != null)
+            throw new BusinessRuleException("Deze bestelling is door de klant geannuleerd.");
+        if (order.isArchived() || orders.existsBySourceQuoteId(orderId))
+            throw new BusinessRuleException("Er bestaat al een factuur uit deze bestelling; open de gekoppelde factuur");
+        SalesLifecycle.requireSendable(order);
+        if (revisions.findByOrder(orderId).stream().anyMatch(revision -> revision.status() == RevisionStatus.IN_AFWACHTING))
+            throw new BusinessRuleException("Behandel eerst het open wijzigingsvoorstel van de klant");
+        /* The checklist of sending holds here too; the invoice's own rules (address, VAT number, freight) follow below. */
+        salesOrders.validateForSend(order);
+        if (order.lines().isEmpty()) throw new BusinessRuleException("Een bestelling zonder regels kan niet gefactureerd worden");
+
+        PricedOrder priced = salesOrders.price(order);
+        boolean agreementNeeded = WebOrders.termsState(order, row, WebOrderTerms.of(priced)) != WebOrders.TermsState.ORDER_EQUAL;
+        if (agreementNeeded && agreedVia == null)
+            throw new BusinessRuleException("Deze bestelling wijkt af van wat de klant bestelde. "
+                    + "Kies hoe de klant akkoord ging, of verstuur ze ter goedkeuring.");
+        SalesOrder invoice = salesOrders.createInvoiceFrom(orderId, agreementNeeded,
+                agreementNeeded ? agreedVia.words() : null);
+        return sendInvoiceByMail(invoice, personalMessage);
+    }
+
     /** Whom the mailer reaches for this document: the login that placed a website order, else the customer record. */
     private WebOrderRecipients.Recipient recipient(SalesOrder order, Customer customer) {
         return recipients != null && recipients.isResolvable() ? recipients.get().of(order, customer)

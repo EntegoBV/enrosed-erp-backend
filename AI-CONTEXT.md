@@ -1283,6 +1283,18 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   No split and no partner deal on a web order before approval; no delete
   unless cancelled or declined; no reopen of a customer-cancelled order.
   There is no override; soften a rule there and nowhere else.
+- **"Factuur versturen" on a web order** (`POST /{id}/web-order/invoice`,
+  `QuoteService.invoiceWebOrder`, asked by Emre 2026-11-20: "the customer
+  already approved it, they should get the invoice"): one transaction makes
+  the invoice and mails it. An order equal to what the customer ordered
+  needs nothing more. Other figures (ORDER_DIFFERENT, ORDER_UNKNOWN,
+  RESEND_REQUIRED, AWAITING_APPROVAL) need `agreedVia` (TELEFOON, EMAIL,
+  WHATSAPP, TER_PLAATSE) and go through the same agreement rule as "Factuur
+  maken" afterwards: `createInvoiceFrom(id, true, how)` notes "Akkoord van de
+  klant telefonisch genoteerd" (GETEKEND, byCustomer=false, no signature,
+  `accepted_terms` = the current figures), then `sendInvoiceByMail`. A
+  refused invoice (address, VAT number, freight, minimum) or a failed mail
+  rolls the whole thing back.
 - **Mails**: order received and order in processing
   (`order-mail.html`, `WebOrderMails`, observers after the commit, the
   timestamp claimed with one conditional update, no job and no outbox).
