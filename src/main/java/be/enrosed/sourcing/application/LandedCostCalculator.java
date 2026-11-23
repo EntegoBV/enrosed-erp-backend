@@ -291,9 +291,14 @@ public class LandedCostCalculator {
 
     /**
      * The colours and sizes of one series are, to the buyer, one product: the
-     * series' whole cost is spread over all its pieces, so every variant
-     * lands at the same unit cost. Goods included - a buyer does not want
-     * the red one dearer than the white one because the factory said so.
+     * container costs of the series are spread over all its pieces, so every
+     * variant carries the same costs per piece. The goods stay each variant's
+     * own (Emre, 2026-11-23): a variant bought at $ 1,10 lands from $ 1,10,
+     * never from the series' average price. Variants at one price therefore
+     * land at one unit cost; a dearer variant stays dearer by its own price.
+     * Each line pays its own duty rate on its own customs value. The container
+     * total never changes: when the shared transport moves between duty rates,
+     * that bit of duty goes back over the series by pieces.
      */
     private static void levelVariants(List<Working> working, boolean manualExtra) {
         java.util.Map<Long, List<Working>> series = new java.util.LinkedHashMap<>();
@@ -306,8 +311,6 @@ public class LandedCostCalculator {
             int pieces = rows.stream().mapToInt(r -> r.quantity).sum();
             if (rows.size() < 2 || pieces <= 0) continue;
             BigDecimal total = BigDecimal.valueOf(pieces);
-            BigDecimal goods = sum(rows, r -> r.goodsEur);
-            BigDecimal goodsUsd = sum(rows, r -> r.goodsUsd);
             BigDecimal origin = sum(rows, r -> r.originEur);
             BigDecimal freight = sum(rows, r -> r.freightEur);
             BigDecimal duty = sum(rows, r -> r.dutyEur);
@@ -316,16 +319,21 @@ public class LandedCostCalculator {
             BigDecimal separate = sum(rows, r -> r.separateEur);
             for (Working row : rows) {
                 BigDecimal share = Money.share(BigDecimal.valueOf(row.quantity), total);
-                row.goodsEur = goods.multiply(share);
-                row.goodsUsd = goodsUsd.multiply(share);
                 row.originEur = origin.multiply(share);
                 row.freightEur = freight.multiply(share);
-                row.dutyEur = duty.multiply(share);
+                row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
+                row.dutyEur = Money.percentOf(row.customsValueEur, row.dutyRatePct);
                 row.destinationEur = destination.multiply(share);
                 /* A hand-spread Enrosed kost is the buyer's word per line; the rest of the series levels out. */
                 if (!manualExtra) row.extraEur = extra.multiply(share);
                 row.separateEur = separate.multiply(share);
-                row.customsValueEur = row.goodsEur.add(row.originEur).add(row.freightEur);
+            }
+            /* Zero with one duty rate in the series, or when the transport per piece was already equal. */
+            BigDecimal moved = duty.subtract(sum(rows, r -> r.dutyEur));
+            for (Working row : rows) {
+                if (moved.signum() != 0) {
+                    row.dutyEur = row.dutyEur.add(moved.multiply(Money.share(BigDecimal.valueOf(row.quantity), total)));
+                }
                 row.totalEur = row.customsValueEur.add(row.dutyEur).add(row.destinationEur).add(row.extraEur).add(row.separateEur);
                 row.landedUnitEur = Money.divide(row.totalEur, BigDecimal.valueOf(row.quantity));
             }

@@ -385,6 +385,17 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   destination→warehouse trucking (outside customs value) + optional
   "extra revenue" the seller wants folded in. Allocation modes decide how
   shared costs spread over lines. Container fill/overflow is computed.
+- "Varianten als één product" (`groupVariants`, null = on,
+  `LandedCostCalculator.levelVariants`): the variants of one family share
+  the container costs (origin, freight, destination, Enrosed kost,
+  inspection/other costs) per piece. Since 2026-11-23 the goods are NOT
+  levelled: each line keeps its own goods (price + extra per stuk, ×
+  quantity) and pays its own duty rate on its own customs value; the
+  container's duty total is kept (what shared transport moves between
+  two duty rates goes back over the series by pieces). Before, goods and
+  duty were averaged too, so Red at $ 1,10 read $ 1,40 / € 1,302 goods
+  per piece next to sisters at $ 1,10 + $ 1,00 extra (Emre: "kan toch
+  niet"). The year-end lot cost already valued goods at the own price.
 - Status: CONCEPT → BESTELD → ONDERWEG → ONTVANGEN; the screens call
   ONDERWEG "Vertrokken" (the enum name stays). Leaving CONCEPT snapshots
   `orderedQuantity` per line so short shipments stay visible; arrival

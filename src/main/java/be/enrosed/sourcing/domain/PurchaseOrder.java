@@ -80,8 +80,9 @@ public record PurchaseOrder(
 
         /**
          * Treat the colours and sizes of one series as a single product when
-         * sharing out the container costs, so every variant lands at the
-         * same unit cost. Null reads as on - that is what a buyer expects.
+         * sharing out the container costs, so every variant carries the same
+         * costs per piece; the goods stay each variant's own price. Null reads
+         * as on - that is what a buyer expects.
          */
         Boolean groupVariants,
 
