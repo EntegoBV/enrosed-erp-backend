@@ -175,7 +175,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
 - Pricing: markup modes, country discount tiers, optional extra discount
   with a label that prints verbatim, VAT treatment per customer
   (intracommunautair verlegd prints the legal mention), freight per pallet
-  by destination country, minimum order value warning.
+  by destination country, minimum order value warning. The minimum reads
+  the goods plus every free line that adds to the order (a custom line
+  sold on its own counts); a negative free line (lump-sum discount, a
+  slotfactuur's advance deduction) never lowers it.
 - Quantities round up to each product's **order step** ("Verkocht per": full
   carton, display or single piece; see "Sales units" below). The editor
   shows the notice at once and prices a typed quantity after a 5-second

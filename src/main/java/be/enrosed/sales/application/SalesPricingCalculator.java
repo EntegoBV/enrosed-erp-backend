@@ -424,15 +424,21 @@ public class SalesPricingCalculator {
         }
 
         /* The free lines count in the total as they stand: no tier, no order
-           discount, no cost against them. The minimum order value and the
-           margin keep reading the products alone. */
+           discount, no cost against them. The margin keeps reading the
+           products alone. Toward the minimum order value a free line counts
+           when it adds to the order (a custom line sold on its own, assembly);
+           a negative one (a lump-sum discount, a slotfactuur's advance
+           deduction) never lowers it, so no document that met the minimum
+           stops meeting it. */
         List<PricedOrder.ExtraLine> extraLines = new ArrayList<>();
         BigDecimal extraLinesTotal = BigDecimal.ZERO;
+        BigDecimal extraLinesTowardMinimum = BigDecimal.ZERO;
         for (SalesExtraLine extra : order.extraLines()) {
             BigDecimal lineTotal = extra.total();
             extraLines.add(new PricedOrder.ExtraLine(extra.description(), extra.quantity(),
                     Money.unit(Money.nz(extra.unitPriceEur())), lineTotal));
             extraLinesTotal = extraLinesTotal.add(lineTotal);
+            if (lineTotal.signum() > 0) extraLinesTowardMinimum = extraLinesTowardMinimum.add(lineTotal);
         }
 
         BigDecimal shipping = freight.add(handling);
@@ -450,7 +456,8 @@ public class SalesPricingCalculator {
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
         if (order.isPartnerDeal() || order.isCreditNote() || context.minimumExempt()) minOrderValue = BigDecimal.ZERO;
         if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
-        boolean meetsMinimum = goodsTotal.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote()
+        BigDecimal minimumBasis = goodsTotal.add(extraLinesTowardMinimum);
+        boolean meetsMinimum = minimumBasis.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote()
                 || context.minimumExempt();
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
@@ -477,7 +484,7 @@ public class SalesPricingCalculator {
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,
-                meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(goodsTotal)),
+                meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(minimumBasis)),
                 !lines.isEmpty(), country != null, withoutCost,
                 withoutCartonDimensions, withoutPalletFit,
                 palletFitIssue != null ? palletFitIssue
