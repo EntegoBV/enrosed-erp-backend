@@ -8,6 +8,7 @@ import be.enrosed.catalog.domain.SalesUnit;
 import be.enrosed.sales.adapter.out.persistence.CustomerProductPriceEntity;
 import be.enrosed.sales.adapter.out.persistence.CustomerProductPriceHistoryEntity;
 import be.enrosed.sales.adapter.out.persistence.SalesEntities;
+import be.enrosed.sales.domain.DocumentType;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.audit.ActivityChangeSet;
@@ -45,13 +46,16 @@ import java.util.stream.Collectors;
  * catalogue PDF made for that customer prints them; quotes and invoices pin the active one on a line
  * when it is added ({@link #activeFor}, never looked up live afterwards), the quote link's product
  * list offers it, and a logged-in website customer sees and orders at it. Every change leaves a
- * history row; the Logboek gets one entry per save.
+ * history row; the Logboek gets one entry per save. A save from a quote or invoice (source
+ * SALES_DOCUMENT, Emre 2026-11-25: typed prices become the customer's own) names that document: its
+ * number on the history rows, and a Logboek entry on the document as well.
  */
 @ApplicationScoped
 public class CustomerPriceService {
 
     public static final String SOURCE_CUSTOMER_SCREEN = "CUSTOMER_SCREEN";
     public static final String SOURCE_CATALOG_EXPORT = "CATALOG_EXPORT";
+    public static final String SOURCE_SALES_DOCUMENT = "SALES_DOCUMENT";
     public static final String SOURCE_CUSTOMER_DELETED = "CUSTOMER_DELETED";
 
     public static final String STATUS_ACTIVE = "ACTIVE";
@@ -66,6 +70,8 @@ public class CustomerPriceService {
     private static final int HISTORY_LIMIT = 200;
     private static final int STALE_NAMED_LIMIT = 5;
     private static final ZoneId BRUSSELS = ZoneId.of("Europe/Brussels");
+    private static final int REFERENCE_LIMIT = 80;
+    private static final String SALES_ORDER_ACTIVITY_ENTITY = "SALES_ORDER";
 
     /** One stored price as the customer sheet shows it; sku and name are null once the product is gone. */
     public record Row(Long productId, String sku, String name, BigDecimal priceExclVat, String salesUnit,
@@ -89,12 +95,21 @@ public class CustomerPriceService {
         }
     }
 
-    /** Patch semantics: only the listed products change. */
-    public record ChangeRequest(String source, List<Change> changes) {}
+    /**
+     * Patch semantics: only the listed products change. {@code salesOrderId} is the quote or invoice the
+     * prices come from; source SALES_DOCUMENT needs it (and the document must be this customer's), the
+     * other sources ignore it.
+     */
+    public record ChangeRequest(String source, List<Change> changes, Long salesOrderId) {
+        public ChangeRequest(String source, List<Change> changes) {
+            this(source, changes, null);
+        }
+    }
 
+    /** {@code reference}: the number of the document a SALES_DOCUMENT price came from; null for every other row. */
     public record HistoryRow(Long productId, BigDecimal priceExclVat, BigDecimal previousPriceExclVat,
                              String salesUnit, Integer piecesPerUnit, LocalDate validUntil, String source,
-                             Instant changedAt, String changedBy) {}
+                             Instant changedAt, String changedBy, String reference) {}
 
     /** One customer's own price for a product, as the product screens list them. */
     public record ProductRow(Long customerId, String customerName, BigDecimal priceExclVat, LocalDate validUntil,
@@ -130,13 +145,16 @@ public class CustomerPriceService {
         if (productId != null) query.setParameter("product", productId);
         return query.getResultList().stream().map(row -> new HistoryRow(row.productId, row.priceExclVat,
                 row.previousPriceExclVat, row.salesUnit, row.piecesPerUnit, row.validUntil, row.source,
-                row.changedAt, names.displayNameFor(row.changedBy))).toList();
+                row.changedAt, names.displayNameFor(row.changedBy), row.reference)).toList();
     }
 
     @Transactional
     public List<Row> change(long customerId, ChangeRequest request) {
         SalesEntities.CustomerEntity customer = customer(customerId, true);
         String source = source(request == null ? null : request.source());
+        SalesEntities.SalesOrderEntity document = SOURCE_SALES_DOCUMENT.equals(source)
+                ? document(customerId, request.salesOrderId()) : null;
+        String reference = document == null ? null : reference(document);
         List<Change> changes = request == null || request.changes() == null ? List.of()
                 : request.changes().stream().filter(Objects::nonNull).toList();
         if (changes.size() > CHANGE_LIMIT) {
@@ -168,7 +186,7 @@ public class CustomerPriceService {
             if (change.priceExclVat() == null) {
                 /* Removing works for a deleted product too: that is how a PRODUCT_GONE row is cleared. */
                 if (row == null) continue;
-                history(row, null, row.priceExclVat, source, now, who);
+                history(row, null, row.priceExclVat, source, reference, now, who);
                 log.add("customerPrice." + row.productId, "Klantprijs · " + label, row.priceExclVat, null);
                 entities.remove(row);
                 changed++;
@@ -193,7 +211,7 @@ public class CustomerPriceService {
                 row.createdBy = who;
                 write(row, product, basis, price, validUntil, note, now, who);
                 entities.persist(row);
-                history(row, price, null, source, now, who);
+                history(row, price, null, source, reference, now, who);
                 log.add("customerPrice." + row.productId, "Klantprijs · " + label, null, price);
                 if (validUntil != null) log.add("customerPriceValidUntil." + row.productId,
                         "Geldig tot · " + label, null, validUntil);
@@ -212,7 +230,7 @@ public class CustomerPriceService {
                only a new price or basis takes a new catalogue snapshot. */
             write(row, product, basis, price, validUntil, note, now, who);
             if (!priceChanged && !basisChanged) row.cataloguePriceEur = catalogueAtSet;
-            if (priceChanged || basisChanged || validityChanged) history(row, price, previous, source, now, who);
+            if (priceChanged || basisChanged || validityChanged) history(row, price, previous, source, reference, now, who);
             log.add("customerPrice." + row.productId, "Klantprijs · " + label, previous, price)
                     .add("customerPriceValidUntil." + row.productId, "Geldig tot · " + label,
                             previousValidity, row.validUntil)
@@ -220,7 +238,7 @@ public class CustomerPriceService {
                             previousNote, row.note);
             changed++;
         }
-        if (changed > 0) recordActivity(customer, source, changed, log);
+        if (changed > 0) recordActivity(customer, source, document, changed, log);
         entities.flush();
         return list(customerId);
     }
@@ -289,7 +307,7 @@ public class CustomerPriceService {
         Instant now = Instant.now();
         String who = actor.name();
         for (CustomerProductPriceEntity row : rows) {
-            history(row, null, row.priceExclVat, SOURCE_CUSTOMER_DELETED, now, who);
+            history(row, null, row.priceExclVat, SOURCE_CUSTOMER_DELETED, null, now, who);
             entities.remove(row);
         }
     }
@@ -353,7 +371,7 @@ public class CustomerPriceService {
     }
 
     private void history(CustomerProductPriceEntity row, BigDecimal price, BigDecimal previous, String source,
-                         Instant now, String who) {
+                         String reference, Instant now, String who) {
         CustomerProductPriceHistoryEntity entry = new CustomerProductPriceHistoryEntity();
         entry.customerId = row.customerId;
         entry.productId = row.productId;
@@ -364,18 +382,49 @@ public class CustomerPriceService {
         entry.unitKey = row.unitKey;
         entry.validUntil = price == null ? null : row.validUntil;
         entry.source = source;
+        entry.reference = reference;
         entry.changedAt = now;
         entry.changedBy = who;
         entities.persist(entry);
     }
 
-    private void recordActivity(SalesEntities.CustomerEntity customer, String source, int count,
-                                ActivityChangeSet changes) {
+    /** One entry on the customer; a save from a quote or invoice also leaves one on that document. */
+    private void recordActivity(SalesEntities.CustomerEntity customer, String source,
+                                SalesEntities.SalesOrderEntity document, int count, ActivityChangeSet changes) {
         if (activity == null || !activity.isResolvable()) return;
-        String summary = (SOURCE_CATALOG_EXPORT.equals(source)
-                ? "Klantprijzen bewaard vanuit de catalogus" : "Klantprijzen bijgewerkt") + " (" + count + ")";
+        String summary = (SOURCE_CATALOG_EXPORT.equals(source) ? "Klantprijzen bewaard vanuit de catalogus"
+                : document != null ? "Klantprijzen bewaard vanuit " + reference(document)
+                : "Klantprijzen bijgewerkt") + " (" + count + ")";
         activity.get().record(ActivityLogService.ACTION_UPDATED, ACTIVITY_ENTITY, customer.id.toString(),
                 customer.company, summary, changes.build());
+        if (document == null) return;
+        String forCustomer = customer.company == null || customer.company.isBlank() ? "" : " voor " + customer.company.strip();
+        /* The kind is named: the Logboek tells an invoice from a quote by "factuur" in its label or summary. */
+        String kind = document.docType == DocumentType.FACTUUR ? "factuur"
+                : document.docType == DocumentType.CREDITNOTA ? "creditnota" : "offerte";
+        activity.get().record(ActivityLogService.ACTION_UPDATED, SALES_ORDER_ACTIVITY_ENTITY, document.id.toString(),
+                document.number, "Prijzen van deze " + kind + " bewaard als klantprijzen" + forCustomer + " (" + count + ")",
+                changes.build());
+    }
+
+    /**
+     * The quote or invoice a SALES_DOCUMENT save comes from: it must exist (not deleted) and belong to this
+     * customer, so its number on the history and in the Logboek is true.
+     */
+    private SalesEntities.SalesOrderEntity document(long customerId, Long salesOrderId) {
+        if (salesOrderId == null) throw new BusinessRuleException("Klantprijzen vanuit een document noemen het document");
+        SalesEntities.SalesOrderEntity document = entities.find(SalesEntities.SalesOrderEntity.class, salesOrderId);
+        if (document == null || document.deletedAt != null) throw new NotFoundException("Document", salesOrderId);
+        if (!Objects.equals(document.customerId, customerId)) {
+            throw new BusinessRuleException("Dit document hoort bij een andere klant; bewaar de prijzen bij die klant");
+        }
+        return document;
+    }
+
+    /** The document's number as the Logboek names it, at most 80 characters; "#id" without one. */
+    private static String reference(SalesEntities.SalesOrderEntity document) {
+        String number = document.number == null || document.number.isBlank() ? "#" + document.id : document.number.strip();
+        return number.length() > REFERENCE_LIMIT ? number.substring(0, REFERENCE_LIMIT) : number;
     }
 
     private SalesEntities.CustomerEntity customer(long id, boolean lock) {
@@ -405,7 +454,8 @@ public class CustomerPriceService {
     private static String source(String requested) {
         if (requested == null || requested.isBlank()) return SOURCE_CUSTOMER_SCREEN;
         String source = requested.strip().toUpperCase(Locale.ROOT);
-        if (!SOURCE_CUSTOMER_SCREEN.equals(source) && !SOURCE_CATALOG_EXPORT.equals(source)) {
+        if (!SOURCE_CUSTOMER_SCREEN.equals(source) && !SOURCE_CATALOG_EXPORT.equals(source)
+                && !SOURCE_SALES_DOCUMENT.equals(source)) {
             throw new BusinessRuleException("Onbekende bron voor klantprijzen: " + requested.strip());
         }
         return source;

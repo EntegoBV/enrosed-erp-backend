@@ -31,10 +31,14 @@ public class CustomerPriceResource {
         this.prices = prices;
     }
 
-    /** The body of a save: {@code {source, changes: [...]}}. */
+    /**
+     * The body of a save: {@code {source, changes: [...]}}, plus {@code salesOrderId} with source
+     * SALES_DOCUMENT: the quote or invoice whose typed prices become the customer's own.
+     */
     public static final class ChangeBody {
         public String source;
         public List<ChangeLine> changes;
+        public Long salesOrderId;
     }
 
     /**
@@ -80,7 +84,8 @@ public class CustomerPriceResource {
     public List<CustomerPriceService.Row> change(@PathParam("id") long id, ChangeBody body) {
         List<CustomerPriceService.Change> changes = body == null || body.changes == null ? null
                 : body.changes.stream().filter(Objects::nonNull).map(ChangeLine::toChange).toList();
-        return prices.change(id, new CustomerPriceService.ChangeRequest(body == null ? null : body.source, changes));
+        return prices.change(id, new CustomerPriceService.ChangeRequest(body == null ? null : body.source, changes,
+                body == null ? null : body.salesOrderId));
     }
 
     @GET

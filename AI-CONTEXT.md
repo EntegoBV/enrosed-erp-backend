@@ -2356,13 +2356,29 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   Only ACTIVE rows apply; the others are kept.
 - **History** (`customer_product_price_history`) is append-only: one row per set, change of
   price, basis or end date, and removal (null price), with the previous price and the source
-  CUSTOMER_SCREEN, CATALOG_EXPORT ("Ook bewaren als prijzen van {klant}" in the export popup) or
-  CUSTOMER_DELETED. A note-only edit writes no history row. Each save with a change writes one
+  CUSTOMER_SCREEN, CATALOG_EXPORT ("Ook bewaren als prijzen van {klant}" in the export popup),
+  SALES_DOCUMENT (with the document's number as `reference`, below) or CUSTOMER_DELETED. A note-only edit
+  writes no history row. Each save with a change writes one
   Logboek entry on the customer ("Klantprijzen bijgewerkt (n)" / "Klantprijzen bewaard vanuit de
   catalogus (n)", fields "Klantprijs · SKU", "Geldig tot · SKU"; at most 40 shown).
+- **From a quote or invoice** (2026-11-25, Emre: "als ik een factuur maak en andere prijzen noteer, ook een
+  knop hebben om die dan zijn catalogus prijs van dat te maken zodat ook die inlog prijzen van hun aanpassen
+  meteen"): source SALES_DOCUMENT with `salesOrderId` in the PUT body (the ERP's "Als klantprijs bewaren").
+  The document must exist (404 "Document n bestaat niet", also once deleted) and be this customer's (409
+  "Dit document hoort bij een andere klant ..."); SALES_DOCUMENT without one is refused. Its number goes on
+  every history row of the save (`customer_product_price_history.reference`, varchar 80, null for every
+  other source; `docs/migrations/2026-11-25/customer-price-history-reference-postgresql.sql`, rerunnable,
+  Dockerfile COPY + migration script line), the customer's Logboek reads "Klantprijzen bewaard vanuit
+  VF-2026-0031 (n)" and the document gets an entry of its own ("Prijzen van deze factuur bewaard als
+  klantprijzen voor {klant} (n)", "offerte" on a quote, same fields: the ERP's Logboek tells an invoice from
+  a quote only by "factuur" in the label or summary). The document itself is not touched: a concept's lines move to CUSTOMER in
+  the ERP's draft and are stored by the next normal save (settle keeps CUSTOMER, the price being today's
+  agreed price). The other sources ignore `salesOrderId`. A saved price is live for the customer's website
+  login at once (`activeFor`, see "Customer logins"), checked locally on 2026-11-25 through
+  `/api/v1/public/account/prices` and the logged-in quote configuration.
 - **REST** (admin): `GET /api/customers/{id}/prices` (the rows with sku, name, catalogue price at
   set and now, status, updatedBy as display name), `PUT /api/customers/{id}/prices`
-  `{source, changes:[{productId, priceExclVat|null, validUntil?, note?, basis?, piecesPerUnit?}]}`
+  `{source, salesOrderId?, changes:[{productId, priceExclVat|null, validUntil?, note?, basis?, piecesPerUnit?}]}`
   (patch: only the listed products change, null removes, a gone product can still be removed;
   answers the full list),
   `GET /api/customers/{id}/prices/history?productId=` (newest first, 200). The save locks the

@@ -14,8 +14,9 @@ import java.time.LocalDate;
 
 /**
  * Append-only history of a customer's prices: every set, change, end date and removal, with
- * where it came from (CUSTOMER_SCREEN, CATALOG_EXPORT or CUSTOMER_DELETED). A null price is a
- * removal; the previous price says what it replaced.
+ * where it came from (CUSTOMER_SCREEN, CATALOG_EXPORT, SALES_DOCUMENT or CUSTOMER_DELETED). A null
+ * price is a removal; the previous price says what it replaced. {@code reference} names the sales
+ * document a SALES_DOCUMENT price was saved from (its number), null otherwise.
  */
 @Entity
 @Table(name = "customer_product_price_history",
@@ -33,4 +34,6 @@ public class CustomerProductPriceHistoryEntity {
     @Column(name = "source", nullable = false, length = 30) public String source;
     @Column(name = "changed_at", nullable = false) public Instant changedAt;
     @Column(name = "changed_by", nullable = false, length = 80) public String changedBy;
+    /** docs/migrations/2026-11-25/customer-price-history-reference-postgresql.sql */
+    @Column(name = "reference", length = 80) public String reference;
 }
