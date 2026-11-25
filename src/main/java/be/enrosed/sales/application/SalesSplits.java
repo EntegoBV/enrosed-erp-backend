@@ -382,7 +382,9 @@ public class SalesSplits {
         SalesOrder current = copy(source, source.id(), source.number(), currentLines, source.extraLines(), currentFreight, currentPct, source.sourceQuoteId());
         // The part's group is provenance. Only part1 retains the original quote->invoice link.
         SalesOrder later = copy(source, null, null, laterLines, List.of(), laterFreight, laterPct, null);
-        PricedOrder firstPriced = sales.priceSplit(current, firstTerms), laterPriced = sales.priceSplit(later, lastTerms);
+        /* The later part is stored with the source's rule (split, below): its preview counts the same pallets. */
+        PricedOrder firstPriced = sales.priceSplit(current, firstTerms),
+                laterPriced = sales.priceSplit(later, lastTerms, sales.palletRule(source));
         BigDecimal delta = firstPriced.totals().total().add(laterPriced.totals().total()).subtract(total.total());
         BigDecimal deltaIncl = firstPriced.totals().totalInclVat().add(laterPriced.totals().totalInclVat()).subtract(total.totalInclVat());
         int excludedQuantity = total.pieces() - firstPriced.totals().pieces() - laterPriced.totals().pieces();

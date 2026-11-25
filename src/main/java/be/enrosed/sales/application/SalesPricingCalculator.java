@@ -321,9 +321,11 @@ public class SalesPricingCalculator {
            exist: the seller laid out the load and knows better than the
            formula. Cartons left off any pallet are reported, not silently
            re-added - the warning on screen is the guard rail. Without them
-           the automatic count follows the document's rule: mixed pallets,
-           or every product on pallets of its own on a document that left
-           concept before 2026-11-04. */
+           the automatic count follows the document's rule: PACKED (made
+           since 2026-11-25) loads the pallets one after the other, each as
+           full as it goes; MIXED stacks whole layers per product; STRICT
+           (left concept before 2026-11-04) puts every product on pallets of
+           its own. */
         int manualPallets = palletised ? order.pallets().size() : 0;
         int assignedCartons = order.pallets().stream()
                 .flatMap(pallet -> pallet.items().stream())

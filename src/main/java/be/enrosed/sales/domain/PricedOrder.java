@@ -24,16 +24,18 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
     public record ExtraLine(String description, BigDecimal quantity, BigDecimal unitPrice, BigDecimal total) {}
 
     /**
-     * One pallet of the automatic layout, bottom to top. Each product lies in whole layers of its
-     * own; a short one (its last, or one the weight cut) is as high as a full one. The height
-     * includes the pallet base; the weight is 0 when none of its cartons has one.
+     * One pallet of the automatic layout, bottom to top. Under MIXED and STRICT each product lies in
+     * whole layers of its own; a short one (its last, or one the weight cut) is as high as a full one.
+     * Under PACKED (PalletPacker) the products stand side by side, in the order their first carton was
+     * laid, and the height is the top of the load. The height includes the pallet base; the weight is
+     * 0 when none of its cartons has one.
      */
     public record AutoPallet(List<Item> items, BigDecimal heightCm, BigDecimal weightKg) {
         public AutoPallet {
             items = items == null ? List.of() : List.copyOf(items);
         }
 
-        /** A product's cartons on this pallet and the layers they take. */
+        /** A product's cartons on this pallet and the layers they take; under PACKED, the heights its cartons start at. */
         public record Item(long productId, int cartons, int layers) {}
     }
 

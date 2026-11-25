@@ -2206,25 +2206,42 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   (`units`: BigDecimal × 100 half up = `Math.round(x * 100)`). Per pallet: free floor rectangles carried in full by the
   deck or flat tops; the lowest gets a block of one kind on one side (rows × rows × layers); up to 8 candidate blocks
   plus each one's lower twin (only as high as the floor's best pattern of rows needs) are each finished the quick way
-  (largest block each time); the fullest end wins, a carton on a side counting 5 % less (`TIP_COST`), a tie goes to the
-  lowest end; the load is centred. Proved identical to the TS on 3000 random kind lists (290,814 boxes, every box, in
-  order); keep the two identical, a change to one is a change to both.
+  (largest block each time); a try that takes everything still to load wins (else 89 cartons went on 2 pallets where 88
+  and 90 go on 1), then the fullest end, a carton on a side counting 5 % less (`TIP_COST`), a tie goes to the lowest end;
+  the load is centred. Proved identical to the TS on 3000 random kind lists (290,814 boxes, every box, in order).
+- FROZEN since the push of 2026-11-25. Pricing is live on every read and only the rule's name is stored, so any change
+  to `PalletPacker` or `pallet-pack.ts` re-counts every sent, accepted, invoiced and paid PACKED document (pallets,
+  per-pallet freight, PDFs, portal, open amounts, credit caps). A change in behaviour gets a new rule value (PACKED_2:
+  `forNew()` moves to it, PACKED keeps this code for the documents that have it), with its own copies of both packers;
+  3D tuning never touches the counting steps. The count is not monotone either (a few cartons more can take a pallet
+  less), so nothing promises "+N past" under PACKED.
 - `PalletCalculator.packedPallets`: placeable loads merged per product (line order), one kind per carton size (the
   heaviest colour's weight), every side; packed with at most the MIXED count; more pallets, or cartons left, and the
   mixed layout stands, so PACKED never counts more than MIXED. Items in the order their first carton was laid, `layers`
   = the heights an item's cartons start at, `heightCm` = base + top, `weightKg` = the cartons' own weights. `Load`
   gained the carton's `box` sizes (a load without them, or a carton without sizes, leaves the document MIXED).
 - The frontend lays the same pallets in 3D (`orderLoad3d` re-packs and matches `autoPallets`), the planner explains
-  PACKED and its "+22 past" re-counts with the same plan (`packedRoom`), and Palletberekening counts as a new quote.
+  PACKED (no "+N past" hints under PACKED), a hand pallet copied from PACKED stands as high as its `autoPallets` twin,
+  and Palletberekening keeps its own "Omdozen mogen kantelen" switch (its plan uses the cards' fits).
+- The split preview prices the later part with the source's rule (`priceSplit(order, terms, rule)`), as `split` stores it.
+- Cost: PACKED runs the packer on every pricing, 8-80 ms for a container-size document against about 1 ms for MIXED.
+  `PartnerFinancingService.get` prices each partner document several times; when container documents pile up there,
+  price once and reuse the PricedOrder (or memoize `packedPallets` by its inputs).
 - `PalletPackedRollout` (scheduled once, `pallet-count-packed`, 10 minutes after the start, marker row
   `2026-11-25-pallet-count-packed` in `country_policy_version`; lock, re-select, update, one VRACHT_INGEVULD history
-  step per document "Pallets zo vol mogelijk geteld …"): MIXED concepts not deleted that are an untouched concept quote,
-  or whose freight does not follow the count (freight TE_BEPALEN, loose cartons, FIXED / PICKUP / PER_CBM, a stored
-  manual amount without strategy, or hand-built pallets). Sent, accepted, invoiced and paid documents and a concept
-  invoice of an accepted quote on per-pallet freight keep MIXED. On production (read 2026-11-25) it moves 15 concepts;
-  the count drops on ENR-2026-0007 (4 → 2) and ENR-2026-0011 (3 → 1, both archived), ENR-2026-0031 (4 → 3) and
-  ENR-2026-0034 (3 → 2); only 0011 had its freight worked out. The old release reads PACKED as STRICT during the
-  deploy overlap (`stored`), so a document made in those minutes may show the strict count until the new one serves.
+  step per document "Pallets zo vol mogelijk geteld …"): MIXED untouched concept quotes only
+  (`UNTOUCHED_CONCEPT_QUOTE`: never sent, nothing made from it). Reopened or resent quotes, concept invoices, credit
+  notes and split parts (each counts like its source) and everything sent, accepted, invoiced or paid keep MIXED. Its
+  count and freight can only go down (ENR-2026-0031 4 → 3 and ENR-2026-0034 3 → 2 on the production read of 2026-11-25).
+- Release order: the frontend first, the backend right after. The live frontend before 2026-11-25 judges hand pallets
+  in whole layers and would read almost every Zelf indelen copy of a PACKED pallet as "te hoog"; the new frontend
+  against the old backend's MIXED documents is harmless, and the fresh-build reload moves every tab over. The old
+  release reads PACKED as STRICT (`stored`), so a document made in the deploy overlap may show the strict count until
+  the new one serves.
+- Never roll the backend back below 85730f2 (it would count every PACKED document STRICT: more pallets, more per-pallet
+  freight, and what it derives in that time is stored STRICT for good): fix forward. If a rollback cannot be avoided,
+  first `update sales_order set palletcountrule = 'MIXED' where palletcountrule = 'PACKED'` (MIXED is never below
+  PACKED, but sent documents change), only with Emre's go.
 
 ## Pallethoogte per document: standaard 260 cm (2026-11-10; 220 van 7 tot 10 november)
 

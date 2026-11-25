@@ -26,9 +26,15 @@ import java.util.Set;
  * that meet edge to edge join. Of the blocks that fit, the one that leaves the fullest pallet in
  * the end wins: every candidate (and its lower twin, only as high as the floor's best pattern of
  * rows needs) is tried by filling the rest of the pallet the quick way (the largest block each
- * time); where they load the same, the one that ends lowest, so a part pallet stands low and wide.
- * An omdoos lies down only where that fills clearly more (TIP_COST). Nothing hangs over an edge
- * and nothing floats.
+ * time); a try that takes everything still to load beats any that leaves cartons for another pallet;
+ * where they load the same, the one that ends lowest, so a part pallet stands low and wide. An omdoos
+ * lies down only where that fills clearly more (TIP_COST). Nothing hangs over an edge and nothing
+ * floats.
+ *
+ * FROZEN since 2026-11-25: PACKED documents are priced live with these exact steps, so any change
+ * re-counts every sent and paid PACKED document (pallets, per-pallet freight, PDFs). A change in
+ * behaviour needs a new PalletCountRule value (PACKED_2) for new documents only, with its own copy
+ * of this class and of pallet-pack.ts.
  */
 public final class PalletPacker {
 
@@ -369,16 +375,22 @@ public final class PalletPacker {
                 if (block.lower() != null) tries.add(block.lower());
             }
             if (tries.size() > 1) {
-                /* The fullest pallet wins; where several load the same (the last pallet), the lowest. */
+                /* A try that takes everything still to load wins (no omdoos on a pallet of its own because an upright
+                   block was preferred); then the fullest pallet; where several load the same (the last pallet), the lowest. */
                 long best = Long.MIN_VALUE;
                 int lowestTop = Integer.MAX_VALUE;
+                boolean bestCleared = false;
                 for (Block block : tries) {
                     State trial = state.copy();
                     apply(trial, at, block, kinds, deck, null);
                     long full = finish(trial, kinds, deck);
-                    if (full > best || (full == best && trial.top < lowestTop)) {
+                    boolean cleared = true;
+                    for (int count : trial.left) if (count > 0) { cleared = false; break; }
+                    if ((cleared && !bestCleared)
+                            || (cleared == bestCleared && (full > best || (full == best && trial.top < lowestTop)))) {
                         best = full;
                         lowestTop = trial.top;
+                        bestCleared = cleared;
                         chosen = block;
                     }
                 }

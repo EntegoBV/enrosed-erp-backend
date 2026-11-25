@@ -22,14 +22,11 @@ import java.util.concurrent.atomic.AtomicBoolean;
  *
  * Emre, 2026-11-25: the pallets are loaded one after the other, each as full as it goes, and "Ja,
  * ook telling en vracht". New documents are made PACKED (PalletCountRule.forNew). Of what exists,
- * only a concept moves, and only where the move cannot change a price the customer agreed to:
- * - an untouched concept quote (PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE): never sent, nothing
- *   made from it; its count and freight may go down (ENR-2026-0031 and ENR-2026-0034 on the day);
- * - any other concept whose freight does not follow the automatic count: freight still to be decided,
- *   loose cartons, a fixed amount, pickup, per m³, or hand-built pallets (the freight counts those).
- *   VF-2026-0017, the concept invoice of an accepted quote on a fixed freight, is one.
- * A concept invoice of an accepted quote whose freight follows the count keeps MIXED, and so does
- * everything sent, accepted, invoiced or paid: it keeps the pallets and the freight it went out with.
+ * only an untouched concept quote moves (PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE: never
+ * sent, nothing made from it): its count and freight can only go down (ENR-2026-0031 and
+ * ENR-2026-0034 on the day). Everything else keeps MIXED: a reopened or resent quote, a concept
+ * invoice, credit note or split part (each counts like its source), and everything sent,
+ * accepted, invoiced or paid keeps the pallets and the freight it went out with.
  *
  * The old release reads PACKED as STRICT (PalletCountRule.stored), so this waits until only this
  * release serves. It runs once: a row in country_policy_version says so. Each moved document gets one
@@ -43,14 +40,7 @@ public class PalletPackedRollout {
     /** The country_policy_version row that says this move ran on the database. */
     static final String ROLLOUT = "2026-11-25-pallet-count-packed";
 
-    /** A document whose freight does not follow the automatic pallet count (SalesOrder.freightStrategy as the screens read it). */
-    static final String FREIGHT_APART_FROM_COUNT = "(o.freight = 'TE_BEPALEN' or o.loadmode = 'LOOSE_CARTONS'"
-            + " or o.freightpricingstrategy in ('FIXED', 'PICKUP', 'PER_CBM')"
-            + " or (o.freightpricingstrategy is null and o.manualfreighteur is not null)"
-            + " or exists (select 1 from sales_pallet sp where sp.order_id = o.id))";
-
-    static final String CANDIDATE = "o.palletcountrule = 'MIXED' and o.status = 'CONCEPT' and o.deleted_at is null and ("
-            + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE + " or " + FREIGHT_APART_FROM_COUNT + ")";
+    static final String CANDIDATE = "o.palletcountrule = 'MIXED' and " + PalletCountRuleBackfill.UNTOUCHED_CONCEPT_QUOTE;
 
     private final AtomicBoolean done = new AtomicBoolean();
 
@@ -75,8 +65,8 @@ public class PalletPackedRollout {
                 /* The old release may still hold a document while this one starts: wait a while, not forever. */
                 if ("postgresql".equalsIgnoreCase(dbKind) || "pgsql".equalsIgnoreCase(dbKind))
                     entities.createNativeQuery("set local lock_timeout = '15s'").executeUpdate();
-                /* Lock the candidates first, then ask again: a document that was just sent, invoiced or given a
-                   freight that follows the count no longer passes and keeps MIXED. */
+                /* Lock the candidates first, then ask again: a quote that was just sent or made into another
+                   document no longer passes and keeps MIXED. */
                 List<Long> locked = ids(entities.createNativeQuery("select o.id from sales_order o where " + CANDIDATE + " for update")
                         .getResultList());
                 List<Long> still = locked.isEmpty() ? List.of()

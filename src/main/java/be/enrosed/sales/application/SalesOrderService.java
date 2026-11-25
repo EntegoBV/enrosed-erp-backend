@@ -322,6 +322,14 @@ public class SalesOrderService {
     }
 
     /**
+     * A split part not stored yet, priced by the rule it will be stored with (its source's): without an
+     * id or a source it would otherwise count as a new document (forNew).
+     */
+    PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PalletCountRule palletRule) {
+        return priceSplit(order, splitPricing, null, false, palletRule);
+    }
+
+    /**
      * The pricing of one document for its own staff view: every priced line says where its price
      * comes from and, where that is worth a look, carries the catalogue price and this customer's
      * active agreed price of today. Never on the list, a PDF, the portal or the website.
@@ -336,6 +344,11 @@ public class SalesOrderService {
     }
 
     private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page, boolean staffHints) {
+        return priceSplit(order, splitPricing, page, staffHints, null);
+    }
+
+    private PricedOrder priceSplit(SalesOrder order, SalesSplitPricing splitPricing, PageLookups page, boolean staffHints,
+                                   PalletCountRule givenRule) {
         splitPricing = SalesSplits.activePricing(order, splitPricing);
         Map<Long, Product> byId = page != null ? page.products()
                 : products.list().stream().collect(Collectors.toMap(Product::id, Function.identity()));
@@ -348,7 +361,8 @@ public class SalesOrderService {
 
         be.enrosed.shipping.domain.Carrier carrier = order.freightCarrierId() == null
                 ? null : shippingCarriers.findById(order.freightCarrierId()).orElse(null);
-        PalletCountRule palletRule = page != null && order.id() != null && page.palletRules().containsKey(order.id())
+        PalletCountRule palletRule = givenRule != null ? givenRule
+                : page != null && order.id() != null && page.palletRules().containsKey(order.id())
                 ? page.palletRules().get(order.id()) : palletRule(order);
 
         return pricing.price(order, byId, new SalesPricingCalculator.Context(
@@ -1073,7 +1087,7 @@ public class SalesOrderService {
         requireAdvanceBeforeSettlement(invoice);
         validatePartnerAdvanceReservation(invoice, rowId);
         validateForSave(invoice);
-        /* A term made from a quote counts like that quote; a term of the plan alone is new: mixed. */
+        /* A term made from a quote counts like that quote; a term of the plan alone is new (PalletCountRule.forNew, PACKED since 2026-11-25). */
         SalesOrder saved = orders.create(invoice,
                 sourceQuoteId == null ? PalletCountRule.forNew() : orders.palletCountRule(sourceQuoteId));
         captureAdvanceContents(saved);
@@ -2842,7 +2856,7 @@ public class SalesOrderService {
         duplicate = withTodaysCustomerPrices(duplicate);
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
-        /* A copy is a new concept: mixed pallets, whatever its source counts. */
+        /* A copy is a new concept: it counts as a new document does (forNew, PACKED since 2026-11-25), whatever its source counts. */
         SalesOrder created = orders.create(duplicate, PalletCountRule.forNew());
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());

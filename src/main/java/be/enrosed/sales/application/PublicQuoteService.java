@@ -273,7 +273,7 @@ public class PublicQuoteService {
      * customer record, delivered at the typed address. {@code changing} is the stored order
      * being changed, null for a new one: its products keep the price they were ordered at and
      * its pallets count by its own rule, so the estimate, the stored change and its ordered
-     * terms agree; a new order counts mixed, as it will be made.
+     * terms agree; a new order counts as it will be made (PalletCountRule.forNew, PACKED since 2026-11-25).
      */
     public EstimateResponse previewOrder(OrderPreviewRequest request, long customerId, SalesOrder changing) {
         if (request == null) throw new PublicQuoteValidationException(Map.of("request", "REQUIRED"));
@@ -471,7 +471,7 @@ public class PublicQuoteService {
 
     /**
      * The one preparation of every order call; the VAT number is the record's and is not judged.
-     * A change prices with the stored order's kept prices and pallet count rule, a new order mixed.
+     * A change prices with the stored order's kept prices and pallet count rule, a new order as a new document counts (forNew).
      */
     private Prepared prepareOrder(String language, String fulfillment, Long pickupLocationId,
                                   Destination destination, List<ItemRequest> items,
@@ -772,8 +772,9 @@ public class PublicQuoteService {
                 estimateCustomer, freightState);
         Map<Long, Product> byId = preparedItems.stream()
                 .map(item -> item.product).collect(Collectors.toMap(Product::id, Function.identity()));
-        /* The estimate of a request or a new order counts mixed pallets on the standard pallet, as the
-           document made from it will; the change of a stored order counts by that order's rule and height. */
+        /* The estimate of a request or a new order counts its pallets as a new document does (forNew, PACKED
+           since 2026-11-25) on the standard pallet, as the document made from it will; the change of a stored
+           order counts by that order's rule and height. */
         PricedOrder priced = pricing.price(estimate, byId, new SalesPricingCalculator.Context(
                 country, estimateCustomer, order == null ? settings.pallet() : order.pallet(), tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
@@ -1080,7 +1081,7 @@ public class PublicQuoteService {
     /**
      * The customer record an order is priced on, the unit prices its stored lines keep with the
      * source of each, the rule its pallets count by and the pallet it stacks on: the stored
-     * order's rule and height for a change, MIXED and the standard pallet for a new order.
+     * order's rule and height for a change, a new document's rule (forNew) and the standard pallet for a new order.
      */
     private record OrderPricing(Customer customer, Map<Long, BigDecimal> keptUnitPrices, Map<Long, String> keptSources,
                                 PalletCountRule palletRule, PalletSpec pallet) {}

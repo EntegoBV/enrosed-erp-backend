@@ -10,7 +10,9 @@ import jakarta.enterprise.context.ApplicationScoped;
  * pallet of the sales settings (a europallet 120 x 80 cm, 260 cm high with the wood, 700 kg,
  * unless configured otherwise), the one a new sales document is made with. The per-kar figure
  * stacks the same way on the Deense kar at its standard 230 cm ({@link PalletSpec#deenseKar()}).
- * Both count as a quote does: upright, an omdoos laid down only when it fits no pallet upright.
+ * Both are a pallet of one product in whole upright layers, an omdoos laid down only when it fits
+ * no pallet upright: what MIXED counts. A PACKED quote (new documents since 2026-11-25) may load
+ * more of one product on a pallet, side by side or on its side, so this figure is the safe one.
  */
 @ApplicationScoped
 public class CataloguePalletFit implements CataloguePallet {
