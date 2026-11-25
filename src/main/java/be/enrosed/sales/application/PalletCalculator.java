@@ -110,8 +110,16 @@ public class PalletCalculator {
         return (cartons + cartonsPerPallet - 1) / cartonsPerPallet;
     }
 
-    /** One palletised order line as the stacking sees it: its cartons, their fit, one carton's height and weight. */
-    public record Load(long productId, int cartons, Fit fit, BigDecimal cartonHeightCm, BigDecimal cartonWeightKg) {
+    /**
+     * One palletised order line as the stacking sees it: its cartons, their fit, one carton's height and weight, and
+     * the carton's own length, width and height (PACKED lays it on any side); null box sizes leave it to MIXED.
+     */
+    public record Load(long productId, int cartons, Fit fit, BigDecimal cartonHeightCm, BigDecimal cartonWeightKg, Dimensions box) {
+        /** A load without the carton's own sizes, as it was before PACKED. */
+        public Load(long productId, int cartons, Fit fit, BigDecimal cartonHeightCm, BigDecimal cartonWeightKg) {
+            this(productId, cartons, fit, cartonHeightCm, cartonWeightKg, null);
+        }
+
         /** Cartons that fit a pallet; a line without a fit drops out of every count. */
         boolean placeable() {
             return cartons > 0 && fit != null && fit.cartonsPerPallet() > 0 && fit.perLayer() > 0
@@ -157,8 +165,11 @@ public class PalletCalculator {
         }
 
         int optimised = fullPallets + leftover.setScale(0, RoundingMode.CEILING).intValue();
-        List<PricedOrder.AutoPallet> layout = rule == PalletCountRule.MIXED
-                ? mixedPallets(loads, pallet) : separatePallets(loads, pallet);
+        List<PricedOrder.AutoPallet> layout = switch (rule) {
+            case PACKED -> packedPallets(loads, pallet);
+            case MIXED -> mixedPallets(loads, pallet);
+            default -> separatePallets(loads, pallet);
+        };
         return new OrderPallets(strict, Math.min(strict, optimised), layout);
     }
 
@@ -240,6 +251,80 @@ public class PalletCalculator {
                 .map(stack -> autoPallet(stack.parts.stream().map(Part::item).toList(),
                         pallet.baseHeightCm().add(stack.heightCm), stack.weightKg))
                 .toList();
+    }
+
+    /**
+     * The pallets loaded one after the other, each as full as it goes (PalletPacker; the ERP's
+     * orderLoad3d lays out the same pallets in 3D, keep the two alike): the order's products in line
+     * order, a product on several lines once, the colours of one carton size one kind (the heaviest
+     * colour's weight), every side allowed. Where that would take more pallets than MIXED, or leave
+     * cartons over, the mixed layout stands: PACKED never counts more than MIXED. A pallet's items
+     * come in the order their first carton was laid; an item's layers are the heights its cartons
+     * start at; a pallet's height is the top of its load on the wood, its weight its cartons' own.
+     */
+    List<PricedOrder.AutoPallet> packedPallets(List<Load> loads, PalletSpec pallet) {
+        List<PricedOrder.AutoPallet> mixed = mixedPallets(loads, pallet);
+        java.util.LinkedHashMap<Long, Load> byProduct = new java.util.LinkedHashMap<>();
+        for (Load load : loads) {
+            if (!load.placeable()) continue;
+            if (load.box() == null || isBlank(load.box().lengthCm()) || isBlank(load.box().widthCm()) || isBlank(load.box().heightCm())) {
+                return mixed;
+            }
+            byProduct.merge(load.productId(), load, (first, more) -> new Load(first.productId(), first.cartons() + more.cartons(),
+                    first.fit(), first.cartonHeightCm(), first.cartonWeightKg(), first.box()));
+        }
+        if (byProduct.isEmpty()) return mixed;
+        /* One carton size is one kind; its products keep the line order and hand out the cartons in turn. */
+        java.util.LinkedHashMap<String, int[]> kindOf = new java.util.LinkedHashMap<>();
+        java.util.Map<Integer, List<long[]>> members = new java.util.HashMap<>();
+        List<PalletPacker.Kind> kinds = new ArrayList<>();
+        for (Load load : byProduct.values()) {
+            int length = PalletPacker.units(load.box().lengthCm());
+            int width = PalletPacker.units(load.box().widthCm());
+            int height = PalletPacker.units(load.box().heightCm());
+            int weight = PalletPacker.units(load.weightKg());
+            String size = length + "|" + width + "|" + height;
+            int[] kind = kindOf.get(size);
+            if (kind == null) {
+                kind = new int[] {kindOf.size() + 1, length, width, height, weight, 0};
+                kindOf.put(size, kind);
+                members.put(kind[0], new ArrayList<>());
+            }
+            kind[4] = Math.max(kind[4], weight);
+            kind[5] += load.cartons();
+            members.get(kind[0]).add(new long[] {load.productId(), load.cartons()});
+        }
+        for (int[] kind : kindOf.values()) {
+            kinds.add(new PalletPacker.Kind(kind[0], kind[1], kind[2], kind[3], kind[4], kind[5], PalletPacker.ALL_SIDES));
+        }
+        PalletPacker.Result plan = PalletPacker.pack(kinds, PalletPacker.deck(pallet), mixed.size());
+        if (!plan.left().isEmpty() || plan.pallets().isEmpty() || plan.pallets().size() > mixed.size()) return mixed;
+        List<PricedOrder.AutoPallet> layout = new ArrayList<>();
+        for (PalletPacker.Pallet packed : plan.pallets()) {
+            java.util.LinkedHashMap<Long, Integer> cartons = new java.util.LinkedHashMap<>();
+            java.util.Map<Long, java.util.Set<Integer>> starts = new java.util.HashMap<>();
+            for (PalletPacker.Box box : packed.boxes()) {
+                long[] member = null;
+                for (long[] candidate : members.get(box.key())) {
+                    if (candidate[1] > 0) {
+                        member = candidate;
+                        break;
+                    }
+                }
+                if (member == null) continue;
+                member[1] -= 1;
+                cartons.merge(member[0], 1, Integer::sum);
+                starts.computeIfAbsent(member[0], id -> new java.util.HashSet<>()).add(box.y());
+            }
+            BigDecimal weight = BigDecimal.ZERO;
+            List<PricedOrder.AutoPallet.Item> items = new ArrayList<>();
+            for (var entry : cartons.entrySet()) {
+                items.add(new PricedOrder.AutoPallet.Item(entry.getKey(), entry.getValue(), starts.get(entry.getKey()).size()));
+                weight = weight.add(byProduct.get(entry.getKey()).weightKg().multiply(BigDecimal.valueOf(entry.getValue())));
+            }
+            layout.add(autoPallet(items, pallet.baseHeightCm().add(BigDecimal.valueOf(packed.top(), 2)), weight));
+        }
+        return List.copyOf(layout);
     }
 
     /** Cartons of a line the weight still allows on a pallet; without a carton weight, any number. */

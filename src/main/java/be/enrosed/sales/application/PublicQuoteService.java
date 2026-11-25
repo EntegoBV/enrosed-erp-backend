@@ -479,7 +479,7 @@ public class PublicQuoteService {
         return prepare(new PreviewRequest(language, fulfillment, customer.vatNumber(),
                         destination, items, pickupLocationId), false,
                 new OrderPricing(customer, keptUnitPrices(changing), keptPriceSources(changing),
-                        changing == null ? PalletCountRule.MIXED : salesOrders.palletRule(changing),
+                        changing == null ? PalletCountRule.forNew() : salesOrders.palletRule(changing),
                         /* A change keeps the stored order's height (a save keeps it too); its document is a europallet. */
                         changing == null ? settings.pallet()
                                 : settings.pallet(PalletProfile.EURO_120X80, changing.maxPalletHeightCm())),
@@ -778,7 +778,7 @@ public class PublicQuoteService {
                 country, estimateCustomer, order == null ? settings.pallet() : order.pallet(), tiers.list(TierScope.LINE),
                 tiers.list(TierScope.ORDER),
                 vat.determine(country, order == null ? estimateCustomer : order.customer), carrier,
-                null, order == null ? PalletCountRule.MIXED : order.palletRule()));
+                null, order == null ? PalletCountRule.forNew() : order.palletRule()));
         boolean hasAllCartonData = preparedItems.stream()
                 .allMatch(item -> item.piecesPerCarton > 0);
         boolean shippingAvailable = fulfillment == Fulfillment.PICKUP

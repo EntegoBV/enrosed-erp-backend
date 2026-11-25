@@ -286,13 +286,13 @@ public class SalesOrderService {
      * made with, and only the id says which: a draft of it, or any copy of the record rebuilt in
      * memory, counts exactly as the stored document does. A document not made yet counts as it will
      * be made: a credit note like its invoice, an invoice like the quote it comes from, any other
-     * new document mixed.
+     * new document by the rule for new documents (PalletCountRule.forNew).
      */
     PalletCountRule palletRule(SalesOrder order) {
         if (order.id() != null) return orders.palletCountRule(order.id());
         if (order.creditedInvoiceId() != null) return orders.palletCountRule(order.creditedInvoiceId());
         if (order.sourceQuoteId() != null) return orders.palletCountRule(order.sourceQuoteId());
-        return PalletCountRule.MIXED;
+        return PalletCountRule.forNew();
     }
 
     /**
@@ -524,8 +524,8 @@ public class SalesOrderService {
                 List.of(), List.of())
                 .withSalesChannel(staffAction ? null : "WEBSITE");
         validateForSave(draft);
-        /* A new quote, invoice, website request or website order counts mixed pallets. */
-        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
+        /* A new quote, invoice, website request or website order counts by the rule for new documents. */
+        SalesOrder created = orders.create(draft, PalletCountRule.forNew());
 
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT,
                 java.time.Instant.now(), creator == null ? null : creator.displayName(), false,
@@ -904,8 +904,8 @@ public class SalesOrderService {
             validatePartnerAdvanceReservation(draft, null);
         }
         validateForSave(draft);
-        /* A container's goods on a new document: mixed pallets. */
-        SalesOrder created = orders.create(draft, PalletCountRule.MIXED);
+        /* A container's goods on a new document: the rule for new documents. */
+        SalesOrder created = orders.create(draft, PalletCountRule.forNew());
 
         String how = partner
                 ? " als partnercontainer: " + pct(share) + " % winstdeling, " + pct(costPct) + " % van de kost vooraf"
@@ -1075,7 +1075,7 @@ public class SalesOrderService {
         validateForSave(invoice);
         /* A term made from a quote counts like that quote; a term of the plan alone is new: mixed. */
         SalesOrder saved = orders.create(invoice,
-                sourceQuoteId == null ? PalletCountRule.MIXED : orders.palletCountRule(sourceQuoteId));
+                sourceQuoteId == null ? PalletCountRule.forNew() : orders.palletCountRule(sourceQuoteId));
         captureAdvanceContents(saved);
         events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Voorschottermijn " + label + " aangemaakt", null));
@@ -1383,8 +1383,8 @@ public class SalesOrderService {
                 .withExtraLines(plan.extras()).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
                 .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
         validateForSave(invoice);
-        /* The auction's own lines on a new document: mixed pallets. */
-        SalesOrder created = orders.create(invoice, PalletCountRule.MIXED);
+        /* The auction's own lines on a new document: the rule for new documents. */
+        SalesOrder created = orders.create(invoice, PalletCountRule.forNew());
         if (partnerSettlements != null && partnerSettlements.isResolvable())
             partnerSettlements.get().save(created.id(), purchaseId, new PartnerSettlements.Snapshot(fullTotal, costTotal, advance,
                     finalSettlement, List.copyOf(plan.snapshotLines())));
@@ -1580,7 +1580,7 @@ public class SalesOrderService {
                 .withExtraLines(request.extras()).withSalesChannel("PARTNER")
                 .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.FULL);
         validateForSave(invoice);
-        SalesOrder created = orders.create(invoice, PalletCountRule.MIXED);
+        SalesOrder created = orders.create(invoice, PalletCountRule.forNew());
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Factuur uit veilingverkopen (eigen voorraad)", null));
         recordActivity(created, "Factuur uit veilingverkopen (eigen voorraad) aangemaakt");
@@ -2843,7 +2843,7 @@ public class SalesOrderService {
         validateForSave(duplicate);
         validatePartnerAdvanceReservation(duplicate, null);
         /* A copy is a new concept: mixed pallets, whatever its source counts. */
-        SalesOrder created = orders.create(duplicate, PalletCountRule.MIXED);
+        SalesOrder created = orders.create(duplicate, PalletCountRule.forNew());
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
         /* PalletHeightPicks reads the source's number back from this step: keep its wording. */

@@ -57,9 +57,9 @@ public class SalesPricingCalculator {
             /** No country minimum order value: a document made from partner meldingen bills what was sold. */
             boolean minimumExempt
     ) {
-        /** A context without a rule prices a document that is not stored yet: a new one counts mixed. */
+        /** A context without a rule prices a document that is not stored yet: as a new one counts. */
         public Context {
-            palletRule = palletRule == null ? PalletCountRule.MIXED : palletRule;
+            palletRule = palletRule == null ? PalletCountRule.forNew() : palletRule;
         }
         public Context(Country country, Customer customer, PalletSpec pallet,
                        List<DiscountTier> lineTiers, List<DiscountTier> orderTiers,
@@ -186,7 +186,7 @@ public class SalesPricingCalculator {
             BigDecimal layerHeight = fit.layerHeightCm() != null ? fit.layerHeightCm()
                     : carton.dimensions() == null ? null : carton.dimensions().heightCm();
             if (palletised) palletInput.add(new PalletCalculator.Load(product.id(), cartons, fit,
-                    layerHeight, carton.weightKg()));
+                    layerHeight, carton.weightKg(), carton.dimensions()));
             int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
             BigDecimal calculatedPalletHeight = palletised
                     ? calculatedPalletHeight(layerHeight, context.pallet(), usedPalletLayers)

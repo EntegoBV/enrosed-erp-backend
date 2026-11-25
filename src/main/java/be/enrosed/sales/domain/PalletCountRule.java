@@ -6,13 +6,23 @@ package be.enrosed.sales.domain;
  *
  * STRICT puts every product on pallets of its own: the count every document had until
  * 2026-11-04. MIXED lets products share a pallet in whole layers of their own, the way the
- * Palletberekening screen stacks them (Emre, 2026-11-04: "Ja, gemengd tellen"). A document keeps
- * the rule it was created with for good: no edit, send, reopen or in-memory copy changes it, so a
- * document that left concept keeps the pallet count and freight it was sent with.
+ * Palletberekening screen stacked them (Emre, 2026-11-04: "Ja, gemengd tellen"). PACKED loads the
+ * pallets one after the other, each as full as it goes, an omdoos on its side where that fills
+ * clearly more (PalletPacker, Emre 2026-11-25: "eerst de eerste proberen helemaal te vullen en je
+ * mag kantelen"; "Ja, ook telling en vracht"); it never counts more pallets than MIXED would. A
+ * document keeps the rule it was created with for good: no edit, send, reopen or in-memory copy
+ * changes it, so a document that left concept keeps the pallet count and freight it was sent with.
+ * Only PalletPackedRollout moved concepts from MIXED to PACKED once.
  */
 public enum PalletCountRule {
     STRICT,
-    MIXED;
+    MIXED,
+    PACKED;
+
+    /** The rule a document made from nothing gets (a new quote, a web order, an invoice without a quote). */
+    public static PalletCountRule forNew() {
+        return PACKED;
+    }
 
     /**
      * The stored value read leniently: a row from before the rule that PalletCountRuleBackfill has not decided yet,

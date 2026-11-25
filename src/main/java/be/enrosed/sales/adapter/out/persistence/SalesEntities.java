@@ -233,7 +233,7 @@ public final class SalesEntities {
         public FreightPricingStrategy freightPricingStrategy;
 
         /**
-         * How the automatic pallets are counted (PalletCountRule: STRICT or MIXED), written once
+         * How the automatic pallets are counted (PalletCountRule: STRICT, MIXED or PACKED), written once
          * when the document is made and never by a save, hence not updatable. A plain varchar, so
          * no enum CHECK constraint; null (a row from before the rule, until PalletCountRuleBackfill decides it) and
          * an unknown value read as STRICT. Filled for older rows by
