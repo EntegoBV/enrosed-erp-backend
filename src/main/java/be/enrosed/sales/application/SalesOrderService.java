@@ -1835,6 +1835,15 @@ public class SalesOrderService {
     /** Records an issued invoice without claiming that a customer message was sent. */
     @Transactional
     public SalesOrder issueInvoice(long id) {
+        return issueInvoice(id, false);
+    }
+
+    /**
+     * The same; {@code belowMinimumAccepted}: staff answered "Toch versturen" to an invoice under the
+     * country's minimum order. The history then says it left under the minimum, with what it missed.
+     */
+    @Transactional
+    public SalesOrder issueInvoice(long id, boolean belowMinimumAccepted) {
         lockDocumentForMutation(id);
         SalesOrder invoice = requireClaimDocument(get(id));
         if (invoice.status() == QuoteStatus.UITGEREIKT || invoice.status() == QuoteStatus.BETAALD) return invoice;
@@ -1848,9 +1857,10 @@ public class SalesOrderService {
             validatePartnerAdvanceReservation(invoice, null);
             requireWebOrderIssuable(invoice);
         }
-        validateInvoiceForSend(invoice);
+        validateInvoiceForSend(invoice, belowMinimumAccepted);
+        String belowMinimum = belowMinimumNote(invoice, belowMinimumAccepted);
         SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
-        String label = invoice.isCreditNote() ? "Creditnota uitgereikt zonder verzending" : "Factuur uitgereikt zonder verzending";
+        String label = (invoice.isCreditNote() ? "Creditnota uitgereikt zonder verzending" : "Factuur uitgereikt zonder verzending") + belowMinimum;
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, Instant.now(),
                 currentActor().displayName(), false, label, null));
         recordActivity(ActivityLogService.ACTION_UPDATED, saved, label);
@@ -1863,11 +1873,18 @@ public class SalesOrderService {
     /** Invoices skip the portal: sending is a bookkeeping fact, not a mail flow. */
     @Transactional
     public SalesOrder markInvoiceSent(long id) {
+        return markInvoiceSent(id, false);
+    }
+
+    /** The same; {@code belowMinimumAccepted} as with {@link #issueInvoice(long, boolean)}. */
+    @Transactional
+    public SalesOrder markInvoiceSent(long id, boolean belowMinimumAccepted) {
         lockDocumentForMutation(id);
         SalesOrder invoice = requireClaimDocument(get(id));
         if ((invoice.status() == QuoteStatus.VERZONDEN || invoice.status() == QuoteStatus.BETAALD)
                 && invoice.sentAt() != null) return invoice;
-        validateInvoiceDispatch(invoice);
+        validateInvoiceDispatch(invoice, belowMinimumAccepted);
+        String belowMinimum = belowMinimumNote(invoice, belowMinimumAccepted);
         boolean fromConcept = invoice.status() == QuoteStatus.CONCEPT;
         SalesOrder sent = withStatus(invoice, invoice.status() == QuoteStatus.BETAALD ? QuoteStatus.BETAALD : QuoteStatus.VERZONDEN,
                 java.time.Instant.now(), invoice.paidAt());
@@ -1881,7 +1898,7 @@ public class SalesOrderService {
             recordCreditedEvent(saved, "Creditnota " + saved.number() + " uitgereikt · € "
                     + money(price(saved).totals().totalInclVat()) + " incl. btw");
         }
-        String label = invoice.isCreditNote() ? "Creditnota gemarkeerd als verstuurd" : "Factuur verstuurd";
+        String label = (invoice.isCreditNote() ? "Creditnota gemarkeerd als verstuurd" : "Factuur verstuurd") + belowMinimum;
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.VERSTUURD,
                 java.time.Instant.now(), actor.displayName(), false,
                 label, null));
@@ -1918,6 +1935,15 @@ public class SalesOrderService {
      * between the two document sorts.
      */
     public void validateInvoiceForSend(SalesOrder invoice) {
+        validateInvoiceForSend(invoice, false);
+    }
+
+    /**
+     * The same; {@code belowMinimumAccepted}: staff answered "Toch versturen", so a concept under the
+     * country's minimum order may leave. Without it that concept is refused with
+     * {@link MinimumOrderNotMetException}, which the screen turns into the question.
+     */
+    public void validateInvoiceForSend(SalesOrder invoice, boolean belowMinimumAccepted) {
         requireActiveProductsWhenExcluded(invoice);
         if (invoice.purpose() == SalesPurpose.STANDARD && invoice.lines().stream().anyMatch(line -> !line.isUnavailable() && line.quantity() <= 0))
             throw new BusinessRuleException("Vul een positief productaantal in of markeer het product uitdrukkelijk als tijdelijk niet bestelbaar");
@@ -1944,13 +1970,6 @@ public class SalesOrderService {
             requireWithinCreditCap(original, invoice);
         }
         if (!invoice.isCreditNote() && advanceBilling() != null) advanceBilling().requireIssuable(invoice);
-        /* An advance invoice claims part of a quote that met the minimum itself; Veilingverkopen bill what the partner sold. */
-        if (!invoice.isPartnerDeal() && !invoice.isCreditNote() && (advanceBilling() == null || !advanceBilling().isAdvance(invoice))
-                && !isReportBacked(invoice)) {
-            PricedOrder priced = price(invoice);
-            if (priced != null && !priced.validation().meetsMinimum())
-                throw new BusinessRuleException("De factuur haalt de minimum orderwaarde niet - er ontbreekt nog " + priced.validation().shortfall() + " EUR");
-        }
         Customer customer = customers.get(invoice.customerId());
         /* An invoice without the customer's address is not valid; the sentence names what is missing. */
         String addressRefusal = CustomerInvoiceData.refusal(customer, invoice.isCreditNote(),
@@ -1965,10 +1984,36 @@ public class SalesOrderService {
         }
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().validateForIssue(invoice, customer);
+        /* Last, so every hard refusal comes first: the minimum is the one rule staff may overrule, once, when
+           the concept leaves. An issued invoice is a fixed claim and is mailed as it stands. */
+        PricedOrder.Validation missed = invoice.status() == QuoteStatus.CONCEPT ? missedMinimum(invoice) : null;
+        if (missed != null && !belowMinimumAccepted)
+            throw new MinimumOrderNotMetException(missed.minOrderValue(), missed.shortfall());
+    }
+
+    /** What the invoice misses of the country's minimum order; null when it meets it or is not held to it. */
+    private PricedOrder.Validation missedMinimum(SalesOrder invoice) {
+        /* An advance invoice claims part of a quote that met the minimum itself; Veilingverkopen bill what the partner sold. */
+        if (invoice.isPartnerDeal() || invoice.isCreditNote() || (advanceBilling() != null && advanceBilling().isAdvance(invoice))
+                || isReportBacked(invoice)) return null;
+        PricedOrder priced = price(invoice);
+        return priced == null || priced.validation().meetsMinimum() ? null : priced.validation();
+    }
+
+    /** The history's " · onder de minimumorder, € 250,00 tekort" for a concept that leaves under it on staff's word. */
+    private String belowMinimumNote(SalesOrder invoice, boolean belowMinimumAccepted) {
+        if (!belowMinimumAccepted || invoice.status() != QuoteStatus.CONCEPT) return "";
+        PricedOrder.Validation missed = missedMinimum(invoice);
+        return missed == null ? "" : " · onder de minimumorder, € " + money(missed.shortfall()) + " tekort";
     }
 
     /** Called before an email leaves as well as before a manual sent marker. */
     public void validateInvoiceDispatch(SalesOrder invoice) {
+        validateInvoiceDispatch(invoice, false);
+    }
+
+    /** The same; {@code belowMinimumAccepted} as with {@link #validateInvoiceForSend(SalesOrder, boolean)}. */
+    public void validateInvoiceDispatch(SalesOrder invoice, boolean belowMinimumAccepted) {
         if (invoice.status() != QuoteStatus.CONCEPT && invoice.status() != QuoteStatus.UITGEREIKT
                 && invoice.status() != QuoteStatus.BETAALD)
             throw new BusinessRuleException("Alleen een actieve conceptfactuur of uitgereikte factuur kan verstuurd worden");
@@ -1980,7 +2025,7 @@ public class SalesOrderService {
                 requireWebOrderIssuable(invoice);
             }
         }
-        validateInvoiceForSend(invoice);
+        validateInvoiceForSend(invoice, belowMinimumAccepted);
     }
 
     /**

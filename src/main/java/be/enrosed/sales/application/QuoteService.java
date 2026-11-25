@@ -111,10 +111,11 @@ public class QuoteService {
         this.events = events;
     }
 
-    private SalesOrder sendInvoiceByMail(SalesOrder order, String personalMessage) {
+    /** {@code belowMinimumAccepted}: staff answered "Toch versturen" to a concept under the minimum order. */
+    private SalesOrder sendInvoiceByMail(SalesOrder order, String personalMessage, boolean belowMinimumAccepted) {
         salesOrders.lockDocumentForMutation(order.id());
         order = salesOrders.get(order.id());
-        salesOrders.validateInvoiceDispatch(order);
+        salesOrders.validateInvoiceDispatch(order, belowMinimumAccepted);
         Customer customer = customers.get(order.customerId());
         if (customer.email() == null || customer.email().isBlank()) {
             throw new BusinessRuleException(
@@ -128,7 +129,7 @@ public class QuoteService {
                 ? creditNoteSentence(order, priced, customer) : invoicePaymentSentence(order, priced, customer));
         /* SalesOrderService owns the single SENT audit + after-commit push for both
            this mail flow and the dashboard's manual 'mark sent' action. */
-        return salesOrders.markInvoiceSent(order.id());
+        return salesOrders.markInvoiceSent(order.id(), belowMinimumAccepted);
     }
 
     /** How the credit note stands: offset against which invoices, refunded, still open or fully settled. */
@@ -367,11 +368,20 @@ public class QuoteService {
      */
     @Transactional
     public SalesOrder send(long orderId, String personalMessage) {
+        return send(orderId, personalMessage, false);
+    }
+
+    /**
+     * The same; {@code belowMinimumAccepted} lets an invoice under the minimum order leave
+     * ("Toch versturen"). A quote stays held to the minimum.
+     */
+    @Transactional
+    public SalesOrder send(long orderId, String personalMessage, boolean belowMinimumAccepted) {
         SalesOrder order = salesOrders.get(orderId);
         /* Same door, different letter: an invoice or credit note mails the PDF
            with its payment line and skips the portal entirely. */
         if (order.isClaimDocument()) {
-            return sendInvoiceByMail(order, personalMessage);
+            return sendInvoiceByMail(order, personalMessage, belowMinimumAccepted);
         }
         /* Under the document lock, so the PDF that is mailed is the version that is saved. */
         salesOrders.lockDocumentForMutation(orderId);
@@ -521,7 +531,7 @@ public class QuoteService {
                     + "Kies hoe de klant akkoord ging, of verstuur ze ter goedkeuring.");
         SalesOrder invoice = salesOrders.createInvoiceFrom(orderId, agreementNeeded,
                 agreementNeeded ? agreedVia.words() : null);
-        return sendInvoiceByMail(invoice, personalMessage);
+        return sendInvoiceByMail(invoice, personalMessage, false);
     }
 
     /** Whom the mailer reaches for this document: the login that placed a website order, else the customer record. */

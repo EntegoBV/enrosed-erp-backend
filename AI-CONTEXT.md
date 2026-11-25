@@ -3600,3 +3600,22 @@ approved ones.
   never shows it. The link then answers as accepted; "Mijn bestellingen" shows Bevestigd (order) / Aanvaard (quote).
 - Unchanged: an approved website order whose figures moved (GEACCEPTEERD + RESEND_REQUIRED) is still refused, flag or
   not; advance invoices on a website order still go through `requireInvoiceable` only.
+
+## Factuur onder de minimumorder: toch versturen (2026-11-25)
+
+Emre: "minimum order waarde bij onze factuur moet je gewoon popup geven dat we alsnog kunnen verzenden indien minimum
+ook niet genoeg is".
+- `SalesOrderService.validateInvoiceForSend(invoice, belowMinimumAccepted)` checks the minimum **last**, after the
+  address, VAT number, freight, due date and declarations, so a hard refusal always comes first. Only a CONCEPT is held
+  to it (`missedMinimum`: never for a partner deal, credit note, advance invoice or report-backed document); an issued
+  invoice is mailed or marked sent as it stands.
+- Without the flag a concept under the minimum gets `MinimumOrderNotMetException`: 409 `{code: MINIMUM_NOT_MET,
+  minimumEur, shortfallEur, message}` (`BusinessRuleMapper`). The message is the old sentence, so an older screen shows
+  the same toast.
+- The flag: `POST /{id}/send` takes `belowMinimumAccepted` next to `message` (`QuoteService.send` passes it to both
+  `validateInvoiceDispatch` and `markInvoiceSent`, so the check before the mail and the one after agree);
+  `POST /{id}/mark-sent` and `POST /{id}/issue` take `{belowMinimumAccepted: true}` (`InvoiceLeaveRequest`; no body
+  still works). With it the VERSTUURD / UITGEREIKT history line and the activity line end
+  " · onder de minimumorder, € 314,90 tekort" (`belowMinimumNote`).
+- Unchanged: a quote (`QuoteService.send` for an OFFERTE) and a web order's one-step "Factuur versturen"
+  (`invoiceWebOrder`, always without the flag) stay refused under the minimum.

@@ -2,6 +2,7 @@ package be.enrosed.shared.adapter.in.rest;
 
 import be.enrosed.catalog.application.CatalogPriceIssuesException;
 import be.enrosed.sales.application.CustomerPriceBasisChangedException;
+import be.enrosed.sales.application.MinimumOrderNotMetException;
 import be.enrosed.sales.application.PortalRefusal;
 import be.enrosed.sales.application.WebOrderChangedException;
 import be.enrosed.shared.BusinessRuleException;
@@ -46,6 +47,17 @@ public class BusinessRuleMapper implements ExceptionMapper<BusinessRuleException
             body.put("code", CustomerPriceBasisChangedException.CODE);
             body.put("message", basis.getMessage());
             body.put("productIds", basis.productIds());
+            body.put("timestamp", Instant.now().toString());
+            return Response.status(409).type(MediaType.APPLICATION_JSON_TYPE).entity(body).build();
+        }
+        /* An invoice under the minimum order: the screen asks "Toch versturen?" with these figures and sends again. */
+        if (exception instanceof MinimumOrderNotMetException minimum) {
+            Map<String, Object> body = new LinkedHashMap<>();
+            body.put("status", 409);
+            body.put("code", MinimumOrderNotMetException.CODE);
+            body.put("message", minimum.getMessage());
+            body.put("minimumEur", minimum.minimumEur());
+            body.put("shortfallEur", minimum.shortfallEur());
             body.put("timestamp", Instant.now().toString());
             return Response.status(409).type(MediaType.APPLICATION_JSON_TYPE).entity(body).build();
         }

@@ -52,7 +52,10 @@ public class SalesOrderResource {
 
     public record CreateRequest(long customerId, String countryCode, String incoterm,
                                 DocumentType docType) {}
-    public record SendRequest(String message) {}
+    /** {@code belowMinimumAccepted}: staff answered "Toch versturen" to an invoice under the minimum order. */
+    public record SendRequest(String message, Boolean belowMinimumAccepted) {}
+    /** An invoice issued or marked sent; {@code belowMinimumAccepted} as with {@link SendRequest}. */
+    public record InvoiceLeaveRequest(Boolean belowMinimumAccepted) {}
     public record RevisionDecision(String handledBy, String message) {}
     public record DeliveryTermsRequest(List<SalesOrderService.DeliveryWeekChange> lines) {}
     public record FreightRequest(FreightState state, BigDecimal manualFreightEur,
@@ -701,12 +704,14 @@ public class SalesOrderResource {
 
     @POST
     @Path("/{id}/issue")
-    public OrderView issueInvoice(@PathParam("id") long id) { return view(salesOrders.issueInvoice(id)); }
+    public OrderView issueInvoice(@PathParam("id") long id, InvoiceLeaveRequest request) {
+        return view(salesOrders.issueInvoice(id, request != null && Boolean.TRUE.equals(request.belowMinimumAccepted())));
+    }
 
     @POST
     @Path("/{id}/mark-sent")
-    public OrderView markInvoiceSent(@PathParam("id") long id) {
-        SalesOrder sent = salesOrders.markInvoiceSent(id);
+    public OrderView markInvoiceSent(@PathParam("id") long id, InvoiceLeaveRequest request) {
+        SalesOrder sent = salesOrders.markInvoiceSent(id, request != null && Boolean.TRUE.equals(request.belowMinimumAccepted()));
         return view(sent);
     }
 
@@ -808,7 +813,8 @@ public class SalesOrderResource {
     @POST
     @Path("/{id}/send")
     public OrderView send(@PathParam("id") long id, SendRequest request) {
-        SalesOrder sent = quotes.send(id, request == null ? null : request.message());
+        SalesOrder sent = quotes.send(id, request == null ? null : request.message(),
+                request != null && Boolean.TRUE.equals(request.belowMinimumAccepted()));
         return view(sent);
     }
 
