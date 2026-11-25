@@ -27,7 +27,9 @@ import java.util.Set;
  * the end wins: every candidate (and its lower twin, only as high as the floor's best pattern of
  * rows needs) is tried by filling the rest of the pallet the quick way (the largest block each
  * time); a try that takes everything still to load beats any that leaves cartons for another pallet;
- * where they load the same, the one that ends lowest, so a part pallet stands low and wide. An omdoos
+ * where they load the same, the one that ends lowest, so a part pallet stands low and wide. A pallet that
+ * could take all that is left (volume and weight) but leaves cartons over is tried again from every first
+ * block, the first that takes everything standing. An omdoos
  * lies down only where that fills clearly more (TIP_COST). Nothing hangs over an edge and nothing
  * floats.
  *
@@ -357,9 +359,14 @@ public final class PalletPacker {
     }
 
     private static State fillOne(List<Prepared> kinds, int[] pool, Deck deck, List<Box> boxes) {
+        return fillOne(kinds, pool, deck, boxes, null);
+    }
+
+    private static State fillOne(List<Prepared> kinds, int[] pool, Deck deck, List<Box> boxes, Block first) {
         State state = new State();
         state.floors = new ArrayList<>(List.of(new Floor(0, 0, deck.length(), deck.width(), 0, false)));
         state.left = pool.clone();
+        if (first != null) apply(state, 0, first, kinds, deck, boxes);
         while (true) {
             int at = lowest(state.floors);
             if (at < 0) break;
@@ -448,6 +455,37 @@ public final class PalletPacker {
             List<Box> boxes = new ArrayList<>();
             State state = fillOne(kinds, pool, deck, boxes);
             if (boxes.isEmpty()) break;
+            /* What is left could go on this one pallet (volume and weight) but the search left cartons over: every
+               first block of the empty pallet is tried with the full search after it, the first that takes
+               everything stands. Never more pallets. */
+            if (anyLeft(state.left)) {
+                long volume = 0;
+                long weight = 0;
+                for (int index = 0; index < pool.length; index++) {
+                    volume += (long) pool[index] * kinds.get(index).volume();
+                    weight += (long) pool[index] * kinds.get(index).weight();
+                }
+                if (volume <= (long) deck.length() * deck.width() * deck.height()
+                        && (deck.maxWeight() <= 0 || weight <= deck.maxWeight())) {
+                    State start = new State();
+                    start.floors = new ArrayList<>(List.of(new Floor(0, 0, deck.length(), deck.width(), 0, false)));
+                    start.left = pool.clone();
+                    List<Block> firsts = new ArrayList<>();
+                    for (Block block : candidates(start.floors.get(0), start, kinds, deck)) {
+                        firsts.add(block);
+                        if (block.lower() != null) firsts.add(block.lower());
+                    }
+                    for (Block block : firsts) {
+                        List<Box> again = new ArrayList<>();
+                        State tried = fillOne(kinds, pool, deck, again, block);
+                        if (!anyLeft(tried.left)) {
+                            boxes = again;
+                            state = tried;
+                            break;
+                        }
+                    }
+                }
+            }
             Map<Integer, Integer> counts = new LinkedHashMap<>();
             int top = 0;
             for (Box box : boxes) {

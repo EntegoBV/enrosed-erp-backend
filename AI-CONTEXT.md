@@ -2173,13 +2173,13 @@ concept keeps the count and freight it was sent with.
   row lock (`lock_timeout`); a failure is logged, rolls the run back and the next run retries.
 - Creation: `Orders.save` refuses a new document; `Orders.create(order, rule)` writes the rule with the row. MIXED (since 2026-11-25 PACKED, `PalletCountRule.forNew()`):
   `create` (quote, invoice, website request and order), `createFromPurchaseOrder`, `createAuctionSettlement`,
-  `duplicate`, a schedule term without source quote. The source's rule: `createInvoiceFrom` (slotfactuur included),
+  `createPartnerSalesInvoice`, `duplicate`, a schedule term without source quote. The source's rule: `createInvoiceFrom` (slotfactuur included),
   `SalesAdvanceBillingService.createAdvanceInvoice`, `createCreditNote`, the later part of `SalesSplits.split`, a
   schedule term made from a quote.
 - Pricing: `SalesOrderService.palletRule(order)` reads the rule by id, never from the record: a draft or copy of a
   stored document counts like it (`preview` puts the path id on the draft). A draft without id counts like the invoice
-  it credits or the quote it comes from, else MIXED; `priceAll` reads every rule once. `PublicQuoteService` estimates a
-  request and a new website order MIXED; a change of a stored website order (`WebOrderService.previewByCustomer` with an
+  it credits or the quote it comes from, else `forNew()` (PACKED since 2026-11-25); `priceAll` reads every rule once.
+  `PublicQuoteService` estimates a request and a new website order with `forNew()`; a change of a stored website order (`WebOrderService.previewByCustomer` with an
   `orderId`, `validateChange`, and `changeByCustomer` through `orderFacts` and `replaceOrder`) passes that order as
   `changing` and is priced by its rule (`salesOrders.palletRule`) and its kept prices, so the estimate, the stored change
   and its ordered terms agree (a website order from before the release stays strict). `PricedOrder.Totals`:
@@ -2208,10 +2208,16 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   plus each one's lower twin (only as high as the floor's best pattern of rows needs) are each finished the quick way
   (largest block each time); a try that takes everything still to load wins (else 89 cartons went on 2 pallets where 88
   and 90 go on 1), then the fullest end, a carton on a side counting 5 % less (`TIP_COST`), a tie goes to the lowest end;
-  the load is centred. Proved identical to the TS on 3000 random kind lists (290,814 boxes, every box, in order).
+  the load is centred. A pallet that could take all that is left (volume and weight) but leaves cartons over is tried
+  again from every first block of the empty pallet with the full search after it, the first that takes everything
+  standing (17 cartons of 81 × 54,5 × 26,5 cm went on 2 pallets where 16 and 18 go on 1); never more pallets, and
+  single-product dips fell from 6 to 1 in 1,200 random cartons. Proved identical to the TS on 9,000 random kind lists
+  (2.97 million boxes, every box, in order: up to 12 kinds of 400, weight-limited, a kar deck, pallet limits).
 - FROZEN since the push of 2026-11-25. Pricing is live on every read and only the rule's name is stored, so any change
-  to `PalletPacker` or `pallet-pack.ts` re-counts every sent, accepted, invoiced and paid PACKED document (pallets,
-  per-pallet freight, PDFs, portal, open amounts, credit caps). A change in behaviour gets a new rule value (PACKED_2:
+  to the counting path re-counts every sent, accepted, invoiced and paid PACKED document (pallets, per-pallet freight,
+  PDFs, portal, open amounts, credit caps). The counting path is `PalletPacker` and `pallet-pack.ts`, and also
+  `PalletCalculator.packedPallets` (kinds per size, heaviest weight, line order, the MIXED cap and fallback),
+  `mixedPallets` and `fit` (which loads are placeable, the MIXED count that caps PACKED), and `units` / `deck`. A change in behaviour gets a new rule value (PACKED_2:
   `forNew()` moves to it, PACKED keeps this code for the documents that have it), with its own copies of both packers;
   3D tuning never touches the counting steps. The count is not monotone either (a few cartons more can take a pallet
   less), so nothing promises "+N past" under PACKED.
@@ -2219,10 +2225,12 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   heaviest colour's weight), every side; packed with at most the MIXED count; more pallets, or cartons left, and the
   mixed layout stands, so PACKED never counts more than MIXED. Items in the order their first carton was laid, `layers`
   = the heights an item's cartons start at, `heightCm` = base + top, `weightKg` = the cartons' own weights. `Load`
-  gained the carton's `box` sizes (a load without them, or a carton without sizes, leaves the document MIXED).
+  gained the carton's `box` sizes. A carton without sizes is not placeable and drops out of every count, as under MIXED;
+  the rest is packed.
 - The frontend lays the same pallets in 3D (`orderLoad3d` re-packs and matches `autoPallets`), the planner explains
-  PACKED (no "+N past" hints under PACKED), a hand pallet copied from PACKED stands as high as its `autoPallets` twin,
-  and Palletberekening keeps its own "Omdozen mogen kantelen" switch (its plan uses the cards' fits).
+  PACKED (no "+N past" hints under PACKED), a hand pallet copied from PACKED stands as high as its `autoPallets` twin
+  (else as the server would load the list: pallet-hand-load.ts), and Palletberekening keeps its own "Omdozen mogen
+  kantelen" switch (its plan uses the cards' fits).
 - The split preview prices the later part with the source's rule (`priceSplit(order, terms, rule)`), as `split` stores it.
 - Cost: PACKED runs the packer on every pricing, 8-80 ms for a container-size document against about 1 ms for MIXED.
   `PartnerFinancingService.get` prices each partner document several times; when container documents pile up there,
@@ -2233,12 +2241,15 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   (`UNTOUCHED_CONCEPT_QUOTE`: never sent, nothing made from it). Reopened or resent quotes, concept invoices, credit
   notes and split parts (each counts like its source) and everything sent, accepted, invoiced or paid keep MIXED. Its
   count and freight can only go down (ENR-2026-0031 4 → 3 and ENR-2026-0034 3 → 2 on the production read of 2026-11-25).
-- Release order: the frontend first, the backend right after. The live frontend before 2026-11-25 judges hand pallets
-  in whole layers and would read almost every Zelf indelen copy of a PACKED pallet as "te hoog"; the new frontend
-  against the old backend's MIXED documents is harmless, and the fresh-build reload moves every tab over. The old
-  release reads PACKED as STRICT (`stored`), so a document made in the deploy overlap may show the strict count until
-  the new one serves.
-- Never roll the backend back below 85730f2 (it would count every PACKED document STRICT: more pallets, more per-pallet
+- Release order: the frontend first, the backend 20-30 minutes later. The live frontend before 2026-11-25 judges hand
+  pallets in whole layers and reads almost every Zelf indelen copy of a PACKED pallet as "te hoog" (91 %), and its 3D
+  draws 12 % of PACKED documents above the maximum. An open tab takes a new frontend only after it has been live for
+  10 minutes (fresh-build.ts BUILD_MIN_AGE_MS) and then on the next screen change or when left alone, so the old tabs
+  need that time before PACKED documents exist. The new frontend against the old backend's MIXED and STRICT documents
+  is harmless (identical layouts on 8,106 orders). The old release reads PACKED as STRICT (`stored`), so a document
+  made in the deploy overlap may show the strict count until the new one serves.
+- Never roll the backend back below the commit "Pallets: PACKED, the pallets loaded one after the other, each as full as
+  it goes" of 2026-11-25 (85730f2 before its rebase onto 25ae43c; it would count every PACKED document STRICT: more pallets, more per-pallet
   freight, and what it derives in that time is stored STRICT for good): fix forward. If a rollback cannot be avoided,
   first `update sales_order set palletcountrule = 'MIXED' where palletcountrule = 'PACKED'` (MIXED is never below
   PACKED, but sent documents change), only with Emre's go.
