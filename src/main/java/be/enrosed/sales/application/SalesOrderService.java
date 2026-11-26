@@ -423,9 +423,12 @@ public class SalesOrderService {
     }
 
     /**
-     * The pallet or kar a document counts on: its own profile, height and spill (SalesSettings.pallet).
+     * The pallet or kar a document counts on: its own profile, height and STORED spill (SalesSettings.pallet).
      * The one place a document's spec is asked, so pricing, the freight checks and sending agree; a
-     * document without a stored spill counts without one.
+     * document without a stored spill counts without one. Pricing may still count such a document
+     * without its spill, where the spill would cost a pallet (SalesPricingCalculator.floorFor); it
+     * does so only when every product that fits with the spill also fits without it, so the freight
+     * checks and sending, which ask here whether a product fits at all, get the same answer on both floors.
      */
     private PalletSpec palletSpec(SalesOrder order) {
         return settings.pallet(order.palletProfile(), order.maxPalletHeightCm(), order.palletSpillCm());
@@ -2981,7 +2984,7 @@ public class SalesOrderService {
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
                 .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan())
-                /* Today's standard spill, or the source's own where its hand pallets go along (copySpill). */
+                /* The source's stored spill; a source without one takes today's standard unless its hand pallets go along (copySpill). */
                 .withPalletSpillCm(copySpill(source));
         /* A copy is a new concept: never an agreed price that ended or changed unit since. */
         duplicate = withTodaysCustomerPrices(duplicate);
@@ -3040,12 +3043,17 @@ public class SalesOrderService {
     }
 
     /**
-     * The spill a Nieuwe kopie starts with. A copy is a new document and gets today's standard, as it
-     * gets today's standard height. Hand-built pallets go along with the copy and were built on the
-     * source's floor: then the copy keeps the source's own spill as stored, none staying none.
+     * The spill a Nieuwe kopie starts with: the source's STORED spill, as a picked height stays (a
+     * seller who set 0 or 3 on a document set it for that load). The stored pick, never the spill a
+     * pricing happened to count with (totals.palletSpillCm). A source without a stored spill was made
+     * before the spill existed: its copy is a new document and takes today's standard, unless
+     * hand-built pallets go along with the copy. Those were built on the floor without spill, so the
+     * copy then stores none either.
      */
     private BigDecimal copySpill(SalesOrder source) {
-        return source.pallets().isEmpty() ? settings.standardSpillCm() : source.palletSpillCm();
+        BigDecimal own = source.palletSpillCm();
+        if (own != null) return own;
+        return source.pallets().isEmpty() ? settings.standardSpillCm() : null;
     }
 
     /**

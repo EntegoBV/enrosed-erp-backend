@@ -266,9 +266,12 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
             /** The automatic layout under that rule; empty when not palletised or nothing fits. */
             List<AutoPallet> autoPallets,
             /**
-             * The spill this calculation counted with, in cm per edge: the document's own, 0 for a
-             * document that stores none. Never null, so its presence tells the ERP that this server
-             * counts with spill; the stored value itself (null included) is order.palletSpillCm.
+             * The spill this calculation counted with, in cm per edge: the EFFECTIVE spill, the floor
+             * every figure of this answer came from. The document's own, 0 for a document that stores
+             * none, and 0 where the document stores a spill that would have cost a pallet (a spill
+             * never costs a pallet: SalesPricingCalculator.floorFor). Never null, so its presence tells
+             * the ERP that this server counts with spill. The stored pick (null included) is
+             * order.palletSpillCm: the two may differ and neither is ever written from the other.
              */
             BigDecimal palletSpillCm
     ) {

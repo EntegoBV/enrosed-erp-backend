@@ -31,6 +31,11 @@ import java.util.Objects;
  * retain their outer-carton CBM. A Deense kar counts karren on its own spec
  * (the context's pallet) but is never billed per pallet: its freight is
  * filled in by hand.
+ *
+ * The floor the load is counted on is chosen here, once per pricing ({@link #floorFor}): the
+ * context's pallet with the document's own spill, or the same pallet without it when the spill
+ * would cost a pallet. Every figure of one answer comes from that one floor, and
+ * totals.palletSpillCm names it.
  */
 @ApplicationScoped
 public class SalesPricingCalculator {
@@ -135,6 +140,11 @@ public class SalesPricingCalculator {
                 || split.vatRatePct().compareTo(context.vat().ratePct()) != 0))
             throw new be.enrosed.shared.BusinessRuleException("De vastgelegde orderverdeling past niet bij de huidige producten of btw-gegevens; controleer de oorspronkelijke bestelling");
 
+        /* The one floor of this answer: with the document's spill, or without it where the spill would
+           cost a pallet (floorFor). Nothing below reads context.pallet() again. */
+        Floor floor = floorFor(order, productsById, context);
+        PalletSpec spec = floor.pallet();
+
         List<PricedOrder.Line> lines = new ArrayList<>();
         List<PalletCalculator.Load> palletInput = new ArrayList<>();
         List<String> withoutCost = new ArrayList<>();
@@ -167,7 +177,7 @@ public class SalesPricingCalculator {
                here, so what you see on screen is what actually goes out the door. A part carton
                still ships, and counts for volume, weight and pallets, as one full carton. */
             /* A partner deal follows the container: the pieces it holds, not a full last step. */
-            boolean exact = order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST || allocated != null;
+            boolean exact = exactPieces(order, allocated != null);
             int step = exact ? 1 : unitsPerOrderStep(line, product);
             int quantity = chargedQuantity(line, product, exact);
             int cartons = carton.cartonsFor(quantity);
@@ -175,23 +185,19 @@ public class SalesPricingCalculator {
             boolean validOuterCarton = hasValidOuterCarton(carton);
             if (quantity > 0 && !validOuterCarton) withoutCartonDimensions.add(product.sku());
 
-            PalletCalculator.Fit fit = palletised
-                    ? pallets.fit(carton, context.pallet())
-                    : PalletCalculator.Fit.none("losse dozen");
+            /* The line's omdozen on the chosen floor, built as floorFor builds them (loadOn). */
+            PalletCalculator.Load load = palletised ? loadOn(spec, product, carton, cartons) : null;
+            PalletCalculator.Fit fit = load != null ? load.fit() : PalletCalculator.Fit.none("losse dozen");
             if (palletised && quantity > 0 && fit.cartonsPerPallet() <= 0) {
                 withoutPalletFit.add(product.sku());
                 if (!hasCartonSize(carton)) withoutPalletFitSize.add(product.sku());
             }
             int linePallets = palletised
                     ? pallets.palletsFor(cartons, fit.cartonsPerPallet()) : 0;
-            /* One layer's height: the size that stands up, also when the carton had to be laid down. */
-            BigDecimal layerHeight = fit.layerHeightCm() != null ? fit.layerHeightCm()
-                    : carton.dimensions() == null ? null : carton.dimensions().heightCm();
-            if (palletised) palletInput.add(new PalletCalculator.Load(product.id(), cartons, fit,
-                    layerHeight, carton.weightKg(), carton.dimensions()));
+            if (load != null) palletInput.add(load);
             int usedPalletLayers = palletised ? usedPalletLayers(fit, cartons) : 0;
-            BigDecimal calculatedPalletHeight = palletised
-                    ? calculatedPalletHeight(layerHeight, context.pallet(), usedPalletLayers)
+            BigDecimal calculatedPalletHeight = load != null
+                    ? calculatedPalletHeight(load.cartonHeightCm(), spec, usedPalletLayers)
                     : BigDecimal.ZERO;
 
             /* Keep exact carton volume for totals and per-CBM freight. Only
@@ -314,9 +320,10 @@ public class SalesPricingCalculator {
         BigDecimal goodsTotal = split == null ? afterOrderTier.subtract(extraDiscount) : split.goodsTotal();
 
         /* ---- vracht per pallet ----------------------------------------- */
-        PalletCalculator.OrderPallets palletCounts = palletised
-                ? pallets.forOrder(palletInput, context.pallet(), context.palletRule())
-                : PalletCalculator.OrderPallets.NONE;
+        /* Counted once: where choosing the floor already counted these same loads on it, that count stands. */
+        PalletCalculator.OrderPallets palletCounts = !palletised ? PalletCalculator.OrderPallets.NONE
+                : floor.counted() != null ? floor.counted()
+                : pallets.forOrder(palletInput, spec, context.palletRule());
         Country country = context.country();
 
         /* Hand-built pallets take over the freight count the moment they
@@ -475,7 +482,7 @@ public class SalesPricingCalculator {
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
                 manualPallets, unassignedCartons,
-                context.pallet().baseHeightCm(), context.pallet().maxHeightCm(),
+                spec.baseHeightCm(), spec.maxHeightCm(),
                 cbmTotal.setScale(3, RoundingMode.HALF_UP), weightTotal.setScale(1, RoundingMode.HALF_UP),
                 Money.money(gross), Money.money(lineDiscountTotal), Money.money(subtotal),
                 orderTierPct, Money.money(orderDiscount),
@@ -493,8 +500,10 @@ public class SalesPricingCalculator {
                 Money.money(margin.subtract(shipping)),
                 Money.money(extraLinesTotal),
                 context.palletRule(), palletCounts.automatic(), palletCounts.layout(),
-                /* What the counts above loaded with: the spec's own spill, 0 without one. */
-                context.pallet().spillCm());
+                /* What every figure above loaded with: the spill of the chosen floor. 0 for a document
+                   without one, and 0 where the document stores a spill that would have cost a pallet
+                   (floorFor); the stored pick itself stays order.palletSpillCm and is never written from here. */
+                spec.spillCm());
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,
@@ -513,6 +522,85 @@ public class SalesPricingCalculator {
             finalLines.add(lines.get(index).withFinalMargin(finalCosts.get(index), finalNets.get(index)));
         }
         return new PricedOrder(finalLines, totals, validation, extraLines);
+    }
+
+    /**
+     * The floor one answer is priced on, and the automatic pallets when choosing it already counted
+     * them on it (null: not counted yet).
+     */
+    private record Floor(PalletSpec pallet, PalletCalculator.OrderPallets counted) {}
+
+    /**
+     * A spill never costs a pallet (main's rule of 2026-11-26, on Emre's "Je mag ook standaard
+     * maximaal 2cm spill doen": the spill is an allowance, a seller may always load inside the
+     * floor). The packer is a search, not an optimum, and a lying omdoos may stand up on a larger
+     * floor, so the same load now and then counts one pallet MORE with a spill than without (80
+     * omdozen of 56 x 47 x 10,5 cm + 17 of 58 x 58 x 58 cm on a europallet at 260 cm: 3 pallets
+     * without spill, 4 with 2 cm). Then the document is priced without its spill.
+     *
+     * The rule, a choice between two inputs of the counting classes, never a step inside them
+     * (PalletCalculator and PalletPacker stay frozen):
+     * - Only when the load goes on pallets or karren, the context's pallet carries a spill above 0
+     *   and the document has no hand-built pallets. A hand layout was made on a floor and is judged
+     *   on it by the ERP: such a document stays on its stored spill. A document without spill (every
+     *   one made before the spill existed) never comes here and costs no second count.
+     * - Only when the floor without spill takes every product the floor with spill takes. An omdoos
+     *   that stands on the pallet or kar only thanks to the spill (58 x 58 x 58 cm across a Deense
+     *   kar) would drop out of the count without it: fewer karren then is not the same load.
+     * - The automatic pallets are counted by the document's own rule (STRICT / MIXED / PACKED) with
+     *   the spill and without it. Fewer WITHOUT: the whole answer is priced on the floor without
+     *   spill (per layer, per pallet, layers, heights, strict and optimised, the layout, freight).
+     *   The same or more: with the spill.
+     * - One pallet cannot become fewer, so a load of at most one pallet is not counted again.
+     *
+     * Lines are priced once, on the floor returned; the count made here for that floor is handed on,
+     * so a document with a spill costs one extra count (PACKED: one more run of the packer), nothing
+     * else. Nothing is stored: order.palletSpillCm keeps the seller's pick, totals.palletSpillCm says
+     * which floor the figures came from, and the next pricing chooses again.
+     */
+    private Floor floorFor(SalesOrder order, Map<Long, Product> productsById, Context context) {
+        PalletSpec own = context.pallet();
+        if (order.loadMode() != LoadMode.PALLETS || own.spillCm().signum() <= 0 || !order.pallets().isEmpty())
+            return new Floor(own, null);
+        PalletSpec nominal = own.withSpill(null, false);
+        boolean exact = exactPieces(order, context.splitPricing() != null);
+        List<PalletCalculator.Load> withSpill = new ArrayList<>();
+        List<PalletCalculator.Load> without = new ArrayList<>();
+        for (SalesOrderLine line : order.lines()) {
+            Product product = productsById.get(line.productId());
+            if (product == null) continue;
+            Carton carton = product.carton() == null ? Carton.empty() : product.carton();
+            int cartons = carton.cartonsFor(chargedQuantity(line, product, exact));
+            PalletCalculator.Load spilled = loadOn(own, product, carton, cartons);
+            PalletCalculator.Load flat = loadOn(nominal, product, carton, cartons);
+            if (spilled.fit().cartonsPerPallet() > 0 && flat.fit().cartonsPerPallet() <= 0) return new Floor(own, null);
+            withSpill.add(spilled);
+            without.add(flat);
+        }
+        PalletCalculator.OrderPallets counted = pallets.forOrder(withSpill, own, context.palletRule());
+        if (counted.automatic() <= 1) return new Floor(own, counted);
+        PalletCalculator.OrderPallets flatCount = pallets.forOrder(without, nominal, context.palletRule());
+        return flatCount.automatic() < counted.automatic() ? new Floor(nominal, flatCount) : new Floor(own, counted);
+    }
+
+    /**
+     * One line's omdozen as the stacking sees them on a floor: how they fit it and one layer's
+     * height, the size that stands up, also when the carton had to be laid down. The one place a
+     * load is built, so the count that chooses the floor and the lines priced on it read the same.
+     */
+    private PalletCalculator.Load loadOn(PalletSpec pallet, Product product, Carton carton, int cartons) {
+        PalletCalculator.Fit fit = pallets.fit(carton, pallet);
+        BigDecimal layerHeight = fit.layerHeightCm() != null ? fit.layerHeightCm()
+                : carton.dimensions() == null ? null : carton.dimensions().heightCm();
+        return new PalletCalculator.Load(product.id(), cartons, fit, layerHeight, carton.weightKg(), carton.dimensions());
+    }
+
+    /**
+     * Whether a document keeps exact pieces instead of rounding each line up to its step: a partner
+     * deal and a container-cost document follow the container, a split part its allocation.
+     */
+    private static boolean exactPieces(SalesOrder order, boolean allocated) {
+        return order.isPartnerDeal() || order.markupMode() == MarkupMode.CONTAINER_COST || allocated;
     }
 
     private static boolean automaticDiscountsExcluded(SalesOrder order) {
