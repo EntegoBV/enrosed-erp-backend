@@ -2283,7 +2283,8 @@ document keeps the height it was made with instead of following the setting:
 
 - `SalesSettings.pallet()` (catalogue per-pallet figure and basis line, every website estimate of a request or a new
   order) is the standard. `pallet(profile, height)` gives a document its own stored height; a null height reads
-  `LEGACY_MAX_HEIGHT_CM` = 260: only rows made before 2026-11-07 have none. `FORMER_STANDARD_HEIGHT_CM` = 220 is what
+  `LEGACY_MAX_HEIGHT_CM` = 260: only rows made before 2026-11-07 have none (a Deense kar without one reads its 230:
+  "Deense kar op orders (2026-11-25)"). `FORMER_STANDARD_HEIGHT_CM` = 220 is what
   documents made from 2026-11-07 to 2026-11-10 store without anyone having picked it. `EURO_HEIGHT_LIMIT_CM` = 260.
 - New documents store the standard: `create` (staff quote and invoice, website request and order),
   `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`. Documents made from another
@@ -2341,6 +2342,107 @@ document keeps the height it was made with instead of following the setting:
   maxpalletheightcm = 220 and deleted_at is null order by id`.
 - History: the 220 round's `PalletHeightBackfill` ran on production 2026-11-07 ~15:55 (ENR-2026-0016, a website
   request, went from 1 to 2 pallets) and wrote 260 down for untouched concepts with hand-built pallets.
+
+## Deense kar op orders (2026-11-25)
+
+Emre, with a screenshot of a quote's Transport & levering sheet (Lading: Euro | Blok | Half): "Daarna moet ik ook hier
+deense kar kunnen selecteren. Ook bij 3d weergave kunnen switchen." His answers: freight on a kar is "Vracht met de hand"
+(choosing Deense kar puts the freight on Vast bedrag, FIXED, and he types the amount); the 3D switch is "Alleen bekijken"
+(a Pallet | Deense kar switch in the order's 3D view that only shows: it opens on the order's own pallet or kar, changes
+and stores nothing; frontend only, see `preview` below).
+- One value in both repos: `PalletProfile.DEENSE_KAR` (the frontend's `PalletProfile` union in models.ts spells it the
+  same). `isKar()`; `SalesOrder.onKar()` = load mode PALLETS and the kar (the documents' test). The enum takes the kar's
+  floor from `PalletSpec.deenseKar()` (a second constructor: 54,5 cm is no int).
+- The figures exist once: `PalletSpec.deenseKar()`, floor 127 × 54,5 cm, base 16,5 cm, 230 cm with the base, 450 kg,
+  equal to the frontend's `karSpec(KAR_MAX_HEIGHT_CM)` / `KAR_*` in pallet-calculator-model.ts (change both or neither;
+  the catalogue's per-kar figure uses the same spec). The kar's height limit is the 300 cm every document has
+  (`validatePalletHeight`). `SalesSettings.pallet(DEENSE_KAR, height)` gives those figures at the document's own height;
+  a null height on a kar reads 230 (no kar document predates stored heights); `KAR_STANDARD_HEIGHT_CM` (= the spec's
+  230) and `standardMaxHeightCm(profile)`. Everything else follows from that spec with no kar code of its own: the
+  STRICT, MIXED and PACKED counts, `autoPallets`, the line pallet columns, `Totals.palletBaseHeightCm/palletMaxHeightCm`
+  (16,5 / 230 on a kar) and the frontend's 3D. The frozen counting path (PalletPacker, packedPallets, mixedPallets, fit,
+  units, deck) did not change a line; an omdoos stands upright for the counts unless it fits no kar upright (`fit`),
+  the packer keeps its own sides.
+- Who makes a kar: only the seller, by picking it. New documents still start on the europallet; copies carry the
+  profile as before (invoice, slotfactuur, credit note, split parts, Nieuwe kopie). Website requests and orders stay
+  EURO (customers never choose a kar; a staff save takes a web order into processing, which closes the customer's
+  change path). The advance invoice stays EURO with its quote's height (it has no lines).
+- Freight by hand (`SalesOrderService.karFreightByHand`): when `update`, `updateShipping` or `updateFreight` would leave a
+  kar on COUNTRY_PALLET or CARRIER (also through the legacy fallbacks that turn FIXED without an amount back into
+  COUNTRY_PALLET), it stores FIXED with the amount the document already stores, or none; sending refuses FIXED without
+  an amount ("Vul het vaste vrachtbedrag in"). PICKUP and PER_CBM stay (they count no pallets). The ERP's switch sends
+  palletProfile DEENSE_KAR, maxPalletHeightCm 230 and freightPricingStrategy FIXED in one patch, and Vracht hides
+  Landentarief and the staffel on a kar. Pricing, defensive (`SalesPricingCalculator`): a kar on COUNTRY_PALLET or
+  CARRIER gets no amount and the issue `KAR_FREIGHT_BY_HAND` "Bij een Deense kar vul je de vracht met de hand in (Vast
+  bedrag)"; the staffel's pallet kind comes from an exhaustive switch (`staffelKind`) that has none for the kar, so a kar
+  never reaches the EUROPALLET rung (the staffels know Euro, Blok and Half only); `palletFitIssue` never fires on a kar
+  (what fits no kar is still in productsWithoutPalletFit and refused at sending); `validateLogisticsReady` refuses to
+  send a kar on a per-pallet freight. The country handling fee still adds on a FIXED kar, as on every FIXED order.
+- Height on a switch (`unaskedHeight`, in `update`, `updateShipping` and `preview`): a change between a pallet (Euro,
+  Blok, Half) and the kar that asks no height takes the target's standard, 230 for the kar and the pallet standard
+  (`enrosed.pallet.max-height-cm`, 260) for a pallet; a height sent in the same change wins (heightAsked as before).
+  Between pallet types the document keeps its height, as always. On the way back the europallet's 260 applies (a picked
+  280 is refused by `requireEuroHeightWithinLimit`). `preview` without a height on a switch counts on the target's
+  standard, so the 3D can ask a kar count of a pallet order without sending 230 (it may also re-pack locally:
+  pallet-pack.ts = PalletPacker).
+- Nieuwe kopie (`copyHeight`): a kar keeps its own height, without one 230; the 220 rule of 7-10 November is a pallet
+  rule (a kar on 220 was picked). The DUPLICATED activity row compares with the copy's own standard (230 on a kar), so a
+  kar at 230 is no pick.
+- Hand units on a kar are karren. `OrderPallet.KAR_TYPE` "Deense kar"; `OrderPallet.typeOn(profile)`: `SalesMapper`
+  stores a blank type on a kar as "Deense kar" (a pallet's as before: "Europallet" through `type()`).
+  `OrderPallet.AUTOMATIC_LABEL` = `(Pallet|Kar) n`: `SalesLineAvailability.renumbered` renumbers both, each keeping its
+  own word, as the frontend's relabelPallets does (keep the two alike, or the backend rewrites labels the seller saw).
+  The backend converts no type or label on a switch: the ERP sends them converted ("Pallet n" ↔ "Kar n", the type).
+- Words: on a kar order the server's messages say kar/karren ("Maximale karhoogte moet hoger zijn dan de bodem van de kar
+  van 16.5 cm", "Maximale karhoogte kan niet hoger zijn dan 300 cm", "X past niet op de Deense kar binnen de hoogte of het
+  gewicht", "Verwijder lege karren of zet er minstens één doos op", "Verdeel alle N dozen van X over de karren", "Een kar
+  mag niet leeg zijn", "Karhoogte kan niet lager zijn dan de bodem van de kar", "Karhoogte kan niet hoger zijn dan N cm",
+  "Elke karregel moet ...", "X staat nog op een kar; ...", "Er staan meer dozen van X op karren dan op de offerte", "Een
+  kar of karregel mag niet leeg zijn"); a pallet order's messages are byte for byte what they were. The activity log's
+  "Pallettype" shows enum names (EURO_120X80 → DEENSE_KAR); the frontend history may translate them.
+- Documents: quote.html (quote, invoice, slotfactuur, credit note; every PDF channel) and both pakbon templates print
+  `{loadUnits}` where they printed `{t.pallets}`, the pakbons `{notOnLoad}` where they printed `{t.notOnPallet}`.
+  `PdfQuoteRenderer` binds them from document-text: `karren` / `notOnKar` on a kar order (`onKar()`), else `pallets` /
+  `notOnPallet`, so a pallet order's documents are unchanged byte for byte (Qute renders strictly: a template variable
+  nobody binds fails every PDF). The pakbon of a kar (`QuoteService.packingSlip`): a unit without a label prints "Kar n"
+  (Dutch, as "Pallet n" is), a stored "Pallet n" prints "Kar n", an own name stays; every unit's type prints `karType` in
+  the slip's language, whatever type is stored. The counts on every document are the kar counts.
+- document-text.csv gained four rows, every language column filled (TranslationCsv refuses a row of the wrong width at
+  class init, which breaks every PDF, mail and portal call; an empty cell would print empty): `karren` (Karren · Chariots
+  CC · CC trolleys · CC-Container · Carros CC · Wózki CC · Carros CC · CC arabası · Καρότσια CC), `karType` (the
+  catalogue's catalog.simple.kar words: Deense kar · Chariot danois (CC) · Danish trolley (CC) · CC-Container · ...),
+  `notOnKar` (Niet op een kar · Hors chariot · Not on a trolley · Nicht im CC-Container · ...) and `portalKarrenShort`
+  (kar(ren) · chariot(s) CC · CC trolley(s) · ...). They are the round's proposals; Emre may still change them. Never
+  edit the `pallets` row: every document reads it. Portal: `CustomerQuoteView.palletProfile` (the PalletProfile name,
+  after loadMode); the frontend portal says `portalKarrenShort` / `karren` when it is DEENSE_KAR; the keys ship in
+  `text` like every other.
+- Migration: production's sales_order.palletprofile carries Hibernate's `sales_order_palletprofile_check` (EURO_120X80,
+  BLOCK_120X100, HALF_80X60), and schema update never widens a check. `docs/migrations/2026-11-25/sales-order-deense-kar-postgresql.sql`
+  (Dockerfile COPY and a `--file` line in scripts/run-postgresql-schema-migrations.sh; rerunnable, rewrites no row)
+  extends a single-column check on palletprofile that knows EURO_120X80 but not DEENSE_KAR with `OR palletprofile =
+  'DEENSE_KAR'`, keeping its name. Read-only pre-check: `select conname, pg_get_constraintdef(oid) from pg_constraint
+  where conrelid = 'sales_order'::regclass and contype = 'c';`. Its first PostgreSQL run is production's pre-deploy (no
+  test environment, no local PostgreSQL). The dev H2 file widens its native ENUM column at start-up in
+  `InvoiceStatusMigration` (`alter table sales_order alter column palletProfile varchar(24)`); restart the dev backend
+  after the enum change (hot reload does not apply entity changes).
+- Rollback rule: an image without DEENSE_KAR cannot boot while a row stores it (Hibernate cannot map the value,
+  `IncomingPaymentBackfill` reads every order at start-up, and every whole-table read answers 500). Roll back only after
+  moving the kar rows onto a europallet: `update sales_order set palletprofile = 'EURO_120X80' where palletprofile =
+  'DEENSE_KAR';` and the trash's copies (`deleted_item.order_json`, the statement is in the migration's header). Their
+  freight stays FIXED with its amount, their units keep 'Deense kar' as free text, and they then count on a europallet
+  at the kar's height; with Emre's go only. The widened check is harmless to an older image. Release order: the backend
+  first, then the ERP (an older backend answers 400 to DEENSE_KAR).
+- Not changed: the website (Astro) and the iOS shell; `PublicQuoteService` (EURO); `CarrierResource`'s quote (the
+  staffel tester in the settings, not an order); `PalletHeightReturn` (ran on production; a kar on 220 is always a pick);
+  `PricedOrder.Totals` carries no weight limit (the frontend uses its own KAR_MAX_WEIGHT_KG).
+- Checked 2026-11-26 by build and throwaway drivers outside the repository against target/classes (base 133a3bf against
+  this round): pallet orders identical in 5,760 count cases (every rule × Euro/Blok/Half × no height, 220, 260, 300), 400
+  pricings over every freight basis, 1,500 saves (update, updateShipping, updateFreight, Nieuwe kopie, validateForSend:
+  stored fields and refusals), every existing document text and the renumbering; the templates differ only by the load
+  word. Kar: the spec reads 127 × 54,5 / 16,5 / 230 / 450 and each figure decides a probe (63,5 × 27,25 cm: 4 per layer,
+  2 on 126 × 54,5 or 127 × 54; 71,2 cm high: 2 layers, 3 with a 14,4 base; 45 cm: 12 per kar, 15 at 260; 50 kg: 9, 14 at
+  700); 238 omdozen of 40 × 40 × 50 cm at 30,7 kg count 20 karren STRICT and MIXED, 17 PACKED (europallet 11), every
+  kar at most 230 cm and 450 kg; the freight and save rules above hold.
 
 ## Batches (2026-10-25)
 
