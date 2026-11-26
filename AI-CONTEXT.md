@@ -179,6 +179,38 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   the goods plus every free line that adds to the order (a custom line
   sold on its own counts); a negative free line (lump-sum discount, a
   slotfactuur's advance deduction) never lowers it.
+- **Btw-regeling per document** (2026-11-26, `SalesVatChoices`, table
+  `sales_order_vat_choice`, routes `GET/PUT /api/sales-orders/{id}/vat-choice`).
+  The customer record stays the standard (`fiscalRepresentative`); a document
+  stores its own route (`SalesVatChoice`) only where it differs:
+  FISCAL_REPRESENTATIVE (cleared in NL, art. 12.3 Wet OB), BELGIUM (plain
+  Belgian rules: domestic / intra-community from Belgium / export) or SERVICE
+  (only without product lines, STANDARD purpose: `VatTreatment`
+  DIENST_BINNENLAND / DIENST_VERLEGD / DIENST_BUITEN_EU; no freight, no
+  handling, no country minimum, no logistics check at sending). Pricing asks
+  `SalesOrderService.vatOf`; a stored route the document no longer fits reads
+  as the standard. Derived documents copy the route at creation
+  (`copyVatChoice`: invoice from quote, advance, slotfactuur, split part,
+  duplicate, credit note). The route changes on a CONCEPT only; credit notes,
+  advance/slot invoices and split parts are locked.
+  **Pin**: an invoice or credit note that leaves concept (`issueInvoice`,
+  `markInvoiceSent`) keeps the treatment and rate it left with
+  (`treatment`, `rate_pct`); `SalesVatPinJob` (10 min after start, every
+  10 min) pins what was issued earlier or left by another path. A pinned
+  document no longer follows the customer's tick, VAT number or the country's
+  rate. Reopened (CONCEPT again) it stays on the route it was issued on, and
+  changing that route needs `confirmed: true` (the screen's warning). A
+  concept credit note prices in its invoice's pinned regime. A **split
+  delivery** prices in the regime stored with its split (before this, a
+  change of the customer's VAT facts made every pricing of it throw 409 and
+  with it the whole sales list). Quotes are never pinned (a website request
+  must follow a corrected VAT number).
+- **PDF without goods** (`PdfQuoteRenderer`, `plainDocument`): a document
+  without product lines that is no advance, slotfactuur or partner document
+  prints no logistics block, cartons/pallets columns, subtotal/goods rows and
+  shows freight/handling only where an amount stands; a service also drops
+  the incoterm. The clearance line ("Ingeklaard in Nederland door ...")
+  prints only when the priced treatment is VERLEGD_FISCAAL_VERTEGENWOORDIGER.
 - Quantities round up to each product's **order step** ("Verkocht per": full
   carton, display or single piece; see "Sales units" below). The editor
   shows the notice at once and prices a typed quantity after a 5-second

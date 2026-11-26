@@ -44,8 +44,10 @@ import java.util.Map;
  * <b>Pin.</b> An invoice or credit note that leaves concept keeps the regime and rate it left with
  * ({@link #pin}): a later change of the customer's tick, VAT number or the country's rate no longer
  * moves it. {@link SalesVatPinJob} gives the documents issued before this existed their pin. A
- * concept credit note prices in the regime of the invoice it corrects. Changing the route of an
- * issued document is possible, but only with an explicit confirmation ({@link #save}).
+ * concept credit note prices in the regime of the invoice it corrects. The route changes on a
+ * concept only, as every other field does: an issued invoice is reopened first (Heropenen). A
+ * reopened invoice stays on the route it was issued on, whatever the customer says by then, and a
+ * change of it needs an explicit confirmation ({@link #save}).
  */
 @ApplicationScoped
 public class SalesVatChoices {
@@ -53,8 +55,9 @@ public class SalesVatChoices {
     /**
      * What the staff screens show. {@code route} is what the document is priced with, {@code customerRoute}
      * what the customer's standard gives today, {@code options} what may be picked (one entry: nothing to
-     * choose), {@code lockedReason} why it cannot be changed (null while it can), {@code pinned} that an
-     * issued document holds its regime, {@code needsConfirm} that a change must be confirmed first.
+     * choose), {@code lockedReason} why it cannot be changed (null while it can), {@code pinned} that the
+     * document holds the regime of an issue (now, or before it was reopened), {@code needsConfirm} that
+     * a change must be confirmed first because the document was issued on its present route.
      */
     public record View(SalesVatChoice route, SalesVatChoice customerRoute, boolean chosen,
                        List<SalesVatChoice> options, boolean editable, String lockedReason,
@@ -142,7 +145,7 @@ public class SalesVatChoices {
                     : "Deze btw-regeling past niet bij deze klant en dit land");
         if (wanted == before.route()) return before;
         if (before.needsConfirm() && !confirmed)
-            throw new BusinessRuleException("Deze factuur is al uitgereikt en houdt haar btw-regeling vast."
+            throw new BusinessRuleException("Deze factuur is eerder uitgereikt en houdt haar btw-regeling vast."
                     + " Bevestig dat je ze toch wilt wijzigen");
 
         var stored = entities.find(SalesOrderVatChoiceEntity.class, id);
@@ -150,13 +153,8 @@ public class SalesVatChoices {
         if (fresh) stored = row(id);
         stored.choice = wanted == before.customerRoute() ? null : wanted.name();
         stored.updatedAt = Instant.now();
-        if (before.needsConfirm()) {
-            /* The issued document moves by this one decision: its new regime is held from here on. */
-            VatCalculator.Result regime = vat.determine(country, customer, wanted, homeRate());
-            stored.treatment = regime.treatment().name();
-            stored.ratePct = regime.ratePct();
-            stored.pinnedAt = stored.updatedAt;
-        }
+        /* The route of an earlier issue ends with this decision; the next issue holds the new one. */
+        stored.treatment = null; stored.ratePct = null; stored.pinnedAt = null;
         if (stored.choice == null && stored.treatment == null) { if (!fresh) entities.remove(stored); }
         else if (fresh) entities.persist(stored);
         entities.flush();
@@ -169,7 +167,7 @@ public class SalesVatChoices {
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().validateForIssue(order, customer);
         activity.record(ActivityLogService.ACTION_UPDATED, "SALES_ORDER", Long.toString(id), order.number(),
-                before.needsConfirm() ? "Btw-regeling gewijzigd na uitgifte" : "Btw-regeling gewijzigd", List.of(
+                before.needsConfirm() ? "Btw-regeling gewijzigd na een eerdere uitgifte" : "Btw-regeling gewijzigd", List.of(
                         new ActivityChangeDto("vatChoice", "Btw-regeling", label(before.route()), label(wanted))));
         return view(order, customer, country);
     }
@@ -228,7 +226,8 @@ public class SalesVatChoices {
 
     private View view(SalesOrder order, Customer customer, Country country) {
         Pin pin = pinned(order);
-        boolean issued = order.isClaimDocument() && order.status() != QuoteStatus.CONCEPT;
+        Row own = order.id() == null ? null : find(order.id());
+        boolean held = order.isClaimDocument() && own != null && own.treatment() != null;
         boolean fiscalPossible = fiscalPossible(customer, country);
         SalesVatChoice customerRoute = customerRoute(customer, fiscalPossible);
         SalesVatChoice route = pin != null ? routeOf(pin.treatment()) : effective(order, customer, country, choiceOf(order));
@@ -242,7 +241,7 @@ public class SalesVatChoices {
         if (!options.contains(route)) options.add(route);
         String locked = lockedReason(order);
         return new View(route, customerRoute, route != customerRoute, List.copyOf(options), locked == null, locked,
-                pin != null, locked == null && issued);
+                held, locked == null && held);
     }
 
     private String lockedReason(SalesOrder order) {
@@ -250,9 +249,9 @@ public class SalesVatChoices {
         if (order.isCreditNote()) return "Een creditnota volgt de btw-regeling van haar factuur";
         if (derived(order)) return "Een voorschot- of slotfactuur volgt de btw-regeling van haar offerte";
         if (sales.hasSplitOrder(order)) return "Een gesplitste levering houdt de btw-regeling van haar verdeling";
-        /* A quote that left is the customer's to answer: reopen it first. An issued invoice may move, after a warning. */
-        if (order.status() != QuoteStatus.CONCEPT && !order.isClaimDocument())
-            return "De btw-regeling kan alleen op een concept worden gewijzigd";
+        if (order.status() != QuoteStatus.CONCEPT)
+            return order.isClaimDocument() ? "Vastgelegd bij uitgifte. Wijzigen kan alleen nadat de factuur heropend is."
+                    : "De btw-regeling kan alleen op een concept worden gewijzigd";
         return null;
     }
 
@@ -297,10 +296,16 @@ public class SalesVatChoices {
         return order.customerId() == null ? null : customers.get(order.customerId());
     }
 
+    /**
+     * The document's own route: the stored choice, else the route an invoice or credit note was issued
+     * on. So a reopened invoice stays where it was issued, also after the customer's standard changed.
+     */
     private SalesVatChoice choiceOf(SalesOrder order) {
         if (order == null || order.id() == null) return null;
         Row row = find(order.id());
-        return row == null ? null : row.choice();
+        if (row == null) return null;
+        if (row.choice() != null) return row.choice();
+        return row.treatment() != null && order.isClaimDocument() ? routeOf(row.treatment()) : null;
     }
 
     private Row find(long id) {
