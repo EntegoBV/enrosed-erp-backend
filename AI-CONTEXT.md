@@ -737,20 +737,114 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (never split between the two). An unknown figure prints "-", 40ft included, which used
   to disappear. Per pallet = whole omdozen from
   `PalletCalculator.fit` (the Palletberekening stacking) on
-  `SalesSettings.pallet()` × pieces per carton, worded like the container
+  the export's pallet (the standard `SalesSettings.pallet()` unless the PDF asks its own
+  height or spill, next bullet) × pieces per carton, worded like the container
   figures (displays, named units). Catalog reaches it through the out-port
   `CataloguePallet`, implemented in sales by `CataloguePalletFit` (catalog
   never imports sales). One basis line per document ("Per pallet: europallet
   120 × 80 cm, max. 260 cm hoog incl. pallet, max. 700 kg.", 220 from
   2026-11-07 to 2026-11-10, key
-  `catalog.common.palletbasis`) closes the overview footnote and the compact
+  `catalog.common.palletbasis`; with a spill, so on every standard PDF since 2026-11-26,
+  `catalog.common.palletbasisspill`: "… europallet 120 × 80 cm, omdozen tot 2 cm over de
+  rand, max. 260 cm hoog …") closes the overview footnote and the compact
   footer. A carton without a weight is counted by height only, and there is
   no hand count per product for the pallet. Per Deense kar = the same
-  `PalletCalculator.fit` on `PalletSpec.deenseKar()` (127 × 54,5 cm floor, 16,5 cm
-  base counted as wood, 230 cm loaded from the floor, 450 kg, no shelves, upright: the
-  ERP's `karSpec(KAR_MAX_HEIGHT_CM)`), through `CataloguePallet.cartonsPerKar`; its basis
-  line (`catalog.common.karbasis`, label `catalog.simple.kar`) follows the pallet's in the
-  compact footer.
+  `PalletCalculator.fit` on the export's kar (the standard `SalesSettings.standardKar()`:
+  127 × 54,5 cm floor, 16,5 cm base counted as wood, 230 cm loaded from the floor, 450 kg,
+  no shelves, upright, the standard spill across its width only: the
+  ERP's `karSpec(KAR_MAX_HEIGHT_CM)`), through `CataloguePallet.Loads.cartonsPerKar`; its basis
+  line (`catalog.common.karbasis`, with a spill `catalog.common.karbasisspill`, label
+  `catalog.simple.kar`) follows the pallet's in the compact footer.
+- **Loading heights and spill per catalogue PDF (2026-11-26).** Emre: "Catalogus pdf zowel korte en
+  lange daar moet ik ook eigenlijk kunnen aanpassen op pallet en deense car de hoogte zodat dan de
+  aantallen kunnen veranderen ook dynamisch want sommige klanten hebben andere standaard hoogtes en
+  die willen dan een andere overzicht van ons. ... De spill willen wij ook kunnen aanpassen."
+  - **Request** (`POST /api/catalog/export` and `/preflight`, same body): `palletHeightCm`,
+    `karHeightCm`, `spillCm`, all nullable; null = the standard (260 / 230 / 2:
+    `SalesSettings.standardMaxHeightCm()`, `KAR_STANDARD_HEIGHT_CM`, `STANDARD_SPILL_CM`), so an
+    older studio prints what it printed. Whole centimetres within what a sales document may store,
+    so a catalogue never promises a load no quote can be made on: europallet 16..260 (just above its
+    wood to `EURO_HEIGHT_LIMIT_CM`), Deense kar 18..300, spill 0..5 (`SPILL_LIMIT_CM`; 0 is a value:
+    no spill). Anything else answers 409: "Pallethoogte moet een heel aantal centimeter zijn, van 16
+    tot 260", "Hoogte van de Deense kar moet een heel aantal centimeter zijn, van 18 tot 300",
+    "Spill moet een heel aantal centimeter zijn, van 0 tot 5" (the sentence a document's spill is
+    refused with). 220.0 is 220. Checked in `CatalogExportService.model()` before anything is read,
+    so preflight and export refuse alike, in both layouts.
+  - **Port**: `CataloguePallet.loads(Choice)` resolves one export's choice once into `Loads`
+    (`pallet()` / `kar()` → `Basis`: the NOMINAL floor, the height used, the weight limit and
+    `spillCm`; `cartonsPerPallet(carton)` / `cartonsPerKar(carton)`). `CataloguePalletFit` builds
+    both specs with `SalesSettings.pallet(profile, height, spill)`, the builder every document uses,
+    so the kar takes the spill across its width only (`PalletProfile.spillsAlongLength()`) and the
+    counting path is untouched (the floor is an input). The limits and the refusals live there too
+    (catalog never imports sales). `basis()` and `cartonsPerPallet(carton)` stay on the port as
+    defaults on the standard, for the partner portal (`PartnerContainerReader`), which did not
+    change; `karBasis()` and `cartonsPerKar(carton)` had no other reader and are gone.
+  - **The choice travels on the model**: `CatalogExportService.Model.loads` (required, resolved in
+    `model()`). `PdfCatalogRenderer` no longer holds the port. It is ONE shared bean and two exports
+    can render at once: every helper takes the `Loads` as a parameter (`cartonsPerPallet(product,
+    loads)`, `palletCapacity`, `palletLabel`, `karCapacity`, `karLabel`, `palletBasis(basis, …)`,
+    `karBasis(basis, …)`). Never keep a per-export choice in a field of the renderer.
+  - **Both layouts** count every per-pallet and per-kar figure on the export's loads: the compact
+    ribbon, the brochure range table, the family specification list and the per-variant line. The
+    block splitting follows by itself (`compactFigures` and `capacitiesDiffer` compare the printed
+    strings), and the brochure re-measures its sheets and overview pages as always.
+  - **Basis sentences**: `{height}` prints the height used. With a spill above 0 the sentence comes
+    from two NEW keys, nine languages, placeholders `{size} {spill} {height} {weight}`:
+    `catalog.common.palletbasisspill` ("… omdozen tot {spill} cm over de rand …") and
+    `catalog.common.karbasisspill` ("… omdozen tot {spill} cm over de lange zijden …"; EN "carton
+    overhang up to {spill} cm (on the long sides)", DE "Umkartons bis {spill} cm Überstand (an den
+    Längsseiten)"). `{size}` stays the nominal floor: never print 124 × 84. At spill 0 the old keys
+    print, word for word. New keys because startup seeding never overwrites a stored value
+    (rewording `palletbasis` / `karbasis` in the CSV would never reach production); they print from
+    the shipped seed even before the store has them. The translations were written here and not
+    read by native speakers, like the older rows.
+  - **Compact footer**: the note stands in the bottom page margin, 20 mm = three note lines above the
+    brand line, and a page margin does not grow with its text. With the extra clause a price list
+    for a named recipient with a validity ran to a fourth line in Greek and Portuguese (brand line
+    and page number 1,3 to 1,7 mm from the paper edge). `CompactFooterFit` counts the lines of a
+    hidden copy of the note (`.footer-probe` in `catalog.html`: absolute, `visibility: hidden`, the
+    width, padding, font size and line height of `.running-footer`; a footer in a margin box is not
+    in the document's box tree, an absolute box hangs off the root layer) and `compactPdf` lays the
+    document out again with `footerRoomMm` 3 mm deeper per extra line (at most three), photos
+    reused. Every other compact PDF is written from its first layout, as before. The note is
+    composed once in Java (`compactFooterNote` → `{footerNote}`), so the footer and its probe cannot
+    differ; a change to `.running-footer`'s text metrics must be made on `.footer-probe` too (they
+    share one rule). The brochure's overview footnote needs nothing: it is measured already.
+  - **Preflight** answers `load: {palletHeightCm, karHeightCm, spillCm}`, the resolved numbers
+    (260, 230, 2 without a choice). Its presence tells the studio this server honours the fields:
+    an older backend drops them silently (Jackson ignores unknown fields) and prints the standard,
+    so the studio holds a non-standard export until it sees `load`. That makes the round's release
+    order (frontend first) safe for the catalogue too.
+  - **Journal**: `catalog_export.pallet_height_cm numeric(6,1)`, `kar_height_cm numeric(6,1)`,
+    `spill_cm numeric(4,1)`, nullable: the values the PDF was MADE with, the standard of that day
+    included (the standard has moved before), null on a row from before. `Header` and `Detail`
+    carry `palletHeightCm`, `karHeightCm`, `spillCm`; the customer's Logboek entry lists
+    "Pallethoogte (cm)", "Hoogte Deense kar (cm)", "Spill (cm)" only for what the request chose.
+    `docs/migrations/2026-11-26/catalog-export-load-basis-postgresql.sql` (rerunnable, Dockerfile
+    COPY and runner line after the spill's; Hibernate's update adds the same three columns).
+    Unchanged: a PDF without prices and without a recipient is not journaled, whatever its heights,
+    and the file name does not carry the height (two PDFs for two heights share a name unless made
+    for a named recipient).
+  - **Rollback**: an older image ignores the request fields and the three columns (its journal rows
+    store nulls) and prints the standard of its own build; the two copy keys stay in the store
+    unused. Fix forward.
+  - **Checked 2026-11-26** on local PostgreSQL copies of production (today's without photos, the one
+    of 11-15 with photos), jar on 127.0.0.1 with every outward switch off. Each of the 84 non-demo
+    products exported on its own, both layouts, at four loads (standard, 220 / 190, 180 with spill 0,
+    spill 5): 1 344 printed figures equal an independent reference of the rule, 0 differences.
+    Figures that differ from the standard: at 220 / 190 pallet 78 and kar 73 of 84; at 180 with
+    spill 0 pallet 82 and kar 21; at spill 5 pallet 29 and kar 23. 34 × 20 × 35 cm: 84 per
+    europallet at spill 0, 98 at 2. Refused: 261, 15, 220.5 (pallet), 301, 17 (kar), 6, 1.5, -1
+    (spill), on preflight and on export. The compact footer with an 86-character recipient, prices
+    and a validity in nine languages: lowest ink at least 4,2 mm above the paper edge in each (PT and
+    EL through the second layout; no other case took one). 48 exports eight at a time on three loads,
+    both layouts: each printed its own figures and heights. The port's standard answers (pallet and
+    kar basis, both figures of 101 omdozen) are identical to the commit before, so the partner
+    portal's pallets did not move. 54 PDFs with photos were rendered and looked at (both layouts; NL,
+    EN, DE, EL at five loads, the compact price list in all nine): 48 pages per Handelscatalogus, 9
+    per Compact overzicht (8 in Greek, 9 for its price list), no overview page ran into its footnote.
+    The migration ran twice by hand on a copy without the columns. Not run: the partner portal's own
+    endpoints (no partner login locally), H2, an older studio against this backend.
 - **Photo export (ZIP)**: `POST /api/products/photo-export` (admin) takes
   `{scope: ACTIVE|WEBSITE|ALL, photos: ALL|WEBSITE, language}` and returns a
   15-minute `downloadUrl`; `GET /api/products/photo-export/{token}` is
@@ -2496,8 +2590,9 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   4 pallets, € 247,97 freight; at spill 0: 84 and 63, 5 pallets (6 strict), € 281,84. On a kar at spill 2 the
   58 × 58 × 58 cm omdoos fits across (6 per kar; none at 0) while 43 × 32 × 37 stays 15 per kar and 64 × 48 × 61 stays
   3 (20 and 6 if the length took the spill too).
-- Not in this commit: the catalogue export's own heights and spill per export (request fields, basis sentences,
-  journal columns) come on top of this.
+- The catalogue export's own heights and spill per PDF (request fields, basis sentences that name the spill, journal
+  columns) are in "Loading heights and spill per catalogue PDF (2026-11-26)" under Catalog / products. Release the two
+  together: without it the standard catalogue already counts with 2 cm while its basis sentence does not say so.
 
 ## Deense kar op orders (2026-11-25)
 
@@ -2752,7 +2847,9 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   CATALOGUE|CUSTOMER|ONE_OFF|ON_REQUEST; an empty list with prices off), `priceWarnings` and
   `recipient`. `ready` still means translations only. The studio refuses a recipient or
   one-off prices when `prices` is missing (an older backend would silently drop them), so
-  deploy the backend first.
+  deploy the backend first. Since 2026-11-26 also `load` (the loading heights and the spill the
+  PDF would count with; "Loading heights and spill per catalogue PDF" under Catalog / products),
+  the same kind of signal for a chosen height or spill.
 - **Renderer**: every printed amount comes from the model's `PriceBook` (`catalogPrices(product,
   amount)`); the display/piece wording is unchanged. With a recipient and prices: "Prijslijst
   voor {klant}" on the brochure cover (between the rule and the title) and under the compact
@@ -2795,10 +2892,13 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   says "gemaakt": it cannot know whether the PDF was sent. REST (admin):
   `GET /api/customers/{id}/catalog-exports?limit=20` (newest first, max 100) and
   `GET /api/catalog/exports/{id}` (the header fields plus `lines`). A deleted customer's
-  exports stay, under the name they were made for.
+  exports stay, under the name they were made for. Since 2026-11-26 each row also keeps the
+  pallet height, the kar height and the spill its figures were counted with (`pallet_height_cm`,
+  `kar_height_cm`, `spill_cm`; null on older rows), in `Header` and `Detail` too.
 - **Schema**: `docs/migrations/2026-11-06/customer-prices-and-catalog-exports-postgresql.sql`,
   rerunnable, new tables only, copied in the Dockerfile and listed in the migration script before
-  `sales-line-price-source-postgresql.sql` (round 3b below).
+  `sales-line-price-source-postgresql.sql` (round 3b below). The three load columns of 2026-11-26:
+  `docs/migrations/2026-11-26/catalog-export-load-basis-postgresql.sql`, the last line of the script.
 
 ### Klantprijzen on quotes, invoices, the portal and the website (round 3b, 2026-11-06)
 
