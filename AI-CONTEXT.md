@@ -672,17 +672,16 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   At most five layouts (only the last writes the PDF); whatever still does not
   fit is logged as WARN ("Catalogusfiche … is ook compact … mm te lang",
   "Overzichtspagina N loopt … mm in de voetnoot"), the room left at DEBUG.
-  `renderHtml` shows the first layout only. Before any layout,
-  `ensureFamilyPageCapacity` refuses a family whose text budget passes 3 400
-  units (409 "Cataloguspagina voor … bevat te veel tekst"; the budget per
-  sheet is logged at DEBUG). Pallet, 20ft and 40ft count per variant only
-  when the variant table prints them per variant (`capacitiesDiffer`);
-  shared, they are specification rows and count as such, never twice. In
-  the overview's narrow price cell a display total puts its amount under
-  its words ("Display (12 st.):" / "€ 49,00 - € 54,00", split at the last
-  ": "), and every price there wraps at its spaces (a range after its
-  dash; an amount never breaks inside), so a long one stays inside the cell
-  instead of running over the logistics column.
+  Before any layout, `ensureFamilyPageCapacity` refuses a family whose text
+  budget passes 3 400 units (409 "Cataloguspagina voor … bevat te veel
+  tekst"; the budget per sheet is logged at DEBUG). Pallet, 20ft and 40ft
+  count per variant only when the variant table prints them per variant
+  (`capacitiesDiffer`); shared, they are specification rows and count as
+  such, never twice. In the overview's narrow price cell a display total
+  puts its amount under its words ("Display (12 st.):" / "€ 49,00 - € 54,00",
+  split at the last ": "), and every price there wraps at its spaces (a
+  range after its dash; an amount never breaks inside), so a long one stays
+  inside the cell instead of running over the logistics column.
 - **Compact overzicht = one card per product** (Emre, 2026-11-15: "Compact pdf kan iets beter", then
   "die compacte design kan beter aub en mooier"): `catalog.html` prints a family's colours as one white,
   softly rounded card with a fine hairline on a light page tint (the look of the ERP's own phone
@@ -752,7 +751,7 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   `PalletCalculator.fit` on the export's kar (the standard `SalesSettings.standardKar()`:
   127 × 54,5 cm floor, 16,5 cm base counted as wood, 230 cm loaded from the floor, 450 kg,
   no shelves, upright, the standard spill across its width only: the
-  ERP's `karSpec(KAR_MAX_HEIGHT_CM)`), through `CataloguePallet.Loads.cartonsPerKar`; its basis
+  ERP's `karSpec(KAR_MAX_HEIGHT_CM, STANDARD_SPILL_CM)`), through `CataloguePallet.Loads.cartonsPerKar`; its basis
   line (`catalog.common.karbasis`, with a spill `catalog.common.karbasisspill`, label
   `catalog.simple.kar`) follows the pallet's in the compact footer.
 - **Loading heights and spill per catalogue PDF (2026-11-26).** Emre: "Catalogus pdf zowel korte en
@@ -762,7 +761,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   - **Request** (`POST /api/catalog/export` and `/preflight`, same body): `palletHeightCm`,
     `karHeightCm`, `spillCm`, all nullable; null = the standard (260 / 230 / 2:
     `SalesSettings.standardMaxHeightCm()`, `KAR_STANDARD_HEIGHT_CM`, `STANDARD_SPILL_CM`), so an
-    older studio prints what it printed. Whole centimetres within what a sales document may store,
+    older studio keeps working and gets the standard. Since 2026-11-26 that standard includes the
+    2 cm spill: against the PDFs of before, more per pallet or per kar for the omdozen the spill
+    helps (none fewer) and the spill basis sentences; only `spillCm: 0` gives the old figures.
+    Whole centimetres within what a sales document may store,
     so a catalogue never promises a load no quote can be made on: europallet 16..260 (just above its
     wood to `EURO_HEIGHT_LIMIT_CM`), Deense kar 18..300, spill 0..5 (`SPILL_LIMIT_CM`; 0 is a value:
     no spill). Anything else answers 409: "Pallethoogte moet een heel aantal centimeter zijn, van 16
@@ -800,8 +802,14 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     read by native speakers, like the older rows.
   - **Compact footer**: the note stands in the bottom page margin, 20 mm = three note lines above the
     brand line, and a page margin does not grow with its text. With the extra clause a price list
-    for a named recipient with a validity ran to a fourth line in Greek and Portuguese (brand line
-    and page number 1,3 to 1,7 mm from the paper edge). `CompactFooterFit` counts the lines of a
+    for a named recipient with a validity ran to a fourth line (brand line and page number 1,3 to
+    1,7 mm from the paper edge): in Greek with any recipient name and, with a long recipient name,
+    in other languages too. Measured with four long names on the note with named units, a validity
+    and spill 2: Portuguese from 75-77 characters, Turkish at 79-80 (one of the names); a name in
+    capitals from 60 (Portuguese), 64 (Turkish) and 70 (French) characters; NL, EN, DE, ES and PL
+    stayed at three lines and nothing reached a fifth. So the second layout (3 mm more bottom
+    margin, a few seconds, possibly a page) follows the note's length, not two languages.
+    `CompactFooterFit` counts the lines of a
     hidden copy of the note (`.footer-probe` in `catalog.html`: absolute, `visibility: hidden`, the
     width, padding, font size and line height of `.running-footer`; a footer in a margin box is not
     in the document's box tree, an absolute box hangs off the root layer) and `compactPdf` lays the
@@ -819,7 +827,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     `spill_cm numeric(4,1)`, nullable: the values the PDF was MADE with, the standard of that day
     included (the standard has moved before), null on a row from before. `Header` and `Detail`
     carry `palletHeightCm`, `karHeightCm`, `spillCm`; the customer's Logboek entry lists
-    "Pallethoogte (cm)", "Hoogte Deense kar (cm)", "Spill (cm)" only for what the request chose.
+    "Pallethoogte", "Hoogte Deense kar", "Spill" only for what the request chose (no unit in the
+    label, as a document's "Maximale pallethoogte" and "Spill": one wording for the load in the
+    Logboek; the field names are unchanged and nothing reads the labels).
     `docs/migrations/2026-11-26/catalog-export-load-basis-postgresql.sql` (rerunnable, Dockerfile
     COPY and runner line after the spill's; Hibernate's update adds the same three columns).
     Unchanged: a PDF without prices and without a recipient is not journaled, whatever its heights,
@@ -837,7 +847,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     europallet at spill 0, 98 at 2. Refused: 261, 15, 220.5 (pallet), 301, 17 (kar), 6, 1.5, -1
     (spill), on preflight and on export. The compact footer with an 86-character recipient, prices
     and a validity in nine languages: lowest ink at least 4,2 mm above the paper edge in each (PT and
-    EL through the second layout; no other case took one). 48 exports eight at a time on three loads,
+    EL through the second layout; no other case took one with this name, which prints cut at 76
+    characters; a wider name, 79-80 characters or in capitals, takes TR and FR there as well: read
+    from the laid-out note in a throwaway driver, not exported). 48 exports eight at a time on three loads,
     both layouts: each printed its own figures and heights. The port's standard answers (pallet and
     kar basis, both figures of 101 omdozen) are identical to the commit before, so the partner
     portal's pallets did not move. 54 PDFs with photos were rendered and looked at (both layouts; NL,
@@ -2417,7 +2429,8 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   `pallet.source()` on (merging another round: keep it on every `new OrderPallet(`). It travels wherever a pallet
   is carried: the mapper both ways, REST in and out (`OrderView.order`), `reconcilePallets`, `prunePallets` and
   `renumbered` (a trimmed pallet keeps it), Factuur maken (`createInvoiceFrom`) and Kopie maken (`duplicate`; the ERP uses
-  it only while profile and height still match). A layout change logs "Handmatige palletindeling" as before (the
+  it only while profile and height still match and, since 2026-11-26, the spill the document counts with is at least
+  the copy's: "Hand pallets" under "Spill per document"). A layout change logs "Handmatige palletindeling" as before (the
   source is part of the pallet's value). Either release order is safe: an older backend ignores the field, an older
   ERP keeps it on the pallets it loads and writes none.
 - The split preview prices the later part with the source's rule (`priceSplit(order, terms, rule)`), as `split` stores it.
@@ -2536,16 +2549,23 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   always load inside the floor. But the packer is a search, not an optimum, and an omdoos that had to lie down may stand
   up on a larger floor, so the same load now and then counts MORE pallets with a spill than without (80 omdozen of
   56 × 47 × 10,5 cm + 17 of 58 × 58 × 58 cm on a europallet at 260 cm: 3 pallets without spill, 4 with 2 cm). The rule
-  lives in ONE place, `SalesPricingCalculator.floorFor`, called once at the top of `price`, the only method that prices
-  a document's load (`SalesOrderService.price` / `priceForStaff` / `priceSplit` for every screen, list, PDF, portal,
-  payment and Odoo reader, and `PublicQuoteService`'s website estimate), so everything follows alike:
+  lives in ONE place, `SalesPricingCalculator.floorFor`, called once in `price` (after the split check, before any line
+  is priced), the only method that prices a document's load (`SalesOrderService.price` / `priceForStaff` / `priceSplit`
+  for every screen, list, PDF, portal, payment and Odoo reader, the planner's preview, and `PublicQuoteService`'s
+  website estimate), so everything follows alike. In short: it steps in only when the NOMINAL floor takes every
+  product the spill floor takes, never on a document with hand pallets, and the answer says which floor it used
+  (totals = effective, order = stored). As built:
   - It acts only when the load goes on pallets or karren, the context's pallet carries a spill above 0 and the
     document has NO hand-built pallets. A hand layout was made on a floor and the ERP judges it on that floor: such a
     document stays on its stored spill (so saving a hand layout on a guarded document moves the answer from the floor
     without spill back to the stored spill, and clearing it moves it back again).
-  - It acts only when the floor without spill takes EVERY product the floor with spill takes. An omdoos that stands
+  - It acts only when the floor without spill (the nominal floor: `own.withSpill(null, false)`, the same carrier,
+    height, base and weight limit) takes EVERY product the floor with spill takes. An omdoos that stands
     on the pallet or kar only thanks to the spill (58 × 58 × 58 cm across a Deense kar: 6 per kar at 2 cm, none at 0)
     would drop out of the count without it; fewer karren then is not the same load, and the document keeps its spill.
+    Judged per line whatever its quantity: one such product on the document, also on a line of 0 omdozen or an
+    unavailable one, keeps the whole document on its spill (the simple and safe side). The reverse does not exist: what
+    fits without the spill fits with it.
   - It counts the automatic pallets by the document's own rule (STRICT / MIXED / PACKED) with the spill and without.
     Fewer WITHOUT: the whole answer is priced on the floor without spill: every per-line figure (per layer, per
     pallet, pallets, layers, height), `palletsStrict`, `palletsOptimised`, `autoPallets`, the freight. The same or
@@ -2557,6 +2577,10 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
     `order.palletSpillCm`: the next change of the lines would then be counted without the spill the seller picked.
   - Nothing is stored and no existing document is touched (their spill is null, the guard never runs). Every pricing
     chooses again, so the effective spill of a concept may move between the stored value and 0 as its lines change.
+  - The comparison is with the floor without spill only, never with a spill in between: a load may still count more
+    pallets at 2 cm than at 1 or 3 cm, never more than the same load at 0. Palletberekening (frontend only, no server
+    call) does the same for its own plan (`countedPlan` in the ERP's pallet-packed-plan.ts: the plan without spill
+    stands when it carries the very same omdozen on fewer carriers).
   - It is a choice between two INPUTS of the frozen counting classes: `PalletCalculator` and `PalletPacker` have no
     line changed. Lines are priced once (on the chosen floor, `loadOn` builds a line's load for the choice and for the
     lines alike) and the count made for the chosen floor is handed on, so a document with a spill costs one extra
@@ -2622,11 +2646,22 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   order is estimated on that order's own height and spill (`OrderPricing.pallet`), guarded alike (the estimate never
   has hand pallets, also when the stored order does).
 - Hand pallets: no server check reads the floor. `OrderPallet.source` (4,000 characters, `[A-Za-z0-9_|:,.-]`) has room
-  for the ERP's optional 7th part (the spill of the day of the copy); the server only keeps the string.
+  for the ERP's optional 7th part (the spill of the day of the copy, written only above 0; six parts read as spill 0);
+  the server only keeps the string. The rule that reads it is the frontend's: a hand layout's copy keeps counting
+  while profile and height are the copy's and the spill the answer counts with is AT LEAST the copy's (a load that
+  stands on a floor also stands with a larger allowance; `copiedLoader` in the ERP's pallet-hand-load.ts). That is
+  what keeps Zelf indelen on a guarded document whole: the copy is made at effective 0, and with the hand layout
+  saved the answer comes at the stored 2 again.
 - Quote, invoice and pakbon PDFs print counts only: no template or text changed.
 - Release order: the frontend first, the backend 20-30 minutes later, as for PACKED. A frontend from before this round
   against this backend would judge a new document's hand pallets and 3D on the nominal floor ("te hoog", cartons left
-  over) while the server counts on the load floor; it sends no spill, so nothing stored is lost. The new frontend
+  over) while the server counts on the load floor. Its transport patch sends no spill (it lists its own fields). Its
+  full save of a concept sends the whole order object back, so it echoes the `palletSpillCm` it last got from this
+  server: that keeps what is stored, unless the spill was changed in another window meanwhile. Then the last write
+  wins, as for the pallet type and the lines, and the log shows e.g. "Spill 0 → 2". `update` takes no `spillPicked`
+  mark, the way `heightPicked` shields an unmarked 220: left unbuilt on purpose (the case needs an old tab that
+  survived the fresh-build reload plus a second window, and the mark would make the spill stricter than the height).
+  The new editor sends a spill only when it was changed there. The new frontend
   against an older backend sees no `totals.palletSpillCm` and counts 0. A split preview made before the deploy asks to
   be previewed again (its token hashes the document).
 - Rollback: an older image reads the nullable column harmlessly and leaves it null on what it makes, but while it
@@ -2904,9 +2939,12 @@ genomen worden", plus one-off adjustments per PDF and a record of which customer
   CATALOGUE|CUSTOMER|ONE_OFF|ON_REQUEST; an empty list with prices off), `priceWarnings` and
   `recipient`. `ready` still means translations only. The studio refuses a recipient or
   one-off prices when `prices` is missing (an older backend would silently drop them), so
-  deploy the backend first. Since 2026-11-26 also `load` (the loading heights and the spill the
-  PDF would count with; "Loading heights and spill per catalogue PDF" under Catalog / products),
-  the same kind of signal for a chosen height or spill.
+  that round (2026-11-06) needed the backend first. Since 2026-11-26 also `load` (the loading
+  heights and the spill the PDF would count with; "Loading heights and spill per catalogue PDF"
+  under Catalog / products), the same kind of signal for a chosen height or spill, but NOT the
+  same release order: the spill round goes FRONTEND first, the backend 20-30 minutes later, never
+  the other way (Release order under "Spill per document"); the studio holds a non-standard
+  export until it sees `load`, so nothing chosen is dropped in between.
 - **Renderer**: every printed amount comes from the model's `PriceBook` (`catalogPrices(product,
   amount)`); the display/piece wording is unchanged. With a recipient and prices: "Prijslijst
   voor {klant}" on the brochure cover (between the rule and the title) and under the compact
