@@ -97,6 +97,9 @@ public class SalesOrderService {
     Instance<ActivityLogService> activity;
     @Inject
     Instance<PartnerInvoiceDeclarations> invoiceDeclarations;
+    /** The document's own VAT route (fiscal representative, Belgian rules, service); absent in a bare unit set-up. */
+    @Inject
+    Instance<SalesVatChoices> vatChoices;
     @Inject
     Instance<PartnerFinancingService> partnerFinancing;
 
@@ -373,8 +376,28 @@ public class SalesOrderService {
                 settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
-                vat.determine(country, customer),
+                vatOf(order, country, customer),
                 carrier, splitPricing, palletRule, staffHints ? priceHints(order, byId) : null, minimumExempt(order)));
+    }
+
+    /**
+     * The VAT regime of this document: its own route where staff chose one (SalesVatChoices), else its
+     * customer's standard. A service taxed in Belgium for a customer elsewhere needs the Belgian rate.
+     */
+    private VatCalculator.Result vatOf(SalesOrder order, Country country, Customer customer) {
+        if (vatChoices == null || !vatChoices.isResolvable()) return vat.determine(country, customer);
+        SalesVatChoice route = vatChoices.get().effective(order, customer, country);
+        BigDecimal homeRate = null;
+        if (route == SalesVatChoice.SERVICE) {
+            Country home = countries.find(vat.homeCountry());
+            homeRate = home == null ? null : home.vatRatePct();
+        }
+        return vat.determine(country, customer, route, homeRate);
+    }
+
+    /** A derived document (invoice, split part, copy, credit note) takes its source's VAT route at creation. */
+    void copyVatChoice(Long sourceId, Long targetId) {
+        if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().copy(sourceId, targetId);
     }
 
     /**
@@ -654,6 +677,7 @@ public class SalesOrderService {
         if (noteAgreement) noteAgreementOutsideLink(source, webOrder ? WebOrderTerms.of(pricedSource) : null, creator, agreedHow);
         /* The invoice, a slotfactuur included, bills the pallets its quote counted. */
         SalesOrder created = orders.create(invoice, palletRule(source));
+        copyVatChoice(source.id(), created.id());
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().copyToInvoice(source, created);
         copyCustomerRequest(source, created);
         captureAdvanceContents(created);
@@ -1092,6 +1116,7 @@ public class SalesOrderService {
         /* A term made from a quote counts like that quote; a term of the plan alone is new (PalletCountRule.forNew, PACKED since 2026-11-25). */
         SalesOrder saved = orders.create(invoice,
                 sourceQuoteId == null ? PalletCountRule.forNew() : orders.palletCountRule(sourceQuoteId));
+        copyVatChoice(sourceQuoteId, saved.id());
         captureAdvanceContents(saved);
         events.add(new QuoteEvent(null, saved.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
                 "Voorschottermijn " + label + " aangemaakt", null));
@@ -2895,6 +2920,7 @@ public class SalesOrderService {
         validatePartnerAdvanceReservation(duplicate, null);
         /* A copy is a new concept: it counts as a new document does (forNew, PACKED since 2026-11-25), whatever its source counts. */
         SalesOrder created = orders.create(duplicate, PalletCountRule.forNew());
+        copyVatChoice(source.id(), created.id());
         /* A copy of a website order is priced and shipped on the address the customer ordered for. */
         if (deliveries() != null) deliveries().copy(source.id(), created.id());
         /* PalletHeightPicks reads the source's number back from this step: keep its wording. */
@@ -3207,6 +3233,7 @@ public class SalesOrderService {
         requireWithinCreditCap(original, creditNote);
         /* A credit note counts as the invoice it corrects. */
         SalesOrder created = orders.create(creditNote, palletRule(original));
+        copyVatChoice(original.id(), created.id());
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().copy(original.id(), created.id());
         BigDecimal creditTotal = Money.money(price(created).totals().totalInclVat());
@@ -3506,6 +3533,8 @@ public class SalesOrderService {
     public void validateForSend(SalesOrder order) {
         validateForSave(order);
         validateCommercialLinesReady(order);
+        /* A service ships nothing: no freight to fill in, no pallets to lay out. */
+        if (vatChoices != null && vatChoices.isResolvable() && vatChoices.get().isService(order)) return;
         validateLogisticsReady(order);
     }
 

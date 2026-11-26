@@ -80,6 +80,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
     @Inject
     Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
+    /** The document's own VAT route: decides whether the clearance line belongs on it. */
+    @Inject
+    Instance<be.enrosed.sales.application.SalesVatChoices> vatChoices;
     /** Advance invoices and the slotfactuur of regular quotes. */
     @Inject
     Instance<be.enrosed.sales.application.SalesAdvanceBillingService> advanceBilling;
@@ -240,9 +243,23 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String totalWeight = DocumentFormat.kg(cargo == null ? priced.totals().weightKg() : cargo.totals().weightKg());
         /* Goods cleared through our fiscal representative say so on the quote and the advance
            invoice, where the goods are supplied; the final settlement only keeps the shifted VAT. */
-        String customsLine = customer != null && customer.fiscalRepresentative() && !order.partnerSettlement()
+        boolean cleared = vatChoices != null && vatChoices.isResolvable()
+                ? vatChoices.get().clearedByRepresentative(order, customer)
+                : customer != null && customer.fiscalRepresentative();
+        String customsLine = customer != null && cleared && !order.partnerSettlement()
                 ? text.get("customsClearedBy").formatted(company.get().representativeName(), company.get().representativeVat())
                 : null;
+        /* A document without product lines that is no advance, slotfactuur or partner document: a
+           service, or a plain invoice of free lines. Nothing was packed, so it shows no cartons, pallets,
+           volume or weight, no empty goods rows and freight only where an amount stands. A service
+           (SalesVatChoice.SERVICE) names no incoterm either. */
+        boolean service = priced.totals().vatTreatment() != null && priced.totals().vatTreatment().isService();
+        boolean plainDocument = lines.isEmpty() && cargo == null && !advanceDocument && !finalInvoice && !agreementQuote
+                && !order.isPartnerDeal() && !order.partnerSettlement();
+        boolean plainFreight = plainDocument && !creditNote && !service && (order.freight() == FreightState.TE_BEPALEN
+                || priced.totals().freight() != null && priced.totals().freight().signum() != 0);
+        boolean plainHandling = plainDocument && !creditNote && !service
+                && priced.totals().handling() != null && priced.totals().handling().signum() != 0;
         var declaration = invoiceDeclarations != null && invoiceDeclarations.isResolvable()
                 ? invoiceDeclarations.get().presentation(order, priced, customer, language) : null;
         if (declaration != null && declaration.replaceCustomsLine()) customsLine = null;
@@ -375,7 +392,11 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("totalCbmText", totalVolume)
                 .data("includePhotos", options.includePhotos())
                 .data("includeProductDetails", options.includeProductDetails())
-                .data("includeLogistics", options.includeLogistics())
+                .data("includeLogistics", options.includeLogistics() && !plainDocument)
+                .data("plainDocument", plainDocument)
+                .data("plainFreight", plainFreight)
+                .data("plainHandling", plainHandling)
+                .data("serviceDocument", service)
                 .data("includeTerms", options.includeTerms())
                 .data("includePaymentDetails", options.includePaymentDetails())
                 .data("showOuterCarton", options.showOuterCarton())

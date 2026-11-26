@@ -182,4 +182,5 @@ exec psql \
     --file=/app/migrations/sales-request-prices-shown-postgresql.sql \
     --file=/app/migrations/customer-price-history-reference-postgresql.sql \
     --file=/app/migrations/sales-pallet-copy-source-postgresql.sql \
-    --file=/app/migrations/sales-order-deense-kar-postgresql.sql
+    --file=/app/migrations/sales-order-deense-kar-postgresql.sql \
+    --file=/app/migrations/sales-order-vat-choice-postgresql.sql

@@ -148,6 +148,7 @@ public class SalesAdvanceBillingService {
         sales.validateForSave(draft);
         /* An advance counts like its quote, as the slotfactuur after it does. */
         SalesOrder created = orders.create(draft, sales.palletRule(quote));
+        sales.copyVatChoice(quote.id(), created.id());
         store.save(new SalesAdvanceBilling.Row(created.id(), quote.id(), SalesAdvanceBilling.Stage.ADVANCE, percentage,
                 amount, List.of(), Instant.now()));
         ActorRef creator = sales.currentActor();

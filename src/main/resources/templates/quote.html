@@ -293,7 +293,7 @@
       <td><span class="label">{t.validUntil}</span><div class="fact-value">{validUntilText}</div></td>
     {/if}
     {#if !partnerDeal}
-    <td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>
+    {#if !serviceDocument}<td><span class="label">{t.incoterm}</span><div class="fact-value">{order.incoterm}</div></td>{/if}
     {#if includePaymentDetails && !creditNote}<td><span class="label">{t.payment}</span>
       <div class="fact-value fact-value--small">{#if paymentText}{paymentText}{#else}-{/if}</div></td>{/if}
     {/if}
@@ -489,6 +489,12 @@
     <div class="overview-rule"></div>
     <table class="overview-facts">
       <tr><td>{t.customer}</td><td>{#if customer}{customer.company}{#else}-{/if}</td></tr>
+      {#if plainDocument}
+        <tr><td>{t.date}</td><td>{orderDateText}</td></tr>
+        {#if creditNote}<tr><td>{t.creditNoteInvoiceLabel}</td><td>{creditedNumber}</td></tr>
+        {#else if isInvoice}<tr><td>{t.dueDate}</td><td>{dueDateText}</td></tr>
+        {#else}<tr><td>{t.validUntil}</td><td>{validUntilText}</td></tr>{/if}
+      {/if}
       {#if includeLogistics}
         <tr><td>{t.destination}</td><td>{displayDestination ?: '-'}</td></tr>
         {#if !advanceInvoice || displayCartons}<tr><td>{t.cartons}</td><td>{displayCartons}</td></tr>{/if}
@@ -503,7 +509,13 @@
 </td>
 <td class="closing-totals">
 <table class="totals">
-  {#if !advanceInvoice}
+  {#if plainDocument}
+  {#if plainFreight}
+  <tr><td>{t.freight}</td>
+      <td class="r">{#if freightPending}<span class="muted">{t.freightToBeDetermined}</span>{#else}{priced.totals.freight.eur}{/if}</td></tr>
+  {/if}
+  {#if plainHandling}<tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>{/if}
+  {#else if !advanceInvoice}
   <tr><td>{t.subtotal}</td><td class="r">{priced.totals.subtotal.eur}</td></tr>
   {#if priced.totals.orderDiscountAmount.isPositive}
     <tr class="discount"><td>{t.orderDiscount} {priced.totals.orderDiscountPercent.pct}</td>

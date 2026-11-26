@@ -427,6 +427,13 @@ public class SalesPricingCalculator {
             freight = split.freight(); handling = split.handling();
             freightIsMinimum = false; carrierFreightIssue = null;
         }
+        /* A service (SalesVatChoice.SERVICE, a document without product lines) ships nothing: no
+           freight, no handling, and no freight left to settle. */
+        boolean service = context.vat() != null && context.vat().treatment().isService();
+        if (service) {
+            freight = BigDecimal.ZERO; handling = BigDecimal.ZERO;
+            freightIsMinimum = false; carrierFreightIssue = null; palletFitIssue = null;
+        }
 
         /* The free lines count in the total as they stand: no tier, no order
            discount, no cost against them. The margin keeps reading the
@@ -459,11 +466,11 @@ public class SalesPricingCalculator {
         // Internal margin reconciles the same rounded goods and cost amounts shown to the operator.
         BigDecimal margin = Money.money(goodsTotal).subtract(Money.money(costTotal));
         BigDecimal minOrderValue = country == null ? BigDecimal.ZERO : Money.nz(country.minOrderValue());
-        if (order.isPartnerDeal() || order.isCreditNote() || context.minimumExempt()) minOrderValue = BigDecimal.ZERO;
+        if (order.isPartnerDeal() || order.isCreditNote() || context.minimumExempt() || service) minOrderValue = BigDecimal.ZERO;
         if (split != null && split.sourceMeetsMinimum()) minOrderValue = BigDecimal.ZERO;
         BigDecimal minimumBasis = goodsTotal.add(extraLinesTowardMinimum);
         boolean meetsMinimum = minimumBasis.compareTo(minOrderValue) >= 0 || order.isPartnerDeal() || order.isCreditNote()
-                || context.minimumExempt();
+                || context.minimumExempt() || service;
 
         PricedOrder.Totals totals = new PricedOrder.Totals(
                 pieces, cartonsTotal, palletCounts.strict(), palletCounts.optimised(),
@@ -492,7 +499,7 @@ public class SalesPricingCalculator {
                 meetsMinimum ? BigDecimal.ZERO : Money.money(minOrderValue.subtract(minimumBasis)),
                 !lines.isEmpty(), country != null, withoutCost,
                 withoutCartonDimensions, withoutPalletFit,
-                palletFitIssue != null ? palletFitIssue
+                service ? null : palletFitIssue != null ? palletFitIssue
                         : carrierFreightIssue != null ? carrierFreightIssue : freightPricingIssue(order));
 
         // Customer-visible line nets remain before the separately printed order discounts.

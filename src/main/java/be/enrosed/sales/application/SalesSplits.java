@@ -116,6 +116,7 @@ public class SalesSplits {
         SalesOrder first = orders.save(plan.current());
         /* The later delivery is a part of the same order: it counts like the original. */
         SalesOrder later = orders.create(sales.numberSplitDraft(plan.later()), sales.palletRule(plan.source()));
+        sales.copyVatChoice(plan.source().id(), later.id());
         var group = new SalesSplitGroupEntity();
         group.id = UUID.randomUUID().toString(); group.rootOrderId = first.id(); group.laterOrderId = later.id();
         group.requestId = requestId; group.requestHash = requestHash; group.createdAt = Instant.now();

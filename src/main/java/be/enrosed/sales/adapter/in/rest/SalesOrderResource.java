@@ -35,6 +35,7 @@ public class SalesOrderResource {
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceQuotes advanceQuotes;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerAdvanceContents advanceContents;
     @jakarta.inject.Inject be.enrosed.sales.application.PartnerInvoiceDeclarations invoiceDeclarations;
+    @jakarta.inject.Inject be.enrosed.sales.application.SalesVatChoices vatChoices;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesSplits splits;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesCustomerMessages customerMessages;
     @jakarta.inject.Inject be.enrosed.sales.application.SalesAdvanceBillingService advanceBilling;
@@ -625,6 +626,21 @@ public class SalesOrderResource {
     public be.enrosed.sales.application.PartnerInvoiceDeclarations.Declaration saveInvoiceDeclaration(@PathParam("id") long id,
             be.enrosed.sales.application.PartnerInvoiceDeclarations.Declaration request) {
         return invoiceDeclarations.save(id, request);
+    }
+
+    /** The document's VAT route: through the fiscal representative, the Belgian rules, or a service. */
+    @GET @Path("/{id}/vat-choice")
+    public be.enrosed.sales.application.SalesVatChoices.View vatChoice(@PathParam("id") long id) {
+        return vatChoices.get(id);
+    }
+
+    public record VatChoiceRequest(be.enrosed.sales.domain.SalesVatChoice route) {}
+
+    /** Null (or the customer's own route) puts the document back on its customer's standard. */
+    @PUT @Path("/{id}/vat-choice")
+    public OrderView saveVatChoice(@PathParam("id") long id, VatChoiceRequest request) {
+        vatChoices.save(id, request == null ? null : request.route());
+        return view(salesOrders.get(id));
     }
 
     @POST @Path("/{id}/payments")
