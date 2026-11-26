@@ -67,7 +67,7 @@ public class SalesLineAvailability {
             if (pallet == null) { result.add(null); continue; }
             var kept = pallet.items().stream().filter(item -> !parked.contains(item.productId())).toList();
             if (kept.size() == pallet.items().size()) result.add(pallet);
-            else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
+            else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept, pallet.source()));
             else dropped = true;
         }
         return dropped ? renumbered(result) : result;
@@ -105,7 +105,7 @@ public class SalesLineAvailability {
                 kept.add(cartons == item.cartons() ? item : new OrderPallet.Item(item.productId(), cartons));
             }
             if (kept.equals(pallet.items())) result.add(pallet);
-            else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept));
+            else if (!kept.isEmpty()) result.add(new OrderPallet(pallet.id(), pallet.label(), pallet.type(), pallet.heightCm(), kept, pallet.source()));
             else dropped = true;
         }
         return dropped ? renumbered(result) : result;
@@ -125,7 +125,7 @@ public class SalesLineAvailability {
             String label = "Pallet " + (index + 1);
             if (pallet != null && pallet.label() != null && NUMBERED.matcher(pallet.label().strip()).matches()
                     && !pallet.label().equals(label))
-                pallet = new OrderPallet(pallet.id(), label, pallet.type(), pallet.heightCm(), pallet.items());
+                pallet = new OrderPallet(pallet.id(), label, pallet.type(), pallet.heightCm(), pallet.items(), pallet.source());
             result.add(pallet);
         }
         return result;

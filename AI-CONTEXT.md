@@ -2229,8 +2229,23 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   the rest is packed.
 - The frontend lays the same pallets in 3D (`orderLoad3d` re-packs and matches `autoPallets`), the planner explains
   PACKED (no "+N past" hints under PACKED), a hand pallet copied from PACKED stands as high as its `autoPallets` twin
-  (else as the server would load the list: pallet-hand-load.ts), and Palletberekening keeps its own "Omdozen mogen
-  kantelen" switch (its plan uses the cards' fits).
+  (else as the server would load the list, else as part of the pallet it was copied from: pallet-hand-load.ts), and
+  Palletberekening keeps its own "Omdozen mogen kantelen" switch (its plan uses the cards' fits).
+- Hand pallets remember the copy (2026-11-26): `OrderPallet.source`, column `sales_pallet.copy_source` varchar(4000)
+  (Hibernate's update adds it; `docs/migrations/2026-11-25/sales-pallet-copy-source-postgresql.sql` adds the same,
+  rerunnable). Zelf indelen on a PACKED document writes on every copied pallet
+  `PACKED|<profile>|<loaded height>|<run: productId:cartons,… in line order>|<place in the run>|<its own cartons>`, e.g.
+  `PACKED|EURO_120X80|260|12:24,15:8|0|12:20,15:8`; the ERP loads that run again and judges a pallet that holds no more
+  than its copy as that part of it, so a pallet that fits never reads "te hoog" after later edits (frontend AI-CONTEXT,
+  "The copy remembered"). The server only keeps it: nothing here counts, prices or validates with it, and the counting
+  path is untouched. The record's compact constructor drops (null) a source past 4,000 characters or with characters
+  outside `[A-Za-z0-9_|:,.-]`; there is no constructor without it, so every path that builds a pallet passes
+  `pallet.source()` on (merging another round: keep it on every `new OrderPallet(`). It travels wherever a pallet
+  is carried: the mapper both ways, REST in and out (`OrderView.order`), `reconcilePallets`, `prunePallets` and
+  `renumbered` (a trimmed pallet keeps it), Factuur maken (`createInvoiceFrom`) and Kopie maken (`duplicate`; the ERP uses
+  it only while profile and height still match). A layout change logs "Handmatige palletindeling" as before (the
+  source is part of the pallet's value). Either release order is safe: an older backend ignores the field, an older
+  ERP keeps it on the pallets it loads and writes none.
 - The split preview prices the later part with the source's rule (`priceSplit(order, terms, rule)`), as `split` stores it.
 - Cost: PACKED runs the packer on every pricing, 8-80 ms for a container-size document against about 1 ms for MIXED.
   `PartnerFinancingService.get` prices each partner document several times; when container documents pile up there,

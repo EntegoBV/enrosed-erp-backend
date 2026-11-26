@@ -34,9 +34,32 @@ public record OrderPallet(
          * transporter asks for this number on every booking.
          */
         Integer heightCm,
-        List<Item> items
+        List<Item> items,
+        /**
+         * What "Zelf indelen" copied this pallet from on a PACKED document (2026-11-25), written by the ERP
+         * (pallet-hand-load.ts copySources), e.g. "PACKED|EURO_120X80|260|12:24,15:8|0|12:20,15:8": the rule, the
+         * pallet profile, the loaded height, the run's cartons per product in line order, the pallet's place in it and
+         * its own cartons.
+         * The ERP loads that run again to judge the pallet's height after later edits; the server only keeps it,
+         * nothing here counts or prices with it. Null on a pallet built by hand; text longer than
+         * {@link #SOURCE_MAX} or with other characters than the format uses is dropped.
+         */
+        String source
 ) {
     public record Item(long productId, int cartons) {}
+
+    /** The longest source kept (sales_pallet.copy_source). */
+    public static final int SOURCE_MAX = 4000;
+
+    private static final java.util.regex.Pattern SOURCE_TEXT = java.util.regex.Pattern.compile("[A-Za-z0-9_|:,.\\-]+");
+
+    /*
+     * No constructor without the source on purpose: a pallet the server copies, trims or renumbers passes its
+     * source on (pallet.source()), so no path drops it unseen.
+     */
+    public OrderPallet {
+        if (source != null && (source.length() > SOURCE_MAX || !SOURCE_TEXT.matcher(source).matches())) source = null;
+    }
 
     /** The default is the standard of European road freight. */
     public String type() {

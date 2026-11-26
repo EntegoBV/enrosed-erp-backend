@@ -97,7 +97,7 @@ final class SalesMapper {
             pallets.add(new OrderPallet(pallet.id, pallet.label, pallet.palletType, pallet.heightCm,
                     pallet.items.stream()
                             .map(item -> new OrderPallet.Item(item.productId, item.cartons))
-                            .toList()));
+                            .toList(), pallet.copySource));
         }
         return new SalesOrder(entity.id, entity.number, entity.customerId, entity.countryCode,
                 entity.orderDate, entity.validUntil, entity.status, entity.incoterm,
@@ -224,6 +224,7 @@ final class SalesMapper {
             target.label = pallet.label();
             target.palletType = pallet.type();
             target.heightCm = pallet.heightCm();
+            target.copySource = pallet.source();
             for (OrderPallet.Item item : pallet.items()) {
                 SalesEntities.SalesPalletItemEntity row = new SalesEntities.SalesPalletItemEntity();
                 row.pallet = target;

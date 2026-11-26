@@ -327,6 +327,9 @@ public final class SalesEntities {
         public String palletType;
         /** Stacked height in cm; the transporter asks for it on every booking. */
         public Integer heightCm;
+        /** What Zelf indelen copied the pallet from (OrderPallet.source, 2026-11-25); null on a pallet built by hand. */
+        @Column(name = "copy_source", length = 4000)
+        public String copySource;
 
         @OneToMany(mappedBy = "pallet", cascade = CascadeType.ALL, orphanRemoval = true, fetch = FetchType.EAGER)
         @OrderBy("id ASC")

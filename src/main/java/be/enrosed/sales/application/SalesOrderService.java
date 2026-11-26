@@ -635,8 +635,9 @@ public class SalesOrderService {
                                 line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
+                        /* The copy source goes along: the ERP uses it only while profile and height still match. */
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
-                                pallet.heightCm(), pallet.items()))
+                                pallet.heightCm(), pallet.items(), pallet.source()))
                         .toList());
         List<SalesExtraLine> extras = new java.util.ArrayList<>(source.extraLines());
         if (deductions != null) extras.addAll(deductions.lines());
@@ -2845,8 +2846,9 @@ public class SalesOrderService {
                                 line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
+                        /* The copy source goes along: the ERP uses it only while profile and height still match. */
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
-                                pallet.heightCm(), pallet.items()))
+                                pallet.heightCm(), pallet.items(), pallet.source()))
                         .toList());
         duplicate = duplicate.withExtraLines(source.extraLines())
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
