@@ -2264,7 +2264,7 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   is harmless (identical layouts on 8,106 orders). The old release reads PACKED as STRICT (`stored`), so a document
   made in the deploy overlap may show the strict count until the new one serves.
 - Never roll the backend back below the commit "Pallets: PACKED, the pallets loaded one after the other, each as full as
-  it goes" of 2026-11-25 (85730f2 before its rebase onto 25ae43c; it would count every PACKED document STRICT: more pallets, more per-pallet
+  it goes" of 2026-11-25 (3a9cc5c on main; it would count every PACKED document STRICT: more pallets, more per-pallet
   freight, and what it derives in that time is stored STRICT for good): fix forward. If a rollback cannot be avoided,
   first `update sales_order set palletcountrule = 'MIXED' where palletcountrule = 'PACKED'` (MIXED is never below
   PACKED, but sent documents change), only with Emre's go.
