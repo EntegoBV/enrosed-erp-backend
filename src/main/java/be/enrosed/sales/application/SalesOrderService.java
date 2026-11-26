@@ -410,6 +410,11 @@ public class SalesOrderService {
         if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().pin(issued, leftWith);
     }
 
+    /** A service by choice (SalesVatChoices): no product lines, nothing shipped. */
+    boolean isServiceDocument(SalesOrder order) {
+        return vatChoices != null && vatChoices.isResolvable() && vatChoices.get().isService(order);
+    }
+
     /** A derived document (invoice, split part, copy, credit note) takes its source's VAT route at creation. */
     void copyVatChoice(Long sourceId, Long targetId) {
         if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().copy(sourceId, targetId);
@@ -2015,14 +2020,14 @@ public class SalesOrderService {
         if (invoice.customerId() == null) {
             throw new BusinessRuleException("Koppel eerst een klant aan de factuur");
         }
-        boolean service = vatChoices != null && vatChoices.isResolvable() && vatChoices.get().isService(invoice);
+        boolean service = isServiceDocument(invoice);
         /* A service ships nothing: a freight state left on 'later bepalen' prices nothing and blocks nothing. */
         if (invoice.freight() == FreightState.TE_BEPALEN && !service) {
             throw new BusinessRuleException(
                     "De vracht staat nog op 'later bepalen' - een factuur moet volledig geprijsd zijn");
         }
         /* Freight by hand on a Deense kar (Emre, 2026-11-25): an invoice never leaves on an empty fixed amount. */
-        if (!invoice.isCreditNote() && invoice.palletProfile() != null && invoice.palletProfile().isKar()
+        if (!invoice.isCreditNote() && !service && invoice.palletProfile() != null && invoice.palletProfile().isKar()
                 && invoice.freightPricingStrategy() == FreightPricingStrategy.FIXED && invoice.manualFreightEur() == null) {
             throw new BusinessRuleException("Vul het vaste vrachtbedrag in");
         }
@@ -2362,6 +2367,12 @@ public class SalesOrderService {
         }
         updated = withPalletsFollowingLines(updated);
         requireEuroHeightWithinLimit(current, updated);
+        /* A quote with advance invoices keeps its VAT regime (SalesVatChoices.lockedReason); gaining its first
+           product line, or losing its last, would move it between service and goods behind that lock. */
+        if (!current.isClaimDocument() && advanceBilling() != null && advanceBilling().hasLiveAdvances(current)
+                && isServiceDocument(current) != isServiceDocument(updated))
+            throw new BusinessRuleException("De btw-regeling ligt vast zolang er een voorschotfactuur op deze offerte bestaat:"
+                    + " een dienst blijft zonder productregels, een goederenofferte houdt er minstens één");
         validateForSave(updated);
         validatePartnerAdvanceReservation(updated, null);
         SalesOrder saved = orders.save(updated);
@@ -3556,7 +3567,7 @@ public class SalesOrderService {
         validateForSave(order);
         validateCommercialLinesReady(order);
         /* A service ships nothing: no freight to fill in, no pallets to lay out. */
-        if (vatChoices != null && vatChoices.isResolvable() && vatChoices.get().isService(order)) return;
+        if (isServiceDocument(order)) return;
         validateLogisticsReady(order);
     }
 

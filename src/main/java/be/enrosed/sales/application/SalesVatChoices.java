@@ -278,9 +278,10 @@ public class SalesVatChoices {
         if (order.isCreditNote()) return "Een creditnota volgt de btw-regeling van haar factuur";
         if (derived(order)) return "Een voorschot- of slotfactuur volgt de btw-regeling van haar offerte";
         if (sales.hasSplitOrder(order)) return "Een gesplitste levering houdt de btw-regeling van haar verdeling";
-        /* As customer and country are (SalesAdvanceBillingService.requireParties): the advances were made in this regime. */
+        /* The advances were made in this regime and the slotfactuur is held to it, also for an advance credited
+           in full (SalesAdvanceBillingService.prepareFinal compares before it skips one). */
         if (hasLiveAdvances(order))
-            return "De btw-regeling ligt vast zolang er een voorschotfactuur op deze offerte bestaat; verwijder of crediteer die eerst";
+            return "De btw-regeling ligt vast zolang er een voorschotfactuur op deze offerte bestaat; een conceptvoorschot kun je eerst verwijderen";
         if (order.status() != QuoteStatus.CONCEPT)
             return order.isClaimDocument() ? "Vastgelegd bij uitgifte. Wijzigen kan alleen nadat de factuur heropend is."
                     : "De btw-regeling kan alleen op een concept worden gewijzigd";

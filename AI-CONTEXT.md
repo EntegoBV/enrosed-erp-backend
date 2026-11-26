@@ -193,8 +193,13 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (`copyVatChoice`: invoice from quote, advance, slotfactuur, split part,
   duplicate, credit note). The route changes on a CONCEPT only; credit notes,
   advance/slot invoices and split parts are locked.
-  A quote with live advance invoices is locked too, and a stored route the
-  source no longer fits is never copied.
+  A quote with live advance invoices is locked too (also after a full
+  credit: the slotfactuur is held to the regime), may not gain its first or
+  lose its last product line (`update`), and an advance only leaves concept
+  in its quote's regime (`SalesAdvanceBillingService.requireIssuable`). A
+  stored route the source no longer fits is never copied. A quote without
+  product lines still cannot be SENT by the customer link
+  (`QuoteService.send`): a service is invoiced, or its PDF goes out by hand.
   **Pin**: an invoice or credit note that leaves concept (`issueInvoice`,
   `markInvoiceSent`) keeps the treatment and rate it left with
   (`treatment`, `rate_pct`): the pricing of the CONCEPT, taken before the

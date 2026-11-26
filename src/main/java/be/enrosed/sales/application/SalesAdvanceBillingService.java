@@ -184,7 +184,9 @@ public class SalesAdvanceBillingService {
         SalesOrder invoice = liveInvoiceOf(quote.id());
         if (invoice != null)
             throw new BusinessRuleException("Offerte " + quote.number() + " heeft al factuur " + invoice.number() + "; een voorschot volgt niet meer na de slotfactuur");
-        if (quote.freight() == FreightState.TE_BEPALEN) throw new BusinessRuleException("Vul eerst de vracht in");
+        /* A service ships nothing: a freight state left open prices nothing and holds no advance back. */
+        if (quote.freight() == FreightState.TE_BEPALEN && !sales.isServiceDocument(quote))
+            throw new BusinessRuleException("Vul eerst de vracht in");
     }
 
     /* ============================================================ final invoice */
@@ -288,7 +290,18 @@ public class SalesAdvanceBillingService {
     void requireIssuable(SalesOrder invoice) {
         if (!invoice.isInvoice() || invoice.status() != QuoteStatus.CONCEPT || invoice.id() == null) return;
         var row = store.find(invoice.id());
-        if (row == null || row.stage() != SalesAdvanceBilling.Stage.FINAL) return;
+        if (row == null) return;
+        if (row.stage() == SalesAdvanceBilling.Stage.ADVANCE) {
+            /* An advance leaves in its quote's regime or not at all: a quote that turned from a service into
+               goods (or back) after the advance was made would otherwise issue it in the other regime, and
+               the slotfactuur would be refused for good. */
+            SalesOrder quote = orders.findById(row.quoteId()).orElse(null);
+            if (quote != null && !sameVat(sales.price(quote), sales.price(invoice)))
+                throw new BusinessRuleException("Voorschotfactuur " + invoice.number() + " heeft een andere btw-regeling dan offerte "
+                        + quote.number() + "; verwijder het concept en maak het voorschot opnieuw vanuit de offerte");
+            return;
+        }
+        if (row.stage() != SalesAdvanceBilling.Stage.FINAL) return;
         PricedOrder priced = sales.price(invoice);
         if (priced.totals().total().signum() < 0)
             throw new BusinessRuleException("De slotfactuur is lager dan de voorschotten; maak een creditnota op een voorschotfactuur");
