@@ -11,7 +11,7 @@
        discs and five-colour photos stand on the same columns). */
     @page {
       size: A4;
-      margin: 13mm 11mm 20mm;
+      margin: 13mm 11mm {footerRoomMm}mm;
       background-color: #f6f1eb;
       @top-center { content: element(catalog-header); }
       @bottom-center { content: element(catalog-footer); vertical-align: top; }
@@ -26,8 +26,14 @@
     .running-header table, .running-footer table { width: 100%; }
     .running-brand { color: #59172d; font-weight: 600; letter-spacing: 2.2px; }
     .running-title { text-align: right; }
-    /* The footer hangs from the top of the bottom margin: a third note line grows towards the paper edge, never into the cards. */
-    .running-footer { position: running(catalog-footer); width: 100%; margin-top: .7mm; padding: 0 5mm; color: #806c70; font-size: 6.4pt; line-height: 1.3; }
+    /* The footer hangs from the top of the bottom margin: a third note line grows towards the paper edge, never into the cards.
+       The 20 mm margin holds three note lines above the brand line. A longer note (a price list for a named recipient with a
+       validity and a spill, in Greek or Portuguese) gets a deeper margin: the renderer counts the lines of the hidden
+       .footer-probe, a copy of the note as wide and set as the footer's, and lays the document out again with footerRoomMm
+       3 mm deeper per extra line. Keep the probe's width, padding, font size and line height those of .running-footer. */
+    .running-footer, .footer-probe { width: 100%; padding: 0 5mm; font-size: 6.4pt; line-height: 1.3; }
+    .running-footer { position: running(catalog-footer); margin-top: .7mm; color: #806c70; }
+    .footer-probe { position: absolute; top: 0; left: 0; visibility: hidden; }
     .footer-note { margin-bottom: .9mm; padding-top: 1.6mm; border-top: .2mm solid #dccfc3; }
     .footer-brand { color: #725e64; font-size: 6.8pt; letter-spacing: .9px; }
     .footer-page { width: 24mm; text-align: right; color: #59172d; font-size: 7.2pt; font-weight: 500; }
@@ -151,7 +157,7 @@
     html[lang="el"] .meta b, html[lang="el"] .maat, html[lang="el"] .cap .sku, html[lang="el"] .cap .ean, html[lang="el"] .fg b, html[lang="el"] .chapter .number { font-family: "Jost", "DejaVu Sans", sans-serif; }
     html[lang="el"] .price .whole { font-family: "DejaVu Sans", sans-serif; font-size: 9.5pt; font-weight: 400; line-height: 1.62; }
     html[lang="el"] .running-header { font-size: 6.8pt; }
-    html[lang="el"] .running-footer { font-size: 6.2pt; }
+    html[lang="el"] .running-footer, html[lang="el"] .footer-probe { font-size: 6.2pt; }
     html[lang="el"] h1 { font-size: 18pt; font-weight: 400; }
     html[lang="el"] .to, html[lang="el"] .price .request, html[lang="el"] .intro { font-size: 9.5pt; }
     html[lang="el"] .eyebrow { font-size: 6.8pt; }
@@ -180,9 +186,10 @@
 <body>
 <div class="running-header"><table><tr><td class="running-brand">ENROSED</td><td class="running-title">{title}{#if recipientShort} · {recipientShort}{/if} · {itemCountLabel}</td></tr></table></div>
 <div class="running-footer">
-  <div class="footer-note">{#if priceBasis}{priceBasis} {/if}{#if validityLine}{validityLine}. {/if}{copy['catalog.simple.footer']} {palletBasis} {karBasis}</div>
+  <div class="footer-note">{footerNote}</div>
   <table><tr><td class="footer-brand">ENROSED · {copy['catalog.brand.wholesale']}{#if company.website} · {company.website}{/if}</td><td class="footer-page"><span class="page-number"></span> / <span class="page-total"></span></td></tr></table>
 </div>
+<div class="footer-probe"><div class="footer-note">{footerNote}</div></div>
 
 <div class="masthead"><div class="mast-in">
   <table><tr>

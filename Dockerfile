@@ -159,6 +159,7 @@ COPY docs/migrations/2026-11-25/sales-pallet-copy-source-postgresql.sql ./migrat
 COPY docs/migrations/2026-11-25/sales-order-deense-kar-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-26/sales-order-vat-choice-postgresql.sql ./migrations/
 COPY docs/migrations/2026-11-26/sales-order-pallet-spill-postgresql.sql ./migrations/
+COPY docs/migrations/2026-11-26/catalog-export-load-basis-postgresql.sql ./migrations/
 RUN chmod 0555 ./scripts/run-postgresql-schema-migrations.sh
 
 # Retain image-heavy PDF export headroom while allowing the idle heap to shrink

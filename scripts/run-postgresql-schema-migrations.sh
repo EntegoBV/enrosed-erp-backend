@@ -184,4 +184,5 @@ exec psql \
     --file=/app/migrations/sales-pallet-copy-source-postgresql.sql \
     --file=/app/migrations/sales-order-deense-kar-postgresql.sql \
     --file=/app/migrations/sales-order-vat-choice-postgresql.sql \
-    --file=/app/migrations/sales-order-pallet-spill-postgresql.sql
+    --file=/app/migrations/sales-order-pallet-spill-postgresql.sql \
+    --file=/app/migrations/catalog-export-load-basis-postgresql.sql

@@ -8,6 +8,7 @@ import jakarta.persistence.Id;
 import jakarta.persistence.Index;
 import jakarta.persistence.Table;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.time.LocalDate;
 
@@ -38,4 +39,14 @@ public class CatalogExportEntity {
     @Column(name = "file_name", nullable = false, length = 160) public String fileName;
     @Column(name = "pdf_bytes", nullable = false) public long pdfBytes;
     @Column(name = "pdf_sha256", nullable = false, length = 64) public String pdfSha256;
+    /**
+     * What the PDF's per-pallet and per-kar figures were counted with, in cm: the europallet's loaded
+     * height with the wood, the Deense kar's from the floor, and the spill per edge. Always the
+     * values used, the standard of that day included (the standard has moved before: 220 cm from
+     * 2026-11-07 to 2026-11-10), so the row says which figures the customer saw. Null: a PDF made
+     * before the heights and the spill could be chosen per export (2026-11-26).
+     */
+    @Column(name = "pallet_height_cm", precision = 6, scale = 1) public BigDecimal palletHeightCm;
+    @Column(name = "kar_height_cm", precision = 6, scale = 1) public BigDecimal karHeightCm;
+    @Column(name = "spill_cm", precision = 4, scale = 1) public BigDecimal spillCm;
 }

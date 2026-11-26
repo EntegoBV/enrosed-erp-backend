@@ -4,6 +4,7 @@ import be.enrosed.catalog.application.port.out.CatalogDocumentRenderer;
 import be.enrosed.catalog.application.port.out.CatalogPdfCompression;
 import be.enrosed.catalog.application.port.out.CatalogFamilyReader;
 import be.enrosed.catalog.application.port.out.CatalogRecipients;
+import be.enrosed.catalog.application.port.out.CataloguePallet;
 import be.enrosed.catalog.domain.Category;
 import be.enrosed.catalog.domain.PriceBasis;
 import be.enrosed.catalog.domain.Product;
@@ -103,6 +104,8 @@ public class CatalogExportService {
      * which keeps producing the compact PDF. A null product list still means all products;
      * an explicit empty list is rejected so an accidental empty mobile selection is visible.
      * The recipient and price fields are all optional: an older client prints catalogue prices.
+     * So are the loading heights and the spill: without them every per-pallet and per-kar figure
+     * counts on the standard, as before.
      */
     public record Request(
             List<Long> productIds,
@@ -123,16 +126,27 @@ public class CatalogExportService {
             String recipientName,
             /** Printed "Geldig tot …"; only with prices. */
             LocalDate pricesValidUntil,
-            List<PriceOverride> priceOverrides) {
+            List<PriceOverride> priceOverrides,
+            /**
+             * This PDF's own loading heights and spill, in whole centimetres (Emre, 2026-11-26: "sommige
+             * klanten hebben andere standaard hoogtes en die willen dan een andere overzicht van ons"):
+             * the europallet's loaded height with the wood (16..260), the Deense kar's from the floor
+             * (18..300), and how far an omdoos may stick out past an edge (0..5; 0 is a value: none).
+             * Null takes the standard (260 / 230 / 2). Every per-pallet and per-kar figure of both
+             * layouts counts with them and the basis sentences print them.
+             */
+            BigDecimal palletHeightCm,
+            BigDecimal karHeightCm,
+            BigDecimal spillCm) {
 
-        /** Older clients name no recipient and adjust no price. */
+        /** Older clients name no recipient, adjust no price and choose no height or spill. */
         public Request(List<Long> productIds, boolean includePrices, boolean includePhotos,
                        Integer photosPerProduct, String title, String intro, String language,
                        Layout layout, BrochureOptions brochure, Boolean strictLanguage,
                        Map<Long, Integer> familyPhotoLimits, Boolean preserveProductOrder) {
             this(productIds, includePrices, includePhotos, photosPerProduct, title, intro, language,
                     layout, brochure, strictLanguage, familyPhotoLimits, preserveProductOrder,
-                    null, null, null, List.of());
+                    null, null, null, List.of(), null, null, null);
         }
 
         /** Older clients retain the existing category and dome ordering. */
@@ -207,6 +221,11 @@ public class CatalogExportService {
         /** Family blocks follow their first requested ID; their variants retain requested order. */
         public boolean resolvedPreserveProductOrder() {
             return Boolean.TRUE.equals(preserveProductOrder);
+        }
+
+        /** What this PDF asks of the pallet and the kar; all null for the standard. */
+        public CataloguePallet.Choice loadChoice() {
+            return new CataloguePallet.Choice(palletHeightCm, karHeightCm, spillCm);
         }
     }
 
@@ -284,17 +303,19 @@ public class CatalogExportService {
             Request request,
             /** Null for an anonymous catalogue. */
             Recipient recipient,
-            PriceBook prices) {
+            PriceBook prices,
+            /**
+             * The pallet and the kar this PDF counts on, resolved from the request once. The renderer
+             * is one shared bean and two exports can render at once, so the choice travels here and
+             * never in a field of the renderer.
+             */
+            CataloguePallet.Loads loads) {
         public Model {
             products = List.copyOf(products);
             categoriesById = Map.copyOf(categoriesById);
             families = List.copyOf(families);
             prices = prices == null ? PriceBook.none() : prices;
-        }
-
-        public Model(List<Product> products, Map<Long, Category> categoriesById,
-                     List<FamilyGroup> families, Request request) {
-            this(products, categoriesById, families, request, null, PriceBook.none());
+            Objects.requireNonNull(loads, "loads");
         }
 
         /** A PDF with prices or for a recipient is written to the export journal. */
@@ -304,21 +325,29 @@ public class CatalogExportService {
     }
 
     /**
+     * The loading heights and the spill a PDF is made with, in centimetres: what the request chose,
+     * the standard for what it left out.
+     */
+    public record Load(BigDecimal palletHeightCm, BigDecimal karHeightCm, BigDecimal spillCm) {
+        static Load of(CataloguePallet.Loads loads) {
+            return new Load(loads.pallet().maxHeightCm(), loads.kar().maxHeightCm(), loads.pallet().spillCm());
+        }
+    }
+
+    /**
      * Lightweight exact-language validation result used before generating a PDF. {@code ready}
      * still means "translations complete" only. {@code prices} has one row per selected product
      * while prices are shown (empty otherwise); its presence also tells the studio this backend
-     * honours recipients and one-off prices.
+     * honours recipients and one-off prices. {@code load} echoes the heights and the spill the PDF
+     * would count with; its presence tells the studio this backend honours a chosen height or
+     * spill (an older one drops the fields silently and prints the standard).
      */
     public record Preflight(boolean ready, List<String> missingPaths, List<ResolvedPrice> prices,
-                            List<PriceIssue> priceWarnings, Recipient recipient) {
+                            List<PriceIssue> priceWarnings, Recipient recipient, Load load) {
         public Preflight {
             missingPaths = List.copyOf(missingPaths);
             prices = prices == null ? List.of() : List.copyOf(prices);
             priceWarnings = priceWarnings == null ? List.of() : List.copyOf(priceWarnings);
-        }
-
-        public Preflight(boolean ready, List<String> missingPaths) {
-            this(ready, missingPaths, List.of(), List.of(), null);
         }
     }
 
@@ -329,13 +358,15 @@ public class CatalogExportService {
     private final CatalogRecipients recipients;
     private final CatalogExportJournal journal;
     private final CatalogPdfCompression compression;
+    private final CataloguePallet pallets;
 
     public CatalogExportService(ProductService products, CategoryService categories,
                                 CatalogFamilyReader families,
                                 CatalogDocumentRenderer renderer,
                                 CatalogRecipients recipients,
                                 CatalogExportJournal journal,
-                                CatalogPdfCompression compression) {
+                                CatalogPdfCompression compression,
+                                CataloguePallet pallets) {
         this.products = products;
         this.categories = categories;
         this.families = families;
@@ -343,6 +374,7 @@ public class CatalogExportService {
         this.recipients = recipients;
         this.journal = journal;
         this.compression = compression;
+        this.pallets = pallets;
     }
 
     /** A PDF with prices or for a recipient is journaled after the render; a failed write fails the export. */
@@ -365,12 +397,16 @@ public class CatalogExportService {
         return document;
     }
 
-    /** The same validation as the export; price problems that would refuse the PDF answer 409 here too. */
+    /**
+     * The same validation as the export; price problems and a height or spill out of range, which
+     * would refuse the PDF, answer 409 here too.
+     */
     public Preflight preflight(Request incoming) {
         Model model = model(incoming);
         List<String> missingPaths = renderer.missingTranslations(model);
         return new Preflight(missingPaths.isEmpty(), missingPaths,
-                List.copyOf(model.prices().byProduct().values()), model.prices().warnings(), model.recipient());
+                List.copyOf(model.prices().byProduct().values()), model.prices().warnings(), model.recipient(),
+                Load.of(model.loads()));
     }
 
     /** The selected products grouped per series, exactly as the renderer receives them. */
@@ -379,6 +415,8 @@ public class CatalogExportService {
         if (request.productIds() != null && request.productIds().isEmpty()) {
             throw new BusinessRuleException("Selecteer minstens een product voor de catalogus");
         }
+        /* Refuses a height or spill no document may have, before anything is read or rendered. */
+        CataloguePallet.Loads loads = pallets.loads(request.loadChoice());
 
         /* Customer documents exclude internal assessment products, even when an older saved
            "select all" request still contains their ids. They remain fully available in ERP. */
@@ -400,7 +438,7 @@ public class CatalogExportService {
         Map<Long, Category> categoriesById = categories.list().stream()
                 .collect(Collectors.toMap(Category::id, Function.identity()));
         return new Model(selected, categoriesById,
-                group(selected, categoriesById), request, recipient, prices);
+                group(selected, categoriesById), request, recipient, prices, loads);
     }
 
     /** A stored customer wins over a typed name; an unknown customer is refused, never left out silently. */

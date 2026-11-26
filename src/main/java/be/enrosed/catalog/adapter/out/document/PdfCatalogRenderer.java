@@ -59,6 +59,15 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private static final int MIN_OVERVIEW_ROWS_PER_PAGE = 6;
     /** The first layout, then compact, tight or bare sheets and fewer overview rows where they are needed. */
     private static final int MAX_BROCHURE_LAYOUTS = 5;
+    /**
+     * The compact catalogue's bottom page margin and the lines of footer note it holds above the brand
+     * line. Each line more makes the margin one note line (6.4 pt at 1.3, 3 mm) deeper; past three
+     * more the copy itself is too long and the margin stops growing.
+     */
+    private static final int COMPACT_FOOTER_MM = 20;
+    private static final int COMPACT_FOOTER_LINES = 3;
+    private static final int COMPACT_FOOTER_LINE_MM = 3;
+    private static final int COMPACT_FOOTER_MAX_EXTRA_LINES = 3;
     /** All chapters share the same restrained bordeaux brand palette. */
     private static final int TONE_COUNT = 1;
     /* Real four-variant families with complete translated sales copy still fit the compact
@@ -89,7 +98,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private final CatalogEditorialAssets editorial;
     private final ContentTranslationService content;
     private final StaffContactService staffContacts;
-    private final CataloguePallet pallets;
 
     public PdfCatalogRenderer(@Location("catalog.html") Template simpleTemplate,
                               @Location("catalog-brochure.html") Template brochureTemplate,
@@ -101,8 +109,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                               PdfImageEncoder imageEncoder,
                               CatalogEditorialAssets editorial,
                               ContentTranslationService content,
-                              StaffContactService staffContacts,
-                              CataloguePallet pallets) {
+                              StaffContactService staffContacts) {
         this.simpleTemplate = simpleTemplate;
         this.brochureTemplate = brochureTemplate;
         this.products = products;
@@ -114,7 +121,6 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         this.editorial = editorial;
         this.content = content;
         this.staffContacts = staffContacts;
-        this.pallets = pallets;
     }
 
     /**
@@ -606,7 +612,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         if (catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE) {
             return new Document(fileName(catalog), brochurePdf(catalog), "application/pdf");
         }
-        return new Document(fileName(catalog), fonts.render(renderHtml(catalog)), "application/pdf");
+        return new Document(fileName(catalog), compactPdf(catalog), "application/pdf");
     }
 
     /**
@@ -624,14 +630,29 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     }
 
     /**
-     * Package-visible for focused template tests without extracting text from compressed PDFs.
-     * Family sheets appear as first laid out; {@link #render} still makes overlong ones compact.
+     * The compact catalogue's footer note stands in the bottom page margin, which does not grow with
+     * its text. The layout is read before the PDF is written; a note that runs past the lines the
+     * margin holds (CompactFooterFit says when) is laid out again with a deeper margin, reusing the
+     * photos already prepared, so the brand line and the page number never reach the paper edge.
+     * Every other compact PDF is written from its first layout, as before.
      */
-    String renderHtml(CatalogExportService.Model catalog) {
+    private byte[] compactPdf(CatalogExportService.Model catalog) {
         requireCompleteCopy(catalog);
-        return catalog.request().resolvedLayout() == CatalogExportService.Layout.BROCHURE
-                ? brochureHtml(catalog, new PhotoResolver(), Set.of(), Set.of(), Set.of(), OVERVIEW_ROWS_PER_PAGE)
-                : simpleHtml(catalog);
+        PhotoResolver photos = new PhotoResolver();
+        int[] noteLines = new int[1];
+        Optional<byte[]> pdf = fonts.render(simpleHtml(catalog, photos, 0), laidOut -> {
+            noteLines[0] = CompactFooterFit.noteLines(laidOut);
+            return noteLines[0] <= COMPACT_FOOTER_LINES;
+        });
+        if (pdf.isPresent()) return pdf.get();
+        int extraLines = noteLines[0] - COMPACT_FOOTER_LINES;
+        if (extraLines > COMPACT_FOOTER_MAX_EXTRA_LINES) {
+            LOG.warnf("De voetnoot van het compacte overzicht telt %d regels; kort de teksten in", (Object) noteLines[0]);
+            extraLines = COMPACT_FOOTER_MAX_EXTRA_LINES;
+        }
+        LOG.infof("De voetnoot van het compacte overzicht telt %d regels; opnieuw met %d mm meer ondermarge",
+                (Object) noteLines[0], (Object) (extraLines * COMPACT_FOOTER_LINE_MM));
+        return fonts.render(simpleHtml(catalog, photos, extraLines));
     }
 
     /**
@@ -723,11 +744,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return strictMissing(catalog, catalogLanguage(catalog.request().language()));
     }
 
-    private String simpleHtml(CatalogExportService.Model catalog) {
+    /** {@code extraFooterLines}: the lines of footer note past the three the bottom margin holds (compactPdf). */
+    private String simpleHtml(CatalogExportService.Model catalog, PhotoResolver photos, int extraFooterLines) {
         CatalogExportService.Request request = catalog.request();
         Language language = catalogLanguage(request.language());
         Map<String, String> copy = catalogCopy(language);
-        PhotoResolver photos = new PhotoResolver();
         Set<Long> catalogueFamilyPhotoIds = catalog.families().stream()
                 .map(CatalogExportService.FamilyGroup::content)
                 .filter(Objects::nonNull)
@@ -735,8 +756,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .map(CatalogFamilyReader.GalleryPhoto::id)
                 .filter(Objects::nonNull)
                 .collect(java.util.stream.Collectors.toUnmodifiableSet());
+        /* The pallet and the kar of THIS export (its own heights and spill, or the standard). */
+        CataloguePallet.Loads loads = catalog.loads();
         java.util.function.Function<CatalogExportService.FamilyGroup, List<CompactProduct>> compact = group ->
-                compactProducts(group, language, request, catalog.prices(), photos, copy, catalogueFamilyPhotoIds);
+                compactProducts(group, language, request, catalog.prices(), loads, photos, copy,
+                        catalogueFamilyPhotoIds);
 
         List<CompactSection> sections = new ArrayList<>();
         if (request.resolvedPreserveProductOrder()) {
@@ -798,19 +822,35 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("logo", editorial.image("logo-gold.png"))
                 .data("company", profile)
                 .data("catalogContacts", staffContacts.catalogContacts())
-                .data("palletBasis", palletBasis(language, copy))
-                .data("karBasis", karBasis(language, copy))
+                .data("footerRoomMm", COMPACT_FOOTER_MM + extraFooterLines * COMPACT_FOOTER_LINE_MM)
                 .data("icons", compactIcons())
                 .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
                 /* The running header is one line: a long name is cut shorter there. */
                 .data("recipientShort", catalog.recipient() == null ? ""
                         : clamp(catalog.recipient().name(), RECIPIENT_HEADER_CHARS))
                 .data("validityLine", validityLine(catalog, language, copy))
-                /* Every page says whose prices these are; an anonymous list keeps its footer as it was. */
-                .data("priceBasis", catalog.recipient() != null && request.includePrices()
-                        ? priceBasis(catalog, namedUnits, copy) : "")
+                .data("footerNote", compactFooterNote(catalog, loads, namedUnits, language, copy))
                 .data("copy", copy)
                 .render();
+    }
+
+    /**
+     * The note on every compact page, one text so the footer and its measuring copy cannot differ:
+     * whose prices these are and until when (a price list for a recipient; an anonymous list keeps
+     * its footer as it was), the standing sentence, then what the per-pallet and per-kar figures
+     * assume.
+     */
+    private static String compactFooterNote(CatalogExportService.Model catalog, CataloguePallet.Loads loads,
+                                            boolean namedUnits, Language language, Map<String, String> copy) {
+        StringBuilder note = new StringBuilder();
+        if (catalog.recipient() != null && catalog.request().includePrices()) {
+            note.append(priceBasis(catalog, namedUnits, copy)).append(' ');
+        }
+        String validity = validityLine(catalog, language, copy);
+        if (present(validity)) note.append(validity).append(". ");
+        return note.append(copy(copy, "catalog.simple.footer")).append(' ')
+                .append(palletBasis(loads.pallet(), language, copy)).append(' ')
+                .append(karBasis(loads.kar(), language, copy)).toString();
     }
 
     /**
@@ -860,9 +900,11 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         List<CatalogExportService.FamilyGroup> familyOrder = request.resolvedPreserveProductOrder()
                 ? catalog.families() : brochureFamilyOrder(catalog.families());
         String priceHeading = priceHeading(catalog, copy);
+        /* The pallet and the kar of THIS export (its own heights and spill, or the standard). */
+        CataloguePallet.Loads loads = catalog.loads();
         for (CatalogExportService.FamilyGroup group : familyOrder) {
             FamilyRenderData rendered = brochureFamily(
-                    group, language, request, catalog.prices(), priceHeading, photos, copy, index++);
+                    group, language, request, catalog.prices(), loads, priceHeading, photos, copy, index++);
             BrochureFamily family = rendered.family();
             allFamilies.add(family);
             renderedFamilies.add(rendered);
@@ -955,8 +997,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .data("includePrices", request.includePrices())
                 /* One named unit in the book turns the "per piece" column header and footnote neutral. */
                 .data("namedUnits", namedUnits)
-                .data("palletBasis", palletBasis(language, copy))
-                .data("karBasis", karBasis(language, copy))
+                .data("palletBasis", palletBasis(loads.pallet(), language, copy))
+                .data("karBasis", karBasis(loads.kar(), language, copy))
                 .data("recipientLine", recipientLine(catalog, copy, RECIPIENT_LINE_CHARS))
                 .data("validityLine", validityLine(catalog, language, copy))
                 .data("priceHeading", priceHeading)
@@ -1073,32 +1115,38 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private List<CompactProduct> compactProducts(
             CatalogExportService.FamilyGroup group, Language language,
             CatalogExportService.Request request, CatalogExportService.PriceBook prices,
+            CataloguePallet.Loads loads,
             PhotoResolver photos, Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         List<Product> variants = request.resolvedPreserveProductOrder() ? group.variants()
                 : group.variants().stream().sorted(Comparator.comparingInt(Product::variantPosition)
                         .thenComparing(Product::id, Comparator.nullsLast(Long::compareTo))).toList();
         Map<List<String>, List<Product>> sets = new LinkedHashMap<>();
         for (Product product : variants) {
-            sets.computeIfAbsent(compactFigures(product, language, request, prices, copy),
+            sets.computeIfAbsent(compactFigures(product, language, request, prices, loads, copy),
                     ignored -> new ArrayList<>()).add(product);
         }
         List<CompactProduct> products = new ArrayList<>();
         for (List<Product> colours : sets.values()) {
-            products.add(compactProduct(group.content(), colours, language, request, prices, photos, copy,
+            products.add(compactProduct(group.content(), colours, language, request, prices, loads, photos, copy,
                     catalogueFamilyPhotoIds));
         }
         return List.copyOf(products);
     }
 
-    /** Everything a compact product prints above its colours, as text: equal lists share one product. */
+    /**
+     * Everything a compact product prints above its colours, as text: equal lists share one product.
+     * The pallet and kar figures are this export's, so a height or spill that gives two colours
+     * different counts splits their card, and one that makes them equal again joins them.
+     */
     private List<String> compactFigures(Product product, Language language,
                                         CatalogExportService.Request request,
-                                        CatalogExportService.PriceBook prices, Map<String, String> copy) {
+                                        CatalogExportService.PriceBook prices,
+                                        CataloguePallet.Loads loads, Map<String, String> copy) {
         List<String> figures = new ArrayList<>();
         figures.add(cartonQuantity(product, language, copy, true));
         figures.add(product.carton() == null ? "" : compactDimensions(product.carton().dimensions()));
-        figures.add(palletLabel(product, language, copy, true));
-        figures.add(karLabel(product, language, copy, true));
+        figures.add(palletLabel(product, loads, language, copy, true));
+        figures.add(karLabel(product, loads, language, copy, true));
         figures.add(namedCapacity(product, product.carton() == null ? null : product.carton().gpCapacity(), language, copy));
         figures.add(namedCapacity(product, product.carton() == null ? null : product.carton().hcCapacity(), language, copy));
         figures.add(perUnitLabel(product, language, copy));
@@ -1112,6 +1160,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private CompactProduct compactProduct(
             CatalogFamilyReader.Family family, List<Product> colours, Language language,
             CatalogExportService.Request request, CatalogExportService.PriceBook prices,
+            CataloguePallet.Loads loads,
             PhotoResolver photos, Map<String, String> copy, Set<Long> catalogueFamilyPhotoIds) {
         Product first = colours.getFirst();
         Set<String> sizes = new LinkedHashSet<>();
@@ -1125,8 +1174,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 .map(product -> compactColour(product, sizePerColour, allowed, photos, language,
                         catalogueFamilyPhotoIds))
                 .toList();
-        int pallet = cartonsPerPallet(first);
-        int kar = cartonsPerKar(first);
+        int pallet = cartonsPerPallet(first, loads);
+        int kar = cartonsPerKar(first, loads);
         return new CompactProduct(
                 compactName(family, first, language),
                 sizePerColour || sizes.isEmpty() ? "" : sizes.iterator().next(),
@@ -1191,6 +1240,7 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
     private FamilyRenderData brochureFamily(
             CatalogExportService.FamilyGroup group, Language language,
             CatalogExportService.Request request, CatalogExportService.PriceBook prices,
+            CataloguePallet.Loads loads,
             String priceHeading, PhotoResolver photos, Map<String, String> copy, int index) {
         Product first = group.variants().getFirst();
         CatalogFamilyReader.Family family = group.content();
@@ -1245,9 +1295,9 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         request.includePrices() ? displayPriceLabel(product, language, copy, prices) : null,
                         cartonQuantity(product, language, copy, true),
                         perUnitLabel(product, language, copy),
-                        palletCapacity(product, language, copy),
+                        palletCapacity(product, loads, language, copy),
                         capacity40Ft(product, language, copy),
-                        karCapacity(product, language, copy)))
+                        karCapacity(product, loads, language, copy)))
                 .toList();
 
         String familySize = familyDimension(family, first);
@@ -1258,8 +1308,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         boolean capacitiesPerVariant = capacitiesDiffer(variants);
         List<SpecRow> specs = specRows(group.variants(), language, copy,
                 request.includePrices() ? prices : null, priceHeading,
-                capacitiesPerVariant ? null : product -> palletLabel(product, language, copy, false),
-                capacitiesPerVariant ? null : product -> karLabel(product, language, copy, false));
+                capacitiesPerVariant ? null : product -> palletLabel(product, loads, language, copy, false),
+                capacitiesPerVariant ? null : product -> karLabel(product, loads, language, copy, false));
         ensureFamilyPageCapacity(name, summary, description, format, highlights,
                 categoryName, familySize, packageLine, referencePriceLabel,
                 variants, photoLayout.extras().size(), specs.size());
@@ -1271,8 +1321,8 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                         photoLayout.extras().size(),
                         variants.stream().anyMatch(variant -> present(variant.image()))),
                 variants, specs, 0, rangeFacts(group.variants(), language, copy,
-                        product -> palletCapacity(product, language, copy),
-                        product -> karCapacity(product, language, copy)), "tone-1", largeDetail,
+                        product -> palletCapacity(product, loads, language, copy),
+                        product -> karCapacity(product, loads, language, copy)), "tone-1", largeDetail,
                 request.includePrices() ? familyDisplayPriceLabel(group.variants(), language, copy, prices) : null,
                 familyPerUnitLabel(group.variants(), language, copy));
         return new FamilyRenderData(rendered, List.copyOf(detailOrder));
@@ -1550,14 +1600,18 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
         return capacity == null || capacity <= 0 ? "-" : capacityQuantity(product, capacity, language, copy);
     }
 
-    /** Whole omdozen on one pallet as Palletberekening stacks them; 0 when the carton size is incomplete. */
-    private int cartonsPerPallet(Product product) {
-        return product.carton() == null ? 0 : pallets.cartonsPerPallet(product.carton());
+    /**
+     * Whole omdozen on one pallet as Palletberekening stacks them, at this export's height and spill;
+     * 0 when the carton size is incomplete.
+     */
+    private static int cartonsPerPallet(Product product, CataloguePallet.Loads loads) {
+        return product.carton() == null ? 0 : loads.cartonsPerPallet(product.carton());
     }
 
     /** Units on one pallet, worded like the container figures: "864", "96 displays", "480 bowls". */
-    private String palletCapacity(Product product, Language language, Map<String, String> copy) {
-        int cartons = cartonsPerPallet(product);
+    private static String palletCapacity(Product product, CataloguePallet.Loads loads, Language language,
+                                         Map<String, String> copy) {
+        int cartons = cartonsPerPallet(product, loads);
         return cartons <= 0 ? "-"
                 : capacityQuantity(product, (long) cartons * product.carton().piecesPerCarton(), language, copy);
     }
@@ -1566,31 +1620,33 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
      * The pallet figure with the omdozen it takes, where there is room for them: "864 (72 omdozen)"
      * in the specification list, "864 st. (72 omdozen)" with {@code unitWord} in the compact catalogue.
      */
-    private String palletLabel(Product product, Language language, Map<String, String> copy, boolean unitWord) {
-        int cartons = cartonsPerPallet(product);
-        if (cartons <= 0) return "-";
-        long units = (long) cartons * product.carton().piecesPerCarton();
-        return copy(copy, "catalog.quantity.palletcartons")
-                .replace("{units}", unitWord ? namedCapacity(product, units, language, copy)
-                        : capacityQuantity(product, units, language, copy))
-                .replace("{cartons}", integer(cartons, language));
+    private static String palletLabel(Product product, CataloguePallet.Loads loads, Language language,
+                                      Map<String, String> copy, boolean unitWord) {
+        return loadLabel(product, cartonsPerPallet(product, loads), language, copy, unitWord);
     }
 
     /** Whole omdozen on one Deense kar, stacked as on a pallet; 0 when the carton size is incomplete. */
-    private int cartonsPerKar(Product product) {
-        return product.carton() == null ? 0 : pallets.cartonsPerKar(product.carton());
+    private static int cartonsPerKar(Product product, CataloguePallet.Loads loads) {
+        return product.carton() == null ? 0 : loads.cartonsPerKar(product.carton());
     }
 
     /** Units on one Deense kar, worded like the pallet's: "480", "96 displays", "1.120 bowls". */
-    private String karCapacity(Product product, Language language, Map<String, String> copy) {
-        int cartons = cartonsPerKar(product);
+    private static String karCapacity(Product product, CataloguePallet.Loads loads, Language language,
+                                      Map<String, String> copy) {
+        int cartons = cartonsPerKar(product, loads);
         return cartons <= 0 ? "-"
                 : capacityQuantity(product, (long) cartons * product.carton().piecesPerCarton(), language, copy);
     }
 
     /** The kar figure with its omdozen, exactly as {@link #palletLabel} words the pallet's. */
-    private String karLabel(Product product, Language language, Map<String, String> copy, boolean unitWord) {
-        int cartons = cartonsPerKar(product);
+    private static String karLabel(Product product, CataloguePallet.Loads loads, Language language,
+                                   Map<String, String> copy, boolean unitWord) {
+        return loadLabel(product, cartonsPerKar(product, loads), language, copy, unitWord);
+    }
+
+    /** "864 (72 omdozen)" for a pallet or a kar of this many whole omdozen; "-" when none fit. */
+    private static String loadLabel(Product product, int cartons, Language language,
+                                    Map<String, String> copy, boolean unitWord) {
         if (cartons <= 0) return "-";
         long units = (long) cartons * product.carton().piecesPerCarton();
         return copy(copy, "catalog.quantity.palletcartons")
@@ -1624,20 +1680,30 @@ public class PdfCatalogRenderer implements CatalogDocumentRenderer {
                 : unitsText(product, quantity, language, copy);
     }
 
-    /** What the per-pallet figures assume, once per document: footprint, loaded height, weight. */
-    private String palletBasis(Language language, Map<String, String> copy) {
-        CataloguePallet.Basis basis = pallets.basis();
-        return copy(copy, "catalog.common.palletbasis")
-                .replace("{size}", measure(basis.widthCm(), language) + " × " + measure(basis.depthCm(), language))
-                .replace("{height}", measure(basis.maxHeightCm(), language))
-                .replace("{weight}", measure(basis.maxWeightKg(), language));
+    /**
+     * What the per-pallet figures assume, once per document: footprint, loaded height, weight. With
+     * a spill the sentence of its own key names it ("omdozen tot 2 cm over de rand"); without one
+     * (a PDF made at spill 0) the older sentence prints, word for word what it always printed.
+     */
+    private static String palletBasis(CataloguePallet.Basis basis, Language language, Map<String, String> copy) {
+        return basisText(copy(copy, basis.spills()
+                ? "catalog.common.palletbasisspill" : "catalog.common.palletbasis"), basis, language);
     }
 
-    /** What the per-kar figures assume, once per document: the kar's floor, loaded height, weight. */
-    private String karBasis(Language language, Map<String, String> copy) {
-        CataloguePallet.Basis basis = pallets.karBasis();
-        return copy(copy, "catalog.common.karbasis")
+    /**
+     * What the per-kar figures assume, once per document: the kar's floor, loaded height, weight.
+     * With a spill: "omdozen tot 2 cm over de lange zijden", the only sides a kar's load may pass.
+     */
+    private static String karBasis(CataloguePallet.Basis basis, Language language, Map<String, String> copy) {
+        return basisText(copy(copy, basis.spills()
+                ? "catalog.common.karbasisspill" : "catalog.common.karbasis"), basis, language);
+    }
+
+    /** The size is the nominal floor (120 × 80, 127 × 54,5): the spill is named, never added to it. */
+    private static String basisText(String sentence, CataloguePallet.Basis basis, Language language) {
+        return sentence
                 .replace("{size}", measure(basis.widthCm(), language) + " × " + measure(basis.depthCm(), language))
+                .replace("{spill}", measure(basis.spillCm(), language))
                 .replace("{height}", measure(basis.maxHeightCm(), language))
                 .replace("{weight}", measure(basis.maxWeightKg(), language));
     }

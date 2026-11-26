@@ -30,6 +30,8 @@ import java.util.Locale;
  * short transaction after the render (which can take minutes and runs outside one); a failed
  * write fails the export, so no priced PDF leaves unrecorded. For a stored customer with prices
  * the Logboek says "Catalogus met prijzen gemaakt"; the ERP only knows the PDF was made.
+ * Each row also keeps the loading heights and the spill its per-pallet and per-kar figures were
+ * counted with (null on a row from before 2026-11-26).
  */
 @ApplicationScoped
 public class CatalogExportJournal {
@@ -41,7 +43,9 @@ public class CatalogExportJournal {
     public record Header(Long id, Instant exportedAt, String exportedBy, Long customerId, String customerName,
                          String language, String layout, boolean includePrices, LocalDate pricesValidUntil,
                          int productCount, int customerPriceCount, int oneOffCount, int onRequestCount,
-                         String fileName, String pdfSha256) {}
+                         String fileName, String pdfSha256,
+                         /** Cm the figures were counted with; null on a row from before 2026-11-26. */
+                         BigDecimal palletHeightCm, BigDecimal karHeightCm, BigDecimal spillCm) {}
 
     public record Line(Long productId, String sku, String name, BigDecimal printedPriceEur,
                        BigDecimal cataloguePriceEur, BigDecimal customerPriceEur, String priceSource,
@@ -51,7 +55,9 @@ public class CatalogExportJournal {
     public record Detail(Long id, Instant exportedAt, String exportedBy, Long customerId, String customerName,
                          String language, String layout, boolean includePrices, LocalDate pricesValidUntil,
                          int productCount, int customerPriceCount, int oneOffCount, int onRequestCount,
-                         String fileName, String pdfSha256, List<Line> lines) {}
+                         String fileName, String pdfSha256,
+                         BigDecimal palletHeightCm, BigDecimal karHeightCm, BigDecimal spillCm,
+                         List<Line> lines) {}
 
     private final EntityManager entities;
     private final CurrentActor actor;
@@ -90,6 +96,10 @@ public class CatalogExportJournal {
         export.fileName = document.filename();
         export.pdfBytes = document.content().length;
         export.pdfSha256 = sha256(document.content());
+        CatalogExportService.Load load = CatalogExportService.Load.of(model.loads());
+        export.palletHeightCm = load.palletHeightCm();
+        export.karHeightCm = load.karHeightCm();
+        export.spillCm = load.spillCm();
         entities.persist(export);
 
         int position = 0;
@@ -116,6 +126,13 @@ public class CatalogExportJournal {
                     summary(export), ActivityChangeSet.create()
                             .add("fileName", "Bestand", null, export.fileName)
                             .add("pricesValidUntil", "Geldig tot", null, export.pricesValidUntil)
+                            /* Only what was chosen for this PDF: a PDF on the standard reads as before. */
+                            .add("palletHeightCm", "Pallethoogte (cm)", null,
+                                    request.palletHeightCm() == null ? null : load.palletHeightCm())
+                            .add("karHeightCm", "Hoogte Deense kar (cm)", null,
+                                    request.karHeightCm() == null ? null : load.karHeightCm())
+                            .add("spillCm", "Spill (cm)", null,
+                                    request.spillCm() == null ? null : load.spillCm())
                             .build());
         }
         return export.id;
@@ -144,7 +161,8 @@ public class CatalogExportJournal {
         return new Detail(header.id(), header.exportedAt(), header.exportedBy(), header.customerId(),
                 header.customerName(), header.language(), header.layout(), header.includePrices(),
                 header.pricesValidUntil(), header.productCount(), header.customerPriceCount(),
-                header.oneOffCount(), header.onRequestCount(), header.fileName(), header.pdfSha256(), lines);
+                header.oneOffCount(), header.onRequestCount(), header.fileName(), header.pdfSha256(),
+                header.palletHeightCm(), header.karHeightCm(), header.spillCm(), lines);
     }
 
     private Header header(CatalogExportEntity export) {
@@ -153,7 +171,7 @@ public class CatalogExportJournal {
         return new Header(export.id, export.exportedAt, by, export.customerId, export.customerName,
                 export.language, export.layout, export.includePrices, export.pricesValidUntil,
                 export.productCount, export.customerPriceCount, export.oneOffCount, export.onRequestCount,
-                export.fileName, export.pdfSha256);
+                export.fileName, export.pdfSha256, export.palletHeightCm, export.karHeightCm, export.spillCm);
     }
 
     /** "Catalogus met prijzen gemaakt · 24 producten, 3 klantprijzen, 2 eenmalig · Handelscatalogus NL". */
