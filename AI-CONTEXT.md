@@ -193,12 +193,17 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   (`copyVatChoice`: invoice from quote, advance, slotfactuur, split part,
   duplicate, credit note). The route changes on a CONCEPT only; credit notes,
   advance/slot invoices and split parts are locked.
+  A quote with live advance invoices is locked too, and a stored route the
+  source no longer fits is never copied.
   **Pin**: an invoice or credit note that leaves concept (`issueInvoice`,
   `markInvoiceSent`) keeps the treatment and rate it left with
-  (`treatment`, `rate_pct`); `SalesVatPinJob` (10 min after start, every
+  (`treatment`, `rate_pct`): the pricing of the CONCEPT, taken before the
+  status change (`pinVat(saved, leftWith)`). Never pin `price(issued)`: that
+  reads back the regime of an earlier issue, or prices a credit note live; `SalesVatPinJob` (10 min after start, every
   10 min) pins what was issued earlier or left by another path. A pinned
   document no longer follows the customer's tick, VAT number or the country's
-  rate. Reopened (CONCEPT again) it stays on the route it was issued on, and
+  rate. Reopened (CONCEPT again) it stays on the route it was issued on
+  (only VERLEGD, INTRACOMMUNAUTAIR and DIENST_* name a route), and
   changing that route needs `confirmed: true` (the screen's warning). A
   concept credit note prices in its invoice's pinned regime. A **split
   delivery** prices in the regime stored with its split (before this, a

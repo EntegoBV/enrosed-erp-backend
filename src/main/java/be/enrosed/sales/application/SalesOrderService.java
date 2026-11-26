@@ -399,9 +399,15 @@ public class SalesOrderService {
         return vat.determine(country, customer, route, route == SalesVatChoice.SERVICE ? vatChoices.get().homeRate() : null);
     }
 
-    /** An invoice or credit note left concept: it holds its VAT regime from here (SalesVatChoices.pin). */
-    private void pinVat(SalesOrder issued) {
-        if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().pin(issued, price(issued));
+    /**
+     * An invoice or credit note left concept: it holds its VAT regime from here (SalesVatChoices.pin).
+     * {@code leftWith} is the pricing of the CONCEPT, taken before the status change: what the screen,
+     * the send checks and the mailed PDF showed. Pricing the issued document instead would read back
+     * the regime of an earlier issue (a reopened invoice) or price a credit note live instead of in
+     * its invoice's regime.
+     */
+    private void pinVat(SalesOrder issued, PricedOrder leftWith) {
+        if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().pin(issued, leftWith);
     }
 
     /** A derived document (invoice, split part, copy, credit note) takes its source's VAT route at creation. */
@@ -1909,8 +1915,9 @@ public class SalesOrderService {
         }
         validateInvoiceForSend(invoice, belowMinimumAccepted);
         String belowMinimum = belowMinimumNote(invoice, belowMinimumAccepted);
+        PricedOrder leftWith = price(invoice);
         SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
-        pinVat(saved);
+        pinVat(saved, leftWith);
         String label = (invoice.isCreditNote() ? "Creditnota uitgereikt zonder verzending" : "Factuur uitgereikt zonder verzending") + belowMinimum;
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, Instant.now(),
                 currentActor().displayName(), false, label, null));
@@ -1939,8 +1946,9 @@ public class SalesOrderService {
         boolean fromConcept = invoice.status() == QuoteStatus.CONCEPT;
         SalesOrder sent = withStatus(invoice, invoice.status() == QuoteStatus.BETAALD ? QuoteStatus.BETAALD : QuoteStatus.VERZONDEN,
                 java.time.Instant.now(), invoice.paidAt());
+        PricedOrder leftWith = fromConcept ? price(invoice) : null;
         SalesOrder saved = orders.save(sent);
-        if (fromConcept) pinVat(saved);
+        if (fromConcept) pinVat(saved, leftWith);
         ActorRef actor = currentActor();
         /* A credit note that leaves straight from concept is issued by that act: its own
            history and the invoice's say so, as they do when it is issued without mail. */
@@ -2007,7 +2015,9 @@ public class SalesOrderService {
         if (invoice.customerId() == null) {
             throw new BusinessRuleException("Koppel eerst een klant aan de factuur");
         }
-        if (invoice.freight() == FreightState.TE_BEPALEN) {
+        boolean service = vatChoices != null && vatChoices.isResolvable() && vatChoices.get().isService(invoice);
+        /* A service ships nothing: a freight state left on 'later bepalen' prices nothing and blocks nothing. */
+        if (invoice.freight() == FreightState.TE_BEPALEN && !service) {
             throw new BusinessRuleException(
                     "De vracht staat nog op 'later bepalen' - een factuur moet volledig geprijsd zijn");
         }
@@ -2035,7 +2045,8 @@ public class SalesOrderService {
         Country country = countries.find(invoice.countryCode());
         boolean intraEu = country != null && country.euMember()
                 && !"BE".equalsIgnoreCase(invoice.countryCode());
-        if (intraEu && isBlank(customer.vatNumber())) {
+        /* A service for an EU customer without VAT number is taxed at the Belgian rate: nothing is shifted. */
+        if (intraEu && isBlank(customer.vatNumber()) && !service) {
             throw new BusinessRuleException("Vul het BTW-nummer van " + customer.company()
                     + " in - zonder geldig BTW-nummer kan de BTW niet verlegd worden");
         }

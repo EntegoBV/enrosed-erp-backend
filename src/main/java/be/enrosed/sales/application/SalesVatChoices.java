@@ -68,7 +68,12 @@ public class SalesVatChoices {
 
     /** One stored row: the document's own route, and the regime it was issued with; either may be absent. */
     public record Row(SalesVatChoice choice, VatTreatment treatment, BigDecimal ratePct) {
-        Pin pin() { return treatment == null ? null : new Pin(treatment, ratePct == null ? BigDecimal.ZERO : ratePct); }
+        /** The rate in the scale live pricing gives it (a country's rate has two decimals, an exempt regime plain zero). */
+        Pin pin() {
+            if (treatment == null) return null;
+            return new Pin(treatment, ratePct == null || ratePct.signum() == 0 ? BigDecimal.ZERO
+                    : ratePct.setScale(2, java.math.RoundingMode.HALF_UP));
+        }
     }
 
     @Inject EntityManager entities;
@@ -143,7 +148,10 @@ public class SalesVatChoices {
             throw new BusinessRuleException(wanted == SalesVatChoice.SERVICE
                     ? "Een dienst kan alleen op een document zonder productregels"
                     : "Deze btw-regeling past niet bij deze klant en dit land");
-        if (wanted == before.route()) return before;
+        if (wanted == before.route()) {
+            forgetUnfitChoice(id, wanted, before);
+            return before;
+        }
         if (before.needsConfirm() && !confirmed)
             throw new BusinessRuleException("Deze factuur is eerder uitgereikt en houdt haar btw-regeling vast."
                     + " Bevestig dat je ze toch wilt wijzigen");
@@ -172,13 +180,34 @@ public class SalesVatChoices {
         return view(order, customer, country);
     }
 
-    /** A derived document takes its source's route once, at creation, inside the creating transaction. */
+    /**
+     * A stored choice the document no longer fits (Dienst on a document that got product lines, the
+     * fiscal route for a customer whose VAT number went) reads as the standard; picking that standard
+     * removes it, so it cannot come back to life later or travel to a derived document.
+     */
+    private void forgetUnfitChoice(long id, SalesVatChoice wanted, View before) {
+        var stored = entities.find(SalesOrderVatChoiceEntity.class, id);
+        SalesVatChoice kept = stored == null ? null : SalesVatChoice.stored(stored.choice);
+        if (kept == null || kept == wanted || wanted != before.customerRoute()) return;
+        stored.choice = null;
+        stored.updatedAt = Instant.now();
+        if (stored.treatment == null) entities.remove(stored);
+        entities.flush();
+        forget();
+    }
+
+    /**
+     * A derived document takes its source's route once, at creation, inside the creating transaction:
+     * the route the source is priced with, never a stored one it no longer fits (a Dienst left on a
+     * quote that got product lines would turn its line-less advance invoice into a service).
+     */
     @Transactional
     public void copy(Long sourceId, Long targetId) {
         if (sourceId == null || targetId == null) return;
         var source = entities.find(SalesOrderVatChoiceEntity.class, sourceId);
         if (source == null || SalesVatChoice.stored(source.choice) == null
                 || entities.find(SalesOrderVatChoiceEntity.class, targetId) != null) return;
+        if (SalesVatChoice.stored(source.choice) == SalesVatChoice.SERVICE && !serviceFits(sales.get(sourceId))) return;
         var copy = row(targetId);
         copy.choice = source.choice;
         copy.updatedAt = Instant.now();
@@ -249,6 +278,9 @@ public class SalesVatChoices {
         if (order.isCreditNote()) return "Een creditnota volgt de btw-regeling van haar factuur";
         if (derived(order)) return "Een voorschot- of slotfactuur volgt de btw-regeling van haar offerte";
         if (sales.hasSplitOrder(order)) return "Een gesplitste levering houdt de btw-regeling van haar verdeling";
+        /* As customer and country are (SalesAdvanceBillingService.requireParties): the advances were made in this regime. */
+        if (hasLiveAdvances(order))
+            return "De btw-regeling ligt vast zolang er een voorschotfactuur op deze offerte bestaat; verwijder of crediteer die eerst";
         if (order.status() != QuoteStatus.CONCEPT)
             return order.isClaimDocument() ? "Vastgelegd bij uitgifte. Wijzigen kan alleen nadat de factuur heropend is."
                     : "De btw-regeling kan alleen op een concept worden gewijzigd";
@@ -260,6 +292,14 @@ public class SalesVatChoices {
         if (order.id() == null || !order.isClaimDocument() || order.isCreditNote()) return false;
         try {
             return advanceBilling != null && advanceBilling.isResolvable() && advanceBilling.get().presentation(order) != null;
+        } catch (RuntimeException unknown) {
+            return false;
+        }
+    }
+
+    private boolean hasLiveAdvances(SalesOrder order) {
+        try {
+            return advanceBilling != null && advanceBilling.isResolvable() && advanceBilling.get().hasLiveAdvances(order);
         } catch (RuntimeException unknown) {
             return false;
         }
@@ -305,7 +345,12 @@ public class SalesVatChoices {
         Row row = find(order.id());
         if (row == null) return null;
         if (row.choice() != null) return row.choice();
-        return row.treatment() != null && order.isClaimDocument() ? routeOf(row.treatment()) : null;
+        if (row.treatment() == null || !order.isClaimDocument()) return null;
+        /* Domestic, export and "EU without VAT number" follow from country and customer, not from a route:
+           read as BELGIUM they would turn a fiscal customer's reopened invoice into an intra-community one. */
+        VatTreatment held = row.treatment();
+        return held == VatTreatment.VERLEGD_FISCAAL_VERTEGENWOORDIGER || held == VatTreatment.INTRACOMMUNAUTAIR
+                || held.isService() ? routeOf(held) : null;
     }
 
     private Row find(long id) {

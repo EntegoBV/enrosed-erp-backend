@@ -7,8 +7,13 @@
 --              documents issued before this release, with the regime they are priced with at that
 --              moment; no amount or wording changes by that.
 -- The names are text without a CHECK: an image from before this release never reads the table, and
--- an unknown name reads as "not recorded". Rerunnable. Roll back by removing the rows (every
--- document then follows its customer live again, as before).
+-- an unknown name reads as "not recorded". Rerunnable.
+--
+-- Rollback: an image from before this release prices every document live by the goods rules again.
+-- For goods documents that is the old behaviour. A SERVICE document (no product lines) is then
+-- taxed as a goods supply, so roll back only while none has left concept. Read-only check:
+--   select c.sales_order_id, c.choice, c.treatment from sales_order_vat_choice c
+--   where c.choice = 'SERVICE' or c.treatment like 'DIENST_%';
 BEGIN;
 
 CREATE TABLE IF NOT EXISTS sales_order_vat_choice (
