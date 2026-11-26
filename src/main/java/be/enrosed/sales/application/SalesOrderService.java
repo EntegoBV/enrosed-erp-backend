@@ -1975,6 +1975,11 @@ public class SalesOrderService {
             throw new BusinessRuleException(
                     "De vracht staat nog op 'later bepalen' - een factuur moet volledig geprijsd zijn");
         }
+        /* Freight by hand on a Deense kar (Emre, 2026-11-25): an invoice never leaves on an empty fixed amount. */
+        if (!invoice.isCreditNote() && invoice.palletProfile() != null && invoice.palletProfile().isKar()
+                && invoice.freightPricingStrategy() == FreightPricingStrategy.FIXED && invoice.manualFreightEur() == null) {
+            throw new BusinessRuleException("Vul het vaste vrachtbedrag in");
+        }
         if (invoice.invoiceDueDate() == null) {
             throw new BusinessRuleException("Vul de vervaldatum van de factuur in");
         }
