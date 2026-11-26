@@ -44,6 +44,10 @@ public class InvoiceStatusMigration {
             widen("alter table sales_order alter column docType varchar(16)");
             widen("alter table sales_order alter column markupMode varchar(40)");
             widen("alter table deleted_item alter column type varchar(20)");
+            /* The same for the pallet profile, made a native ENUM before the Deense kar (DEENSE_KAR,
+               2026-11-25) existed. PostgreSQL widens its generated check by a dated migration instead:
+               docs/migrations/2026-11-25/sales-order-deense-kar-postgresql.sql. */
+            widen("alter table sales_order alter column palletProfile varchar(24)");
         }
         /* The generated check constraints, under every name Hibernate used. */
         widen("alter table sales_order drop constraint if exists sales_order_status_check");
