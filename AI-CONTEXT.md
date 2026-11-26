@@ -2392,7 +2392,9 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   of the deck it was given: with a spill the real floor's corner lies at (spill, spill) in it, on a Deense kar at
   (0, spill). PACKED stays capped by MIXED on the same floor, but it is not monotone in the floor either: on 3,000
   random europallet orders at 260 cm a spill of 2 cm counts fewer pallets on 824, the same on 2,152 and MORE on 24
-  (23 × one more, 1 × two); the seller can put such a document's spill back to 0.
+  (23 × one more, 1 × two). Pricing therefore never lets a spill cost a pallet: it chooses between the floor with
+  and the floor without the spill OUTSIDE this path (`SalesPricingCalculator.floorFor`, "A spill never costs a pallet"
+  under "Spill per document"); no step of the path changed for it.
 - `PalletCalculator.packedPallets`: placeable loads merged per product (line order), one kind per carton size (the
   heaviest colour's weight), every side; packed with at most the MIXED count; more pallets, or cartons left, and the
   mixed layout stands, so PACKED never counts more than MIXED. Items in the order their first carton was laid, `layers`
@@ -2530,6 +2532,48 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   `loadLengthCm()` / `loadWidthCm()`, `spillCm()` (the width's: every carrier spills there; 0 without one) and
   `withSpill(spill, alongLength)`. `PalletProfile.spillsAlongLength()` is false for the kar only. Base, height and
   weight never take a spill. The frontend must count on the same load floor (same numbers, 2s added in cm first).
+- **A spill never costs a pallet (the guard; main's rule of 2026-11-26).** The spill is an allowance: a seller may
+  always load inside the floor. But the packer is a search, not an optimum, and an omdoos that had to lie down may stand
+  up on a larger floor, so the same load now and then counts MORE pallets with a spill than without (80 omdozen of
+  56 × 47 × 10,5 cm + 17 of 58 × 58 × 58 cm on a europallet at 260 cm: 3 pallets without spill, 4 with 2 cm). The rule
+  lives in ONE place, `SalesPricingCalculator.floorFor`, called once at the top of `price`, the only method that prices
+  a document's load (`SalesOrderService.price` / `priceForStaff` / `priceSplit` for every screen, list, PDF, portal,
+  payment and Odoo reader, and `PublicQuoteService`'s website estimate), so everything follows alike:
+  - It acts only when the load goes on pallets or karren, the context's pallet carries a spill above 0 and the
+    document has NO hand-built pallets. A hand layout was made on a floor and the ERP judges it on that floor: such a
+    document stays on its stored spill (so saving a hand layout on a guarded document moves the answer from the floor
+    without spill back to the stored spill, and clearing it moves it back again).
+  - It acts only when the floor without spill takes EVERY product the floor with spill takes. An omdoos that stands
+    on the pallet or kar only thanks to the spill (58 × 58 × 58 cm across a Deense kar: 6 per kar at 2 cm, none at 0)
+    would drop out of the count without it; fewer karren then is not the same load, and the document keeps its spill.
+  - It counts the automatic pallets by the document's own rule (STRICT / MIXED / PACKED) with the spill and without.
+    Fewer WITHOUT: the whole answer is priced on the floor without spill: every per-line figure (per layer, per
+    pallet, pallets, layers, height), `palletsStrict`, `palletsOptimised`, `autoPallets`, the freight. The same or
+    more: with the spill, as before. A load of at most one pallet is not counted a second time.
+  - `priced.totals.palletSpillCm` is the EFFECTIVE spill, the floor the figures came from: 0 when the guard chose the
+    floor without spill. `order.palletSpillCm` stays the stored pick. The ERP draws and judges on the totals' value
+    and shows / sends the order's; nothing on the server reads the totals' value back (grep `palletSpillCm()`: every
+    read is the order's), and a save without the field keeps the stored one. Never write the effective value into
+    `order.palletSpillCm`: the next change of the lines would then be counted without the spill the seller picked.
+  - Nothing is stored and no existing document is touched (their spill is null, the guard never runs). Every pricing
+    chooses again, so the effective spill of a concept may move between the stored value and 0 as its lines change.
+  - It is a choice between two INPUTS of the frozen counting classes: `PalletCalculator` and `PalletPacker` have no
+    line changed. Lines are priced once (on the chosen floor, `loadOn` builds a line's load for the choice and for the
+    lines alike) and the count made for the chosen floor is handed on, so a document with a spill costs one extra
+    count. Measured: on the 40 largest proof sets (1,000 to 1,539 omdozen, 35 to 154 europallets, PACKED) one pricing
+    takes 2,7 ms on average with the guard against 1,4 ms without (worst 8,7 against 4,3 ms); a document without
+    spill is not slower (1,3 ms). Through the API a 1,213-omdozen PACKED quote answers in 126 ms with and 124 ms
+    without the second count.
+  - The freight checks and sending (`requireOuterCartonsForFreight`, `validateLogisticsReady`) keep asking the STORED
+    spec whether a product fits at all; because of the second condition both floors give the same answer there.
+  - Checked 2026-11-26 through `price` itself (throwaway driver, the proof round's 3,033 line sets × 4 carriers ×
+    heights = 36,807 documents × STRICT, MIXED, PACKED): at spill null, 0 and 0.00 every pallet figure is byte-equal to
+    the base commit (110,421 answers); at spill 1 to 5 (552,105 answers) the answer is always the count, layout, line
+    figures and freight of the floor its totals name, equal to min(with, without) wherever both floors take the same
+    products and never above the count with spill; 0 deviations. At 2 cm the guard chose the floor without spill on
+    1,374 PACKED (3,7 %), 105 MIXED and 33 STRICT documents of 36,807; at the standard heights 117 of 3,033 on the
+    europallet at 260 cm and 90 on the kar at 230 cm (PACKED). 1,939 documents hold a product that fits only with the
+    2 cm and keep their spill. No fit ever exists without the spill and not with it (0 of 552,105).
 - `SalesSettings.STANDARD_SPILL_CM` = 2 and `SPILL_LIMIT_CM` = 5. `pallet(profile, height, spill)` is the only spec
   builder (no two-argument form: a caller that forgets the spill does not compile); null or 0 gives exactly the spec
   of before. `pallet()` (the standard europallet) and `standardKar()` (230 cm) count WITH the standard spill: the
@@ -2548,8 +2592,10 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   `createPartnerSalesInvoice` (`.withPalletSpillCm(settings.standardSpillCm())`, the website's request and order
   through `create`); `createInvoiceFrom`, `createCreditNote`, `SalesSplits.copy` (both parts; the first is saved over
   the source's own row) and `SalesAdvanceBillingService.createAdvanceInvoice` (the source's raw value, null staying
-  null); `duplicate` (`copySpill`: the standard, but with hand-built pallets the source's raw value, because they were
-  built on that floor); `update` (settled before anything compares, then `.withPalletSpillCm(palletSpill)` on the
+  null); `duplicate` (`copySpill`: the source's STORED spill, as a picked height stays; a source without one takes the
+  standard, unless hand-built pallets go along with the copy: those were built on the floor without spill, so the copy
+  then stores none either. Stored 0, 3, null, null with hand pallets give 0, 3, 2, null; a guarded source that stores
+  2 gives 2, never its effective 0); `update` (settled before anything compares, then `.withPalletSpillCm(palletSpill)` on the
   rebuild, which carries nothing by itself; `asStoredCreditNote` passes `updated`'s on); `updateShipping`
   (`.carrying(current).withPalletSpillCm(...)`); the status and freight rebuilds through `carrying`
   (`withTermDueDateAndNotes`, `withGoodsShipped`, `withStatus`, `withCarrier`, `copyWithTerms`, and `QuoteService`'s
@@ -2566,12 +2612,15 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   shows field `palletSpillCm`, label "Spill", stored values ("2 → 0"; a first spill on an older document: empty → 2).
   A switch between a pallet and the kar keeps the stored number; the spec applies it across the width only.
 - API: `order.palletSpillCm` (the stored value, null on older documents; 2 right after creation, 2.00 once read
-  back) and `priced.totals.palletSpillCm` (what the calculation counted with, 0 for none, never null: its presence
-  tells the ERP that this server counts with spill). The order body, the preview body and the transport patch accept
-  `palletSpillCm`.
+  back) and `priced.totals.palletSpillCm` (the EFFECTIVE spill the calculation counted with: 0 for none and 0 where the
+  guard chose the floor without spill; never null: its presence tells the ERP that this server counts with spill).
+  The two may differ (stored 2, effective 0). The order body, the preview body and the transport patch accept
+  `palletSpillCm`, always the stored pick.
 - One document's spec is asked in one place: `SalesOrderService.palletSpec(order)` (pricing,
-  `requireOuterCartonsForFreight`, `validatePalletHeight`, `validateLogisticsReady`). The website's change of a stored
-  order is estimated on that order's own height and spill (`OrderPricing.pallet`).
+  `requireOuterCartonsForFreight`, `validatePalletHeight`, `validateLogisticsReady`), always with the STORED spill;
+  only `SalesPricingCalculator.floorFor` may then price without it (the guard above). The website's change of a stored
+  order is estimated on that order's own height and spill (`OrderPricing.pallet`), guarded alike (the estimate never
+  has hand pallets, also when the stored order does).
 - Hand pallets: no server check reads the floor. `OrderPallet.source` (4,000 characters, `[A-Za-z0-9_|:,.-]`) has room
   for the ERP's optional 7th part (the spill of the day of the copy); the server only keeps the string.
 - Quote, invoice and pakbon PDFs print counts only: no template or text changed.
@@ -2590,6 +2639,14 @@ centimetres 0 to 5, never on the height, no rollout job. It follows the height's
   4 pallets, € 247,97 freight; at spill 0: 84 and 63, 5 pallets (6 strict), € 281,84. On a kar at spill 2 the
   58 × 58 × 58 cm omdoos fits across (6 per kar; none at 0) while 43 × 32 × 37 stays 15 per kar and 64 × 48 × 61 stays
   3 (20 and 6 if the length took the spill too).
+- The guard and the copy rule, checked the same day on the same copy (the fix's jar): the 48 readable documents and the
+  list again differ from the base only by the two new fields. A new quote of 80 omdozen DOM-7X23-PK + 17 BOX16-RD
+  stores 2 and answers effective 0, 3 pallets, € 203,25 freight, the same answer as with 0 stored; with the hand
+  layout the ERP's Zelf indelen copies (3 pallets) it answers effective 2, 3 hand pallets, the same freight, automatic
+  4 beneath; cleared: effective 0 again. Saves and transport updates without the field keep the stored 2 (the activity
+  log shows no spill row). Its copy stores 2, its invoice stores 2, both effective 0. The website estimate of the same
+  omdozen says 3 pallets. A kar quote with 12 BOX16 keeps effective 2 and 4 karren. BE-1's table above (98 / 77,
+  84 / 63, 105 / 77, the refusals, preview) reads the same.
 - The catalogue export's own heights and spill per PDF (request fields, basis sentences that name the spill, journal
   columns) are in "Loading heights and spill per catalogue PDF (2026-11-26)" under Catalog / products. Release the two
   together: without it the standard catalogue already counts with 2 cm while its basis sentence does not say so.
