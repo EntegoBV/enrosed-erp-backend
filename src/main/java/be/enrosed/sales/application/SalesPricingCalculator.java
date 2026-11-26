@@ -28,7 +28,9 @@ import java.util.Objects;
  * Freight follows the order's explicit strategy: the destination-country
  * tariff per pallet, an own rate per cubic metre, or one fixed total.
  * Physical packing stays separate: palletised and loose-carton loads both
- * retain their outer-carton CBM.
+ * retain their outer-carton CBM. A Deense kar counts karren on its own spec
+ * (the context's pallet) but is never billed per pallet: its freight is
+ * filled in by hand.
  */
 @ApplicationScoped
 public class SalesPricingCalculator {
@@ -343,9 +345,14 @@ public class SalesPricingCalculator {
         boolean hasShipment = cartonsTotal > 0;
         if (country != null && hasShipment && !automaticDiscountsExcluded(order)) handling = Money.nz(country.handling());
 
+        /* A Deense kar is never billed per pallet: the country tariff and the staffels count pallets
+           (the staffels know Euro, Blok and Half only), so its freight is filled in by hand (Vast
+           bedrag). A save never leaves a kar on either; should one be found, it gets no amount and
+           its freight reads as open (freightPricingIssue), never as karren billed as europallets. */
+        boolean kar = order.palletProfile().isKar();
         switch (order.freightPricingStrategy()) {
             case COUNTRY_PALLET -> {
-                if (country != null && palletsForFreight > 0) {
+                if (!kar && country != null && palletsForFreight > 0) {
                     BigDecimal byPallet = Money.nz(country.freightPerPallet())
                             .multiply(BigDecimal.valueOf(palletsForFreight));
                     BigDecimal minimum = Money.nz(country.minFreight());
@@ -367,20 +374,14 @@ public class SalesPricingCalculator {
                 be.enrosed.shipping.domain.Carrier carrier = context.carrier();
                 String postcode = context.customer() == null
                         ? null : context.customer().postalCode();
-                if (carrier == null) {
+                be.enrosed.shipping.domain.CarrierPricing.PalletKind kind = staffelKind(order.palletProfile());
+                if (kind == null) {
+                    /* A Deense kar: no staffel prices it (see above); freightPricingIssue names the open freight. */
+                } else if (carrier == null) {
                     carrierFreightIssue = "Kies een verzendorganisatie voor de staffelvracht";
                 } else if (palletsForFreight <= 0) {
                     carrierFreightIssue = "De staffel rekent per pallet; dit order heeft er geen";
                 } else {
-                    be.enrosed.shipping.domain.CarrierPricing.PalletKind kind =
-                            switch (order.palletProfile()) {
-                                case BLOCK_120X100 -> be.enrosed.shipping.domain
-                                        .CarrierPricing.PalletKind.BLOCKPALLET;
-                                case HALF_80X60 -> be.enrosed.shipping.domain
-                                        .CarrierPricing.PalletKind.HALF_PALLET;
-                                default -> be.enrosed.shipping.domain
-                                        .CarrierPricing.PalletKind.EUROPALLET;
-                            };
                     be.enrosed.shipping.domain.CarrierQuote quote =
                             be.enrosed.shipping.domain.CarrierPricing.quote(carrier,
                                     order.countryCode(), postcode, palletsForFreight, kind,
@@ -412,8 +413,10 @@ public class SalesPricingCalculator {
            a per-pallet freight: that freight reads as open, never as a silently low or zero amount.
            Hand-built pallets are billed as they stand; an agreed split keeps its own freight. Only
            on a concept that was never sent: a document that left concept keeps the validation it
-           was sent or issued with, its freight shown and its transport saves accepted as before. */
-        String palletFitIssue = palletised && manualPallets == 0 && split == null
+           was sent or issued with, its freight shown and its transport saves accepted as before.
+           Never on a Deense kar, which no per-pallet freight prices: what fits no kar is listed in
+           productsWithoutPalletFit and refused at sending (SalesOrderService.validateLogisticsReady). */
+        String palletFitIssue = palletised && !kar && manualPallets == 0 && split == null
                 && order.status() == QuoteStatus.CONCEPT && order.sentAt() == null
                 && order.freight() != FreightState.TE_BEPALEN && !withoutPalletFit.isEmpty()
                 && (order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET
@@ -550,12 +553,34 @@ public class SalesPricingCalculator {
                 + " kies een ander palletprofiel of een hogere maximale pallethoogte";
     }
 
+    /**
+     * Why a Deense kar's freight is open while it is on the country tariff or a staffel: both price per
+     * pallet, so the freight of a kar is filled in by hand (Emre, 2026-11-25: "Vracht met de hand").
+     */
+    static final String KAR_FREIGHT_BY_HAND = "Bij een Deense kar vul je de vracht met de hand in (Vast bedrag)";
+
+    /** Whether this freight basis bills per pallet: the country tariff and the carrier staffels. */
+    static boolean perPallet(FreightPricingStrategy strategy) {
+        return strategy == FreightPricingStrategy.COUNTRY_PALLET || strategy == FreightPricingStrategy.CARRIER;
+    }
+
+    /** The staffel's pallet kind of a profile; none for the Deense kar, which no staffel prices. */
+    private static be.enrosed.shipping.domain.CarrierPricing.PalletKind staffelKind(PalletProfile profile) {
+        return switch (profile) {
+            case EURO_120X80 -> be.enrosed.shipping.domain.CarrierPricing.PalletKind.EUROPALLET;
+            case BLOCK_120X100 -> be.enrosed.shipping.domain.CarrierPricing.PalletKind.BLOCKPALLET;
+            case HALF_80X60 -> be.enrosed.shipping.domain.CarrierPricing.PalletKind.HALF_PALLET;
+            case DEENSE_KAR -> null;
+        };
+    }
+
     private static String freightPricingIssue(SalesOrder order) {
         if (order.freight() == FreightState.TE_BEPALEN) return null;
         if (order.loadMode() == LoadMode.LOOSE_CARTONS
                 && order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET) {
             return "Kies bij losse dozen vracht per CBM of een vast vrachtbedrag";
         }
+        if (order.palletProfile().isKar() && perPallet(order.freightPricingStrategy())) return KAR_FREIGHT_BY_HAND;
         if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
                 && (order.freightRatePerCbmEur() == null
                     || order.freightRatePerCbmEur().signum() <= 0)) {

@@ -8,7 +8,7 @@ import jakarta.enterprise.context.ApplicationScoped;
 import jakarta.inject.Inject;
 import java.util.*;
 import java.util.function.Function;
-import java.util.regex.Pattern;
+import java.util.regex.Matcher;
 
 /** Exclusion belongs to this document, never to the catalogue or the stock ledger. */
 @ApplicationScoped
@@ -111,21 +111,23 @@ public class SalesLineAvailability {
         return dropped ? renumbered(result) : result;
     }
 
-    private static final Pattern NUMBERED = Pattern.compile("Pallet \\d+");
-
     /**
-     * After a pallet went, a pallet still called "Pallet n" takes its new position; a name of its own
-     * stays (relabelPallets in the frontend's pallet-stack.ts). A layout nothing was dropped from is
-     * never rewritten, so the packing slip keeps the labels the seller saw.
+     * After a pallet went, a pallet still called "Pallet n" takes its new position, and so does a
+     * Deense kar still called "Kar n", each keeping its own word; a name of its own stays
+     * (relabelPallets in the frontend's pallet-stack.ts, OrderPallet.AUTOMATIC_LABEL). A layout
+     * nothing was dropped from is never rewritten, so the packing slip keeps the labels the seller saw.
      */
     static List<OrderPallet> renumbered(List<OrderPallet> pallets) {
         var result = new ArrayList<OrderPallet>(pallets.size());
         for (int index = 0; index < pallets.size(); index++) {
             OrderPallet pallet = pallets.get(index);
-            String label = "Pallet " + (index + 1);
-            if (pallet != null && pallet.label() != null && NUMBERED.matcher(pallet.label().strip()).matches()
-                    && !pallet.label().equals(label))
-                pallet = new OrderPallet(pallet.id(), label, pallet.type(), pallet.heightCm(), pallet.items(), pallet.source());
+            Matcher automatic = pallet == null || pallet.label() == null ? null
+                    : OrderPallet.AUTOMATIC_LABEL.matcher(pallet.label().strip());
+            if (automatic != null && automatic.matches()) {
+                String label = automatic.group(1) + " " + (index + 1);
+                if (!pallet.label().equals(label))
+                    pallet = new OrderPallet(pallet.id(), label, pallet.type(), pallet.heightCm(), pallet.items(), pallet.source());
+            }
             result.add(pallet);
         }
         return result;

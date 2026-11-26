@@ -732,6 +732,14 @@ public record SalesOrder(
     }
 
     /**
+     * The omdozen go on Deense karren (2026-11-25): the documents and messages say kar / karren where
+     * a pallet order says pallet / pallets. Loose cartons go on neither.
+     */
+    public boolean onKar() {
+        return loadMode() == LoadMode.PALLETS && palletProfile().isKar();
+    }
+
+    /**
      * Existing orders with an own total already behaved as fixed freight;
      * all other legacy rows used the destination-country pallet tariff.
      */

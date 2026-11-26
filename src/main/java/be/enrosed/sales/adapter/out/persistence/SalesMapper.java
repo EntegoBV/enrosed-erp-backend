@@ -222,7 +222,8 @@ final class SalesMapper {
             target.order = entity;
             target.position = position++;
             target.label = pallet.label();
-            target.palletType = pallet.type();
+            /* On a Deense kar a unit without a type is a kar, on a pallet the europallet as before. */
+            target.palletType = pallet.typeOn(order.palletProfile());
             target.heightCm = pallet.heightCm();
             target.copySource = pallet.source();
             for (OrderPallet.Item item : pallet.items()) {

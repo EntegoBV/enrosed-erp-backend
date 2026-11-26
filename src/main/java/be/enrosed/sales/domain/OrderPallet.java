@@ -1,6 +1,7 @@
 package be.enrosed.sales.domain;
 
 import java.util.List;
+import java.util.regex.Pattern;
 
 /**
  * A hand-built pallet on a sales order.
@@ -61,6 +62,16 @@ public record OrderPallet(
         if (source != null && (source.length() > SOURCE_MAX || !SOURCE_TEXT.matcher(source).matches())) source = null;
     }
 
+    /** What a hand unit on a Deense kar is: the type the ERP gives it (palletTypeLabel in pallet-stack.ts). */
+    public static final String KAR_TYPE = "Deense kar";
+
+    /**
+     * The name the ERP gives a hand unit until the seller names it: "Pallet n", or "Kar n" on a
+     * Deense kar (relabelPallets and nextPalletLabel in pallet-stack.ts). Group 1 is the word, group
+     * 2 the number; matched against the label without surrounding spaces.
+     */
+    public static final Pattern AUTOMATIC_LABEL = Pattern.compile("(Pallet|Kar) (\\d+)");
+
     /** The default is the standard of European road freight. */
     public String type() {
         if (type == null || type.isBlank()) return "Europallet";
@@ -69,6 +80,14 @@ public record OrderPallet(
             case "Halve pallet 60×80" -> "Halve pallet 80×60";
             default -> type.strip();
         };
+    }
+
+    /**
+     * The type as a document on this profile stores it: a unit on a Deense kar without a type of its
+     * own is a Deense kar, never the europallet {@link #type()} falls back to. On a pallet: type().
+     */
+    public String typeOn(PalletProfile profile) {
+        return profile != null && profile.isKar() && (type == null || type.isBlank()) ? KAR_TYPE : type();
     }
 
     public List<Item> items() {

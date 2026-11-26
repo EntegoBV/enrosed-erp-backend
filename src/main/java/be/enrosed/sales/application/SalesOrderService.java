@@ -156,9 +156,10 @@ public class SalesOrderService {
 
     public SalesOrder preview(long id, SalesOrder proposed) {
         SalesOrder stored = get(id);
-        /* No height from the client: the document's own, as a save keeps it. */
+        /* No height from the client: the document's own, as a save keeps it (on a move between a pallet
+           and the Deense kar, the standard of the one it moves to). */
         if (proposed != null && proposed.maxPalletHeightCm() == null)
-            proposed = proposed.withMaxPalletHeightCm(stored.maxPalletHeightCm());
+            proposed = proposed.withMaxPalletHeightCm(unaskedHeight(stored, palletProfileAfter(stored, proposed.palletProfileOrNull())));
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
         /* Priced with the step a save would remember: today's for a document that rounds (1 on a line
@@ -2169,10 +2170,13 @@ public class SalesOrderService {
         if (byCustomer) lockDocumentForCustomer(id);
         else lockDocumentForMutation(id);
         SalesOrder beforeEdit = get(id);
+        /* What the omdozen go on after this save: the client's pick, else what the document has. */
+        PalletProfile palletProfile = palletProfileAfter(beforeEdit, changes.palletProfileOrNull());
         /* No height from the client (a website change, a screen that did not change it) keeps the document's
-           own: the height a document was made with only changes when someone picks another. */
+           own: the height a document was made with only changes when someone picks another. A move between
+           a pallet and the Deense kar takes the standard of the one it moves to instead (unaskedHeight). */
         if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
-            changes = changes.withMaxPalletHeightCm(beforeEdit.maxPalletHeightCm());
+            changes = changes.withMaxPalletHeightCm(unaskedHeight(beforeEdit, palletProfile));
         /* Per piece is settled before anything compares or rounds the lines: the request decides on a
            document that rounds, the stored choice stays everywhere else and where the request is silent. */
         changes = changes.withLinesAndPallets(withPerPieceChoices(changes.lines(), beforeEdit.lines(),
@@ -2226,6 +2230,11 @@ public class SalesOrderService {
         FreightPricingStrategy freightStrategy = freightStrategyForUpdate(current, changes);
         BigDecimal manualFreight = freightStrategy == FreightPricingStrategy.FIXED
                 ? changes.manualFreightEur() : null;
+        /* A Deense kar never stays on a per-pallet freight (also not through the legacy fallback above). */
+        if (karFreightByHand(palletProfile, freightStrategy)) {
+            freightStrategy = FreightPricingStrategy.FIXED;
+            manualFreight = current.manualFreightEur();
+        }
         BigDecimal cbmRate = freightStrategy == FreightPricingStrategy.PER_CBM
                 ? changes.freightRatePerCbmEur()
                 : null;
@@ -2261,8 +2270,8 @@ public class SalesOrderService {
                 changes.freightOrNull() == null ? current.freight() : changes.freight(),
                 manualFreight,
                 changes.loadModeOrNull() == null ? current.loadMode() : changes.loadMode(),
-                changes.palletProfileOrNull() == null
-                        ? current.palletProfile() : changes.palletProfile(),
+                /* The client's pick, else what the document has (palletProfileAfter). */
+                palletProfile,
                 /* The document's own height when the client sent none (see above); "Standaard" sends the standard. */
                 changes.maxPalletHeightCm(),
                 freightStrategy, cbmRate, carrierId,
@@ -2410,23 +2419,33 @@ public class SalesOrderService {
         }
         if (request.pallets().stream().anyMatch(pallet -> pallet == null
                 || pallet.items().stream().anyMatch(Objects::isNull))) {
-            throw new BusinessRuleException("Een pallet of palletregel mag niet leeg zijn");
+            throw new BusinessRuleException(request.palletProfile().isKar()
+                    ? "Een kar of karregel mag niet leeg zijn" : "Een pallet of palletregel mag niet leeg zijn");
         }
         FreightState state = current.freight() == FreightState.TE_BEPALEN
                 && request.freight() != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD : request.freight();
         BigDecimal askedHeight = heightAsked(request.maxPalletHeightCm(), current.maxPalletHeightCm(), heightPicked);
+        FreightPricingStrategy strategy = request.freightPricingStrategy();
+        BigDecimal manualFreight = strategy == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null;
+        /* A Deense kar never stays on a per-pallet freight. */
+        if (karFreightByHand(request.palletProfile(), strategy)) {
+            strategy = FreightPricingStrategy.FIXED;
+            manualFreight = current.manualFreightEur();
+        }
         SalesOrder updated = new SalesOrder(current.id(), current.number(), current.customerId(), current.countryCode(),
                 current.orderDate(), current.validUntil(), current.status(), current.incoterm(),
                 current.paymentTerms(), current.notes(), current.markupMode(), current.orderMarkupPct(),
                 current.extraDiscountPct(), current.extraDiscountLabel(), current.portalToken(),
                 current.sentAt(), current.viewedAt(), current.viewCount(), current.decidedAt(),
                 current.signedByName(), current.customerMessage(), current.internalNotes(), current.deliveryTerms(),
-                state, request.freightPricingStrategy() == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null,
+                state, manualFreight,
                 request.loadMode(), request.palletProfile(),
-                askedHeight == null ? current.maxPalletHeightCm() : askedHeight,
-                request.freightPricingStrategy(),
-                request.freightPricingStrategy() == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
+                /* No height asked: the document's own, or on a move between a pallet and the Deense kar
+                   the standard of the one it moves to (unaskedHeight). */
+                askedHeight == null ? unaskedHeight(current, request.palletProfile()) : askedHeight,
+                strategy,
+                strategy == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(), current.lines(), request.pallets())
                 .carrying(current);
@@ -2583,6 +2602,11 @@ public class SalesOrderService {
         }
         BigDecimal fixedTotal = strategy == FreightPricingStrategy.FIXED
                 ? manualFreightEur : null;
+        /* A Deense kar never stays on a per-pallet freight (also not through the legacy fallback above). */
+        if (karFreightByHand(current.palletProfile(), strategy)) {
+            strategy = FreightPricingStrategy.FIXED;
+            fixedTotal = current.manualFreightEur();
+        }
         BigDecimal cbmRate = strategy == FreightPricingStrategy.PER_CBM
                 ? (freightRatePerCbmEur == null
                         ? current.freightRatePerCbmEur() : freightRatePerCbmEur)
@@ -2651,10 +2675,16 @@ public class SalesOrderService {
             }
             if (requirePalletFit
                     && palletCalculator.fit(product.carton(), palletSpec).cartonsPerPallet() <= 0) {
-                throw new BusinessRuleException(product.describe()
-                        + " past niet binnen het gekozen palletprofiel, de hoogte of het gewicht");
+                throw new BusinessRuleException(product.describe() + noFitWords(order));
             }
         }
+    }
+
+    /** Why a product cannot be loaded, in pallet words or, on a Deense kar, in kar words. */
+    private static String noFitWords(SalesOrder order) {
+        return order.palletProfile().isKar()
+                ? " past niet op de Deense kar binnen de hoogte of het gewicht"
+                : " past niet binnen het gekozen palletprofiel, de hoogte of het gewicht";
     }
 
     /**
@@ -2868,11 +2898,12 @@ public class SalesOrderService {
                 (created.isInvoice() ? "Factuur" : "Offerte")
                         + PalletHeightPicks.COPIED_FROM + source.number(), null));
         /* A copy that keeps a height other than today's standard says so in its own log: the pick then
-           travels with every further copy, and nothing later takes it for the standard of its day. */
+           travels with every further copy, and nothing later takes it for the standard of its day. A
+           Deense kar compares with the kar's standard: a kar at 230 cm is no pick. */
         recordActivity(ActivityLogService.ACTION_DUPLICATED, created,
                 (created.isInvoice() ? "Factuur" : "Offerte") + " gedupliceerd",
                 ActivityChangeSet.create().add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
-                        settings.standardMaxHeightCm(), created.maxPalletHeightCm()).build());
+                        settings.standardMaxHeightCm(created.palletProfile()), created.maxPalletHeightCm()).build());
         fireCreationPush(created.isInvoice()
                 ? SalesCreationPushNotifier.Ready.invoiceDuplicated(
                         created.id(), created.number(), source.number(), actor)
@@ -2887,6 +2918,10 @@ public class SalesOrderService {
      */
     private BigDecimal copyHeight(SalesOrder source) {
         BigDecimal own = source.maxPalletHeightCm();
+        /* A Deense kar (2026-11-25) keeps its own height, else the kar's standard: no kar document
+           predates stored heights, and the 220 cm of 7-10 November was a pallet standard, so a kar on
+           220 was set by hand. */
+        if (source.palletProfile().isKar()) return own == null ? settings.standardMaxHeightCm(source.palletProfile()) : own;
         BigDecimal standard = settings.standardMaxHeightCm();
         boolean handPallets = !source.pallets().isEmpty();
         /* No stored height: made before 2026-11-07 on 260 cm. Hand-built pallets were stacked under that, so
@@ -2927,6 +2962,34 @@ public class SalesOrderService {
         boolean formerStandard = sent.compareTo(SalesSettings.FORMER_STANDARD_HEIGHT_CM) == 0;
         boolean asStored = stored != null && stored.compareTo(sent) == 0;
         return formerStandard && !asStored ? null : sent;
+    }
+
+    /** What the omdozen go on after a change: the profile the change sends, else the document's own. */
+    private static PalletProfile palletProfileAfter(SalesOrder current, PalletProfile sent) {
+        return sent == null ? current.palletProfile() : sent;
+    }
+
+    /**
+     * The height a save stores when it asks for none (heightAsked): the document's own. A change that
+     * moves the document between a pallet and the Deense kar takes the standard of the one it moves to
+     * instead, 230 cm for the kar and the pallet standard for a pallet, because the height belonged to
+     * the other one (2026-11-25); the ERP sends that height itself, and a height sent in the same change
+     * wins. Between pallet types (Euro, Blok, Half) the height stays as before.
+     */
+    private BigDecimal unaskedHeight(SalesOrder current, PalletProfile palletProfile) {
+        return palletProfile.isKar() != current.palletProfile().isKar()
+                ? settings.standardMaxHeightCm(palletProfile) : current.maxPalletHeightCm();
+    }
+
+    /**
+     * Emre, 2026-11-25 ("Vracht met de hand"): the freight of a Deense kar is filled in by hand. The
+     * country tariff and the carrier staffels price per pallet (the staffels know Euro, Blok and Half
+     * only), so a save that would leave a kar on one of them stores FIXED (Vast bedrag) instead, with the
+     * amount the document stores, or none: sending refuses FIXED without an amount. PICKUP and PER_CBM
+     * count no pallets and stay possible.
+     */
+    private static boolean karFreightByHand(PalletProfile palletProfile, FreightPricingStrategy strategy) {
+        return palletProfile != null && palletProfile.isKar() && SalesPricingCalculator.perPallet(strategy);
     }
 
     /**
@@ -3553,16 +3616,20 @@ public class SalesOrderService {
         validatePallets(order, byId, palletSpec);
     }
 
+    /** Above the base, at most 300 cm: on every pallet type and on the Deense kar (its limit is the same 300 cm). */
     private PalletSpec validatePalletHeight(SalesOrder order) {
         PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        boolean kar = order.palletProfile().isKar();
         if (order.maxPalletHeightCm() != null) {
             if (order.maxPalletHeightCm().compareTo(palletSpec.baseHeightCm()) <= 0) {
-                throw new BusinessRuleException(
-                        "Maximale pallethoogte moet hoger zijn dan de palletbasis van "
+                throw new BusinessRuleException((kar
+                        ? "Maximale karhoogte moet hoger zijn dan de bodem van de kar van "
+                        : "Maximale pallethoogte moet hoger zijn dan de palletbasis van ")
                                 + palletSpec.baseHeightCm().stripTrailingZeros().toPlainString() + " cm");
             }
             if (order.maxPalletHeightCm().compareTo(BigDecimal.valueOf(300)) > 0) {
-                throw new BusinessRuleException("Maximale pallethoogte kan niet hoger zijn dan 300 cm");
+                throw new BusinessRuleException(kar ? "Maximale karhoogte kan niet hoger zijn dan 300 cm"
+                        : "Maximale pallethoogte kan niet hoger zijn dan 300 cm");
             }
         }
         return palletSpec;
@@ -3574,12 +3641,16 @@ public class SalesOrderService {
      * priceable and every shipping carton can be measured.
      */
     private void validateLogisticsReady(SalesOrder order) {
+        boolean kar = order.palletProfile().isKar();
         if (order.freight() != FreightState.TE_BEPALEN) {
             if (order.loadMode() == LoadMode.LOOSE_CARTONS
                     && order.freightPricingStrategy() == FreightPricingStrategy.COUNTRY_PALLET) {
                 throw new BusinessRuleException(
                         "Kies bij losse dozen vracht per CBM of een vast vrachtbedrag");
             }
+            /* Saves never leave a kar on a per-pallet freight (karFreightByHand); never send one that is. */
+            if (karFreightByHand(order.palletProfile(), order.freightPricingStrategy()))
+                throw new BusinessRuleException(SalesPricingCalculator.KAR_FREIGHT_BY_HAND);
             if (order.freightPricingStrategy() == FreightPricingStrategy.PER_CBM
                     && (order.freightRatePerCbmEur() == null
                         || order.freightRatePerCbmEur().signum() <= 0)) {
@@ -3605,8 +3676,7 @@ public class SalesOrderService {
             }
             if (order.loadMode() == LoadMode.PALLETS
                     && palletCalculator.fit(product.carton(), palletSpec).cartonsPerPallet() <= 0) {
-                throw new BusinessRuleException(product.describe()
-                        + " past niet binnen het gekozen palletprofiel, de hoogte of het gewicht");
+                throw new BusinessRuleException(product.describe() + noFitWords(order));
             }
         }
 
@@ -3614,8 +3684,9 @@ public class SalesOrderService {
             Map<Long, Integer> assigned = new HashMap<>();
             for (OrderPallet pallet : order.pallets()) {
                 if (pallet.items().isEmpty()) {
-                    throw new BusinessRuleException(
-                            "Verwijder lege pallets of zet er minstens één doos op");
+                    throw new BusinessRuleException(kar
+                            ? "Verwijder lege karren of zet er minstens één doos op"
+                            : "Verwijder lege pallets of zet er minstens één doos op");
                 }
                 for (OrderPallet.Item item : pallet.items()) {
                     assigned.merge(item.productId(), item.cartons(), Integer::sum);
@@ -3629,7 +3700,7 @@ public class SalesOrderService {
                         : product.carton().cartonsFor(line.quantity());
                 if (assigned.getOrDefault(line.productId(), 0) != ordered) {
                     throw new BusinessRuleException("Verdeel alle " + ordered
-                            + " dozen van " + product.describe() + " over de pallets");
+                            + " dozen van " + product.describe() + (kar ? " over de karren" : " over de pallets"));
                 }
             }
         }
@@ -3657,28 +3728,33 @@ public class SalesOrderService {
                 .map(SalesOrderLine::productId)
                 .collect(Collectors.toSet());
         Map<Long, Integer> assigned = new HashMap<>();
+        /* The hand units of a Deense kar are karren: the same rules in kar words. */
+        boolean kar = order.palletProfile().isKar();
 
         for (OrderPallet pallet : order.pallets()) {
             if (pallet == null) {
-                throw new BusinessRuleException("Een pallet mag niet leeg zijn");
+                throw new BusinessRuleException(kar ? "Een kar mag niet leeg zijn" : "Een pallet mag niet leeg zijn");
             }
             if (pallet.heightCm() != null
                     && BigDecimal.valueOf(pallet.heightCm()).compareTo(palletSpec.baseHeightCm()) < 0) {
-                throw new BusinessRuleException("Pallethoogte kan niet lager zijn dan de palletbasis");
+                throw new BusinessRuleException(kar ? "Karhoogte kan niet lager zijn dan de bodem van de kar"
+                        : "Pallethoogte kan niet lager zijn dan de palletbasis");
             }
             if (pallet.heightCm() != null
                     && BigDecimal.valueOf(pallet.heightCm()).compareTo(palletSpec.maxHeightCm()) > 0) {
-                throw new BusinessRuleException("Pallethoogte kan niet hoger zijn dan "
+                throw new BusinessRuleException((kar ? "Karhoogte kan niet hoger zijn dan " : "Pallethoogte kan niet hoger zijn dan ")
                         + palletSpec.maxHeightCm().stripTrailingZeros().toPlainString() + " cm");
             }
             for (OrderPallet.Item item : pallet.items()) {
                 if (item == null || item.productId() <= 0 || item.cartons() <= 0) {
-                    throw new BusinessRuleException("Elke palletregel moet een product en positief aantal dozen hebben");
+                    throw new BusinessRuleException(kar ? "Elke karregel moet een product en positief aantal dozen hebben"
+                            : "Elke palletregel moet een product en positief aantal dozen hebben");
                 }
                 if (!productsOnOrder.contains(item.productId()) || !byId.containsKey(item.productId())) {
                     Product stray = byId.get(item.productId());
                     throw new BusinessRuleException((stray == null ? "Een verwijderd product" : stray.describe())
-                            + " staat nog op een pallet; haal het eraf of maak de indeling opnieuw");
+                            + (kar ? " staat nog op een kar" : " staat nog op een pallet")
+                            + "; haal het eraf of maak de indeling opnieuw");
                 }
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
@@ -3691,7 +3767,7 @@ public class SalesOrderService {
                     : product.carton().cartonsFor(line.quantity());
             if (assigned.getOrDefault(line.productId(), 0) > orderedCartons) {
                 throw new BusinessRuleException(
-                        "Er staan meer dozen van " + product.describe() + " op pallets dan op de offerte");
+                        "Er staan meer dozen van " + product.describe() + (kar ? " op karren" : " op pallets") + " dan op de offerte");
             }
         }
     }
