@@ -80,9 +80,6 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
     Instance<be.enrosed.sales.application.PartnerAdvanceContents> advanceContents;
     @Inject
     Instance<be.enrosed.sales.application.PartnerInvoiceDeclarations> invoiceDeclarations;
-    /** The document's own VAT route: decides whether the clearance line belongs on it. */
-    @Inject
-    Instance<be.enrosed.sales.application.SalesVatChoices> vatChoices;
     /** Advance invoices and the slotfactuur of regular quotes. */
     @Inject
     Instance<be.enrosed.sales.application.SalesAdvanceBillingService> advanceBilling;
@@ -243,9 +240,9 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
         String totalWeight = DocumentFormat.kg(cargo == null ? priced.totals().weightKg() : cargo.totals().weightKg());
         /* Goods cleared through our fiscal representative say so on the quote and the advance
            invoice, where the goods are supplied; the final settlement only keeps the shifted VAT. */
-        boolean cleared = vatChoices != null && vatChoices.isResolvable()
-                ? vatChoices.get().clearedByRepresentative(order, customer)
-                : customer != null && customer.fiscalRepresentative();
+        /* The regime the document is priced with says it, not the customer's tick of today: a document
+           put on the Belgian route, a service, or an issued invoice holding another regime has no clearance. */
+        boolean cleared = priced.totals().vatTreatment() == be.enrosed.sales.domain.VatTreatment.VERLEGD_FISCAAL_VERTEGENWOORDIGER;
         String customsLine = customer != null && cleared && !order.partnerSettlement()
                 ? text.get("customsClearedBy").formatted(company.get().representativeName(), company.get().representativeVat())
                 : null;

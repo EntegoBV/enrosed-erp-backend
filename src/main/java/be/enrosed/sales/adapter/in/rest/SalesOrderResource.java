@@ -634,12 +634,13 @@ public class SalesOrderResource {
         return vatChoices.get(id);
     }
 
-    public record VatChoiceRequest(be.enrosed.sales.domain.SalesVatChoice route) {}
+    /** {@code confirmed}: staff answered the warning that an issued invoice holds its VAT regime. */
+    public record VatChoiceRequest(be.enrosed.sales.domain.SalesVatChoice route, Boolean confirmed) {}
 
     /** Null (or the customer's own route) puts the document back on its customer's standard. */
     @PUT @Path("/{id}/vat-choice")
     public OrderView saveVatChoice(@PathParam("id") long id, VatChoiceRequest request) {
-        vatChoices.save(id, request == null ? null : request.route());
+        vatChoices.save(id, request == null ? null : request.route(), request != null && Boolean.TRUE.equals(request.confirmed()));
         return view(salesOrders.get(id));
     }
 

@@ -4,10 +4,12 @@ import be.enrosed.sales.adapter.out.persistence.SalesEntities.SalesOrderEntity;
 import be.enrosed.sales.adapter.out.persistence.SalesOrderVatChoiceEntity;
 import be.enrosed.sales.domain.Country;
 import be.enrosed.sales.domain.Customer;
+import be.enrosed.sales.domain.PricedOrder;
 import be.enrosed.sales.domain.QuoteStatus;
 import be.enrosed.sales.domain.SalesOrder;
 import be.enrosed.sales.domain.SalesPurpose;
 import be.enrosed.sales.domain.SalesVatChoice;
+import be.enrosed.sales.domain.VatTreatment;
 import be.enrosed.shared.BusinessRuleException;
 import be.enrosed.shared.audit.ActivityChangeDto;
 import be.enrosed.shared.audit.ActivityLogService;
@@ -18,6 +20,7 @@ import jakarta.persistence.EntityManager;
 import jakarta.transaction.Transactional;
 import org.eclipse.microprofile.config.inject.ConfigProperty;
 
+import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -26,26 +29,44 @@ import java.util.Map;
 
 /**
  * The VAT route of one sales document (2026-11-26, Emre: "het kan ook zijn dat ik niet fiscaal doe,
- * enkel verleggen volgens België naar Nederland ... kunnen switchen gemakkelijk" and "een custom
- * factuur kan ook een dienst zijn die niks met goederen te maken heeft").
+ * enkel verleggen volgens België naar Nederland ... kunnen switchen gemakkelijk", "een custom
+ * factuur kan ook een dienst zijn die niks met goederen te maken heeft" and "eenmaal factuur
+ * verstuurd, zelfs als ik instelling verander, moet source of truth blijven bestaan, enkel kunnen
+ * wijzigen met waarschuwing").
  *
- * The customer record stays the standard (Customer.fiscalRepresentative). A document stores a route
- * only where it differs: the other goods route, or SERVICE on a document without product lines.
- * Pricing asks {@link #effective}; a stored route the document no longer fits (product lines on a
- * service, a customer without VAT number on the fiscal route) simply reads as the standard again.
- * A derived document (invoice, advance, slotfactuur, split part, copy, credit note) takes its
- * source's route once, at creation ({@link #copy}).
+ * <b>Choice.</b> The customer record stays the standard (Customer.fiscalRepresentative). A document
+ * stores a route only where it differs: the other goods route, or SERVICE on a document without
+ * product lines. A stored route the document no longer fits (product lines on a service, a
+ * customer without VAT number on the fiscal route) reads as the standard again. A derived document
+ * (invoice, advance, slotfactuur, split part, copy, credit note) takes its source's route once, at
+ * creation ({@link #copy}).
+ *
+ * <b>Pin.</b> An invoice or credit note that leaves concept keeps the regime and rate it left with
+ * ({@link #pin}): a later change of the customer's tick, VAT number or the country's rate no longer
+ * moves it. {@link SalesVatPinJob} gives the documents issued before this existed their pin. A
+ * concept credit note prices in the regime of the invoice it corrects. Changing the route of an
+ * issued document is possible, but only with an explicit confirmation ({@link #save}).
  */
 @ApplicationScoped
 public class SalesVatChoices {
 
     /**
      * What the staff screens show. {@code route} is what the document is priced with, {@code customerRoute}
-     * what it would be without a choice, {@code options} what may be picked (one entry: nothing to
-     * choose), {@code lockedReason} why it cannot be changed right now (null while it can).
+     * what the customer's standard gives today, {@code options} what may be picked (one entry: nothing to
+     * choose), {@code lockedReason} why it cannot be changed (null while it can), {@code pinned} that an
+     * issued document holds its regime, {@code needsConfirm} that a change must be confirmed first.
      */
     public record View(SalesVatChoice route, SalesVatChoice customerRoute, boolean chosen,
-                       List<SalesVatChoice> options, boolean editable, String lockedReason) {}
+                       List<SalesVatChoice> options, boolean editable, String lockedReason,
+                       boolean pinned, boolean needsConfirm) {}
+
+    /** The regime an issued document holds. */
+    public record Pin(VatTreatment treatment, BigDecimal ratePct) {}
+
+    /** One stored row: the document's own route, and the regime it was issued with; either may be absent. */
+    public record Row(SalesVatChoice choice, VatTreatment treatment, BigDecimal ratePct) {
+        Pin pin() { return treatment == null ? null : new Pin(treatment, ratePct == null ? BigDecimal.ZERO : ratePct); }
+    }
 
     @Inject EntityManager entities;
     @Inject SalesOrderService sales;
@@ -60,9 +81,26 @@ public class SalesVatChoices {
     @ConfigProperty(name = "enrosed.company.country", defaultValue = "BE")
     String homeCountry;
 
-    /** The route this document is priced with; never null. */
+    /**
+     * The regime this document holds, or null while it is priced live: an invoice or credit note
+     * that left concept, and a credit note still in concept on an invoice that holds one.
+     */
+    public Pin pinned(SalesOrder order) {
+        if (order == null || !order.isClaimDocument()) return null;
+        if (order.id() != null && order.status() != QuoteStatus.CONCEPT) {
+            Row own = find(order.id());
+            return own == null ? null : own.pin();
+        }
+        if (order.isCreditNote() && order.creditedInvoiceId() != null) {
+            Row credited = find(order.creditedInvoiceId());
+            return credited == null ? null : credited.pin();
+        }
+        return null;
+    }
+
+    /** The route this document is priced with while nothing is pinned; never null. */
     public SalesVatChoice effective(SalesOrder order, Customer customer, Country country) {
-        return effective(order, customer, country, order == null || order.id() == null ? null : find(order.id()));
+        return effective(order, customer, country, choiceOf(order));
     }
 
     private SalesVatChoice effective(SalesOrder order, Customer customer, Country country, SalesVatChoice stored) {
@@ -73,21 +111,11 @@ public class SalesVatChoices {
         return customerRoute(customer, fiscalPossible);
     }
 
-    /** Whether this document is a service by choice: no delivery, no freight, no country minimum. */
+    /** Whether this document is a service: no delivery, no freight, no country minimum. */
     public boolean isService(SalesOrder order) {
-        return order != null && order.id() != null && serviceFits(order) && find(order.id()) == SalesVatChoice.SERVICE;
-    }
-
-    /**
-     * Whether the goods of this document were cleared by our fiscal representative, which the quote and
-     * the advance invoice say in a line of their own: the customer's standard, unless the document
-     * was put on another route (or back on this one).
-     */
-    public boolean clearedByRepresentative(SalesOrder order, Customer customer) {
-        SalesVatChoice stored = order == null || order.id() == null ? null : find(order.id());
-        if (stored == SalesVatChoice.SERVICE && !serviceFits(order)) stored = null;
-        return stored == null ? customer != null && customer.fiscalRepresentative()
-                : stored == SalesVatChoice.FISCAL_REPRESENTATIVE;
+        Pin pin = pinned(order);
+        if (pin != null) return pin.treatment().isService();
+        return order != null && serviceFits(order) && choiceOf(order) == SalesVatChoice.SERVICE;
     }
 
     public View get(long id) {
@@ -95,8 +123,11 @@ public class SalesVatChoices {
         return view(order, customerOf(order), countries.find(order.countryCode()));
     }
 
+    /**
+     * @param confirmed staff answered the warning: required to change an invoice that already left concept
+     */
     @Transactional
-    public View save(long id, SalesVatChoice requested) {
+    public View save(long id, SalesVatChoice requested, boolean confirmed) {
         // Same document lock as issue and send; refreshes an earlier cached CONCEPT.
         sales.lockDocumentForMutation(id);
         SalesOrder order = sales.get(id);
@@ -110,29 +141,35 @@ public class SalesVatChoices {
                     ? "Een dienst kan alleen op een document zonder productregels"
                     : "Deze btw-regeling past niet bij deze klant en dit land");
         if (wanted == before.route()) return before;
+        if (before.needsConfirm() && !confirmed)
+            throw new BusinessRuleException("Deze factuur is al uitgereikt en houdt haar btw-regeling vast."
+                    + " Bevestig dat je ze toch wilt wijzigen");
 
         var stored = entities.find(SalesOrderVatChoiceEntity.class, id);
-        if (wanted == before.customerRoute()) {
-            if (stored != null) entities.remove(stored);
-        } else {
-            boolean fresh = stored == null;
-            if (fresh) {
-                stored = new SalesOrderVatChoiceEntity();
-                stored.salesOrderId = id;
-                stored.order = entities.getReference(SalesOrderEntity.class, id);
-            }
-            stored.choice = wanted.name();
-            stored.updatedAt = Instant.now();
-            if (fresh) entities.persist(stored);
+        boolean fresh = stored == null;
+        if (fresh) stored = row(id);
+        stored.choice = wanted == before.customerRoute() ? null : wanted.name();
+        stored.updatedAt = Instant.now();
+        if (before.needsConfirm()) {
+            /* The issued document moves by this one decision: its new regime is held from here on. */
+            VatCalculator.Result regime = vat.determine(country, customer, wanted, homeRate());
+            stored.treatment = regime.treatment().name();
+            stored.ratePct = regime.ratePct();
+            stored.pinnedAt = stored.updatedAt;
         }
+        if (stored.choice == null && stored.treatment == null) { if (!fresh) entities.remove(stored); }
+        else if (fresh) entities.persist(stored);
         entities.flush();
         forget();
+        /* The document must still price on its new route: a refusal here undoes the change instead of
+           leaving a document no list can show. */
+        sales.price(order);
         /* A partner invoice wording that names the fiscal representative cannot stay on another route:
            its own check says so, and the refusal undoes this change. */
         if (invoiceDeclarations != null && invoiceDeclarations.isResolvable())
             invoiceDeclarations.get().validateForIssue(order, customer);
         activity.record(ActivityLogService.ACTION_UPDATED, "SALES_ORDER", Long.toString(id), order.number(),
-                "Btw-regeling gewijzigd", List.of(
+                before.needsConfirm() ? "Btw-regeling gewijzigd na uitgifte" : "Btw-regeling gewijzigd", List.of(
                         new ActivityChangeDto("vatChoice", "Btw-regeling", label(before.route()), label(wanted))));
         return view(order, customer, country);
     }
@@ -141,41 +178,81 @@ public class SalesVatChoices {
     @Transactional
     public void copy(Long sourceId, Long targetId) {
         if (sourceId == null || targetId == null) return;
-        var stored = entities.find(SalesOrderVatChoiceEntity.class, sourceId);
-        if (stored == null || SalesVatChoice.stored(stored.choice) == null
+        var source = entities.find(SalesOrderVatChoiceEntity.class, sourceId);
+        if (source == null || SalesVatChoice.stored(source.choice) == null
                 || entities.find(SalesOrderVatChoiceEntity.class, targetId) != null) return;
-        var copy = new SalesOrderVatChoiceEntity();
-        copy.salesOrderId = targetId;
-        copy.order = entities.getReference(SalesOrderEntity.class, targetId);
-        copy.choice = stored.choice;
+        var copy = row(targetId);
+        copy.choice = source.choice;
         copy.updatedAt = Instant.now();
         entities.persist(copy);
         entities.flush();
         forget();
     }
 
+    /**
+     * An invoice or credit note left concept: from here it holds the regime and rate it was priced with.
+     * Called right after the status change, and by SalesVatPinJob for what was issued before.
+     */
+    @Transactional
+    public void pin(SalesOrder issued, PricedOrder priced) {
+        if (issued == null || issued.id() == null || !issued.isClaimDocument() || issued.status() == QuoteStatus.CONCEPT
+                || priced == null || priced.totals() == null || priced.totals().vatTreatment() == null) return;
+        var stored = entities.find(SalesOrderVatChoiceEntity.class, issued.id());
+        boolean fresh = stored == null;
+        if (fresh) stored = row(issued.id());
+        stored.treatment = priced.totals().vatTreatment().name();
+        stored.ratePct = priced.totals().vatRatePct() == null ? BigDecimal.ZERO : priced.totals().vatRatePct();
+        stored.pinnedAt = Instant.now();
+        stored.updatedAt = stored.pinnedAt;
+        if (fresh) entities.persist(stored);
+        entities.flush();
+        forget();
+    }
+
+    /** Issued invoices and credit notes that hold no regime yet, oldest first. */
+    @SuppressWarnings("unchecked")
+    List<Long> issuedWithoutPin() {
+        List<Object> ids = entities.createNativeQuery("select o.id from sales_order o"
+                + " where o.doctype in ('FACTUUR', 'CREDITNOTA') and o.status <> 'CONCEPT' and o.deleted_at is null"
+                + " and not exists (select 1 from sales_order_vat_choice c where c.sales_order_id = o.id and c.treatment is not null)"
+                + " order by o.id").getResultList();
+        return ids.stream().map(id -> ((Number) id).longValue()).toList();
+    }
+
+    private SalesOrderVatChoiceEntity row(long id) {
+        var row = new SalesOrderVatChoiceEntity();
+        row.salesOrderId = id;
+        row.order = entities.getReference(SalesOrderEntity.class, id);
+        return row;
+    }
+
     private View view(SalesOrder order, Customer customer, Country country) {
-        SalesVatChoice stored = order.id() == null ? null : find(order.id());
+        Pin pin = pinned(order);
+        boolean issued = order.isClaimDocument() && order.status() != QuoteStatus.CONCEPT;
         boolean fiscalPossible = fiscalPossible(customer, country);
         SalesVatChoice customerRoute = customerRoute(customer, fiscalPossible);
-        SalesVatChoice route = effective(order, customer, country, stored);
+        SalesVatChoice route = pin != null ? routeOf(pin.treatment()) : effective(order, customer, country, choiceOf(order));
         List<SalesVatChoice> options = new ArrayList<>();
         /* The goods routes are a choice only for a customer on the fiscal representative (or a document put there). */
         if (fiscalPossible && (customer != null && customer.fiscalRepresentative() || route == SalesVatChoice.FISCAL_REPRESENTATIVE)) {
             options.add(SalesVatChoice.FISCAL_REPRESENTATIVE);
             options.add(SalesVatChoice.BELGIUM);
         } else options.add(SalesVatChoice.BELGIUM);
-        if (serviceFits(order) && country != null && !derived(order)) options.add(SalesVatChoice.SERVICE);
+        if (serviceFits(order) && country != null && !order.isCreditNote() && !derived(order)) options.add(SalesVatChoice.SERVICE);
         if (!options.contains(route)) options.add(route);
         String locked = lockedReason(order);
-        return new View(route, customerRoute, route != customerRoute, List.copyOf(options), locked == null, locked);
+        return new View(route, customerRoute, route != customerRoute, List.copyOf(options), locked == null, locked,
+                pin != null, locked == null && issued);
     }
 
     private String lockedReason(SalesOrder order) {
         if (order.archivedAt() != null) return "Dit document staat in het archief";
-        if (order.status() != QuoteStatus.CONCEPT) return "De btw-regeling kan alleen op een concept worden gewijzigd";
         if (order.isCreditNote()) return "Een creditnota volgt de btw-regeling van haar factuur";
         if (derived(order)) return "Een voorschot- of slotfactuur volgt de btw-regeling van haar offerte";
+        if (sales.hasSplitOrder(order)) return "Een gesplitste levering houdt de btw-regeling van haar verdeling";
+        /* A quote that left is the customer's to answer: reopen it first. An issued invoice may move, after a warning. */
+        if (order.status() != QuoteStatus.CONCEPT && !order.isClaimDocument())
+            return "De btw-regeling kan alleen op een concept worden gewijzigd";
         return null;
     }
 
@@ -205,29 +282,47 @@ public class SalesVatChoices {
                 ? SalesVatChoice.FISCAL_REPRESENTATIVE : SalesVatChoice.BELGIUM;
     }
 
+    private static SalesVatChoice routeOf(VatTreatment treatment) {
+        if (treatment == VatTreatment.VERLEGD_FISCAAL_VERTEGENWOORDIGER) return SalesVatChoice.FISCAL_REPRESENTATIVE;
+        return treatment.isService() ? SalesVatChoice.SERVICE : SalesVatChoice.BELGIUM;
+    }
+
+    /** The Belgian rate, for a service taxed in Belgium for a customer elsewhere in the EU. */
+    BigDecimal homeRate() {
+        Country home = countries.find(homeCountry);
+        return home == null ? null : home.vatRatePct();
+    }
+
     private Customer customerOf(SalesOrder order) {
         return order.customerId() == null ? null : customers.get(order.customerId());
     }
 
-    private SalesVatChoice find(long id) {
-        Map<Long, SalesVatChoice> all = held();
-        if (all != null) return all.get(id);
-        var row = entities.find(SalesOrderVatChoiceEntity.class, id);
-        return row == null ? null : SalesVatChoice.stored(row.choice);
+    private SalesVatChoice choiceOf(SalesOrder order) {
+        if (order == null || order.id() == null) return null;
+        Row row = find(order.id());
+        return row == null ? null : row.choice();
     }
 
-    /** Inside a request the whole (small) table is read once; outside one each document reads its own row. */
-    private Map<Long, SalesVatChoice> held() {
+    private Row find(long id) {
+        Map<Long, Row> all = held();
+        if (all != null) return all.get(id);
+        var row = entities.find(SalesOrderVatChoiceEntity.class, id);
+        return row == null ? null : new Row(SalesVatChoice.stored(row.choice), treatment(row.treatment), row.ratePct);
+    }
+
+    /** Inside a request the whole table is read once; outside one each document reads its own row. */
+    private Map<Long, Row> held() {
         try {
             if (cache == null || !cache.isResolvable()) return null;
             SalesVatChoiceCache held = cache.get();
             if (held.all() == null) {
-                Map<Long, SalesVatChoice> all = new HashMap<>();
-                List<?> rows = entities.createNativeQuery("select sales_order_id, choice from sales_order_vat_choice").getResultList();
+                Map<Long, Row> all = new HashMap<>();
+                List<?> rows = entities.createNativeQuery(
+                        "select sales_order_id, choice, treatment, rate_pct from sales_order_vat_choice").getResultList();
                 for (Object row : rows) {
                     Object[] cells = (Object[]) row;
-                    SalesVatChoice choice = SalesVatChoice.stored((String) cells[1]);
-                    if (choice != null) all.put(((Number) cells[0]).longValue(), choice);
+                    all.put(((Number) cells[0]).longValue(), new Row(SalesVatChoice.stored((String) cells[1]),
+                            treatment((String) cells[2]), cells[3] == null ? null : new BigDecimal(cells[3].toString())));
                 }
                 held.fill(all);
             }
@@ -243,6 +338,12 @@ public class SalesVatChoices {
         } catch (jakarta.enterprise.context.ContextNotActiveException outsideRequest) {
             // Nothing was kept.
         }
+    }
+
+    /** An unknown stored name reads as "not recorded", never as a failure. */
+    private static VatTreatment treatment(String value) {
+        if (value == null || value.isBlank()) return null;
+        try { return VatTreatment.valueOf(value.strip()); } catch (IllegalArgumentException unknown) { return null; }
     }
 
     private static String label(SalesVatChoice route) {

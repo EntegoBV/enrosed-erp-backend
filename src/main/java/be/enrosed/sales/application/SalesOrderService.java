@@ -376,7 +376,7 @@ public class SalesOrderService {
                 settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
-                vatOf(order, country, customer),
+                vatOf(order, country, customer, splitPricing),
                 carrier, splitPricing, palletRule, staffHints ? priceHints(order, byId) : null, minimumExempt(order)));
     }
 
@@ -384,15 +384,24 @@ public class SalesOrderService {
      * The VAT regime of this document: its own route where staff chose one (SalesVatChoices), else its
      * customer's standard. A service taxed in Belgium for a customer elsewhere needs the Belgian rate.
      */
-    private VatCalculator.Result vatOf(SalesOrder order, Country country, Customer customer) {
+    private VatCalculator.Result vatOf(SalesOrder order, Country country, Customer customer, SalesSplitPricing split) {
         if (vatChoices == null || !vatChoices.isResolvable()) return vat.determine(country, customer);
+        /* An issued invoice or credit note holds the regime it left concept with: the customer's tick,
+           VAT number or the country's rate may change afterwards without moving it. */
+        SalesVatChoices.Pin pin = vatChoices.get().pinned(order);
+        if (pin != null) return new VatCalculator.Result(pin.treatment(), pin.ratePct(), "Vastgelegd bij uitgifte van het document");
+        /* A split delivery was divided in one regime and keeps it: before 2026-11-26 a change of the
+           customer's VAT facts made every pricing of it fail (SalesPricingCalculator's split check),
+           and with it the whole sales list. */
+        if (split != null && split.vatTreatment() != null && split.vatRatePct() != null)
+            return new VatCalculator.Result(split.vatTreatment(), split.vatRatePct(), "Vastgelegd bij de splitsing van de levering");
         SalesVatChoice route = vatChoices.get().effective(order, customer, country);
-        BigDecimal homeRate = null;
-        if (route == SalesVatChoice.SERVICE) {
-            Country home = countries.find(vat.homeCountry());
-            homeRate = home == null ? null : home.vatRatePct();
-        }
-        return vat.determine(country, customer, route, homeRate);
+        return vat.determine(country, customer, route, route == SalesVatChoice.SERVICE ? vatChoices.get().homeRate() : null);
+    }
+
+    /** An invoice or credit note left concept: it holds its VAT regime from here (SalesVatChoices.pin). */
+    private void pinVat(SalesOrder issued) {
+        if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().pin(issued, price(issued));
     }
 
     /** A derived document (invoice, split part, copy, credit note) takes its source's VAT route at creation. */
@@ -1901,6 +1910,7 @@ public class SalesOrderService {
         validateInvoiceForSend(invoice, belowMinimumAccepted);
         String belowMinimum = belowMinimumNote(invoice, belowMinimumAccepted);
         SalesOrder saved = orders.save(withStatus(invoice, QuoteStatus.UITGEREIKT, null, null));
+        pinVat(saved);
         String label = (invoice.isCreditNote() ? "Creditnota uitgereikt zonder verzending" : "Factuur uitgereikt zonder verzending") + belowMinimum;
         events.add(new QuoteEvent(null, id, QuoteEvent.Type.UITGEREIKT, Instant.now(),
                 currentActor().displayName(), false, label, null));
@@ -1930,6 +1940,7 @@ public class SalesOrderService {
         SalesOrder sent = withStatus(invoice, invoice.status() == QuoteStatus.BETAALD ? QuoteStatus.BETAALD : QuoteStatus.VERZONDEN,
                 java.time.Instant.now(), invoice.paidAt());
         SalesOrder saved = orders.save(sent);
+        if (fromConcept) pinVat(saved);
         ActorRef actor = currentActor();
         /* A credit note that leaves straight from concept is issued by that act: its own
            history and the invoice's say so, as they do when it is issued without mail. */
