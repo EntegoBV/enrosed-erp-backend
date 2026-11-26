@@ -2287,6 +2287,18 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   `forNew()` moves to it, PACKED keeps this code for the documents that have it), with its own copies of both packers;
   3D tuning never touches the counting steps. The count is not monotone either (a few cartons more can take a pallet
   less), so nothing promises "+N past" under PACKED.
+- The floor is an INPUT of that path, like the profile and the height, and since 2026-11-26 it may carry a spill
+  ("Spill per document" below). `fit` (`PalletCalculator.standing`) and `PalletPacker.deck` read the spec's LOAD floor
+  (`PalletSpec.loadLengthCm()` / `loadWidthCm()`: the nominal floor plus the document's own spill at both ends of an
+  axis, added in cm before `units`); those two reads are the only lines of the path that changed, no counting step
+  did, and there is no PACKED_2. A document that stores no spill (every one made before this release) gets the nominal
+  floor itself, so its count is what it was: the base commit and this one give the same text on 1,111 fits and 99,000
+  order counts (every real omdoos, 33,000 seeded random orders × STRICT, MIXED, PACKED, on Euro, Blok, Half at
+  220/260/300 cm and the kar at 230/260), also with a spill of 0 or 0.00. The packer's boxes are relative to the corner
+  of the deck it was given: with a spill the real floor's corner lies at (spill, spill) in it, on a Deense kar at
+  (0, spill). PACKED stays capped by MIXED on the same floor, but it is not monotone in the floor either: on 3,000
+  random europallet orders at 260 cm a spill of 2 cm counts fewer pallets on 824, the same on 2,152 and MORE on 24
+  (23 × one more, 1 × two); the seller can put such a document's spill back to 0.
 - `PalletCalculator.packedPallets`: placeable loads merged per product (line order), one kind per carton size (the
   heaviest colour's weight), every side; packed with at most the MIXED count; more pallets, or cartons left, and the
   mixed layout stands, so PACKED never counts more than MIXED. Items in the order their first carton was laid, `layers`
@@ -2348,7 +2360,8 @@ payments and the paid state, Facturen, bank matching, credit caps, advances, Odo
 document keeps the height it was made with instead of following the setting:
 
 - `SalesSettings.pallet()` (catalogue per-pallet figure and basis line, every website estimate of a request or a new
-  order) is the standard. `pallet(profile, height)` gives a document its own stored height; a null height reads
+  order) is the standard. `pallet(profile, height, spill)` gives a document its own stored height (and spill, see
+  "Spill per document" at the end of this section); a null height reads
   `LEGACY_MAX_HEIGHT_CM` = 260: only rows made before 2026-11-07 have none (a Deense kar without one reads its 230:
   "Deense kar op orders (2026-11-25)"). `FORMER_STANDARD_HEIGHT_CM` = 220 is what
   documents made from 2026-11-07 to 2026-11-10 store without anyone having picked it. `EURO_HEIGHT_LIMIT_CM` = 260.
@@ -2409,6 +2422,83 @@ document keeps the height it was made with instead of following the setting:
 - History: the 220 round's `PalletHeightBackfill` ran on production 2026-11-07 ~15:55 (ENR-2026-0016, a website
   request, went from 1 to 2 pallets) and wrote 260 down for untouched concepts with hand-built pallets.
 
+**Spill per document (2026-11-26).** Emre: "Je mag ook standaard maximaal 2cm spill doen. De spill willen wij ook
+kunnen aanpassen." His answers: 2 cm per kant (an omdoos may stick out at most 2 cm past every edge of the floor);
+overal, nieuwe documenten (existing documents keep their count until he changes the spill on that order himself);
+Deense kar alleen lange zijden (across the width, past the open long sides; never along the length, where the posts
+stand). Main's calls: a constant in code like 260 / 230 (no Instellingen field, no Railway variable), whole
+centimetres 0 to 5, never on the height, no rollout job. It follows the height's route:
+
+- The rule. Nominal floor (shown and printed, never 124 × 84) against LOAD floor (what the counts read), s = spill:
+  Europallet 120 × 80 → (120 + 2s) × (80 + 2s); Blokpallet 120 × 100 → (120 + 2s) × (100 + 2s); Halve pallet 80 × 60 →
+  (80 + 2s) × (60 + 2s); Deense kar 127 × 54,5 → 127 × (54,5 + 2s). `PalletSpec` keeps `lengthCm` / `widthCm` nominal
+  and gained `lengthSpillCm` / `widthSpillCm` (per axis; the six-argument constructor is a spec without spill),
+  `loadLengthCm()` / `loadWidthCm()`, `spillCm()` (the width's: every carrier spills there; 0 without one) and
+  `withSpill(spill, alongLength)`. `PalletProfile.spillsAlongLength()` is false for the kar only. Base, height and
+  weight never take a spill. The frontend must count on the same load floor (same numbers, 2s added in cm first).
+- `SalesSettings.STANDARD_SPILL_CM` = 2 and `SPILL_LIMIT_CM` = 5. `pallet(profile, height, spill)` is the only spec
+  builder (no two-argument form: a caller that forgets the spill does not compile); null or 0 gives exactly the spec
+  of before. `pallet()` (the standard europallet) and `standardKar()` (230 cm) count WITH the standard spill: the
+  catalogue's per-pallet and per-kar figures (`CataloguePalletFit`; 14 of 101 omdozen gain per pallet, 26 per kar of
+  which 6 fit a kar for the first time, none loses; the basis sentences still print the nominal floor), the partner
+  portal's "± pallets" and every website estimate of a request or a new order, so an estimate equals the document it
+  becomes. `PalletSpec.deenseKar()` itself stays the kar's figures without spill.
+- Stored once per document: `sales_order.palletspillcm numeric(5,2)`, nullable, no default (Hibernate's update adds it;
+  `docs/migrations/2026-11-26/sales-order-pallet-spill-postgresql.sql` adds the same, rerunnable, with its Dockerfile
+  COPY and runner line), `SalesOrder.palletSpillCm`. **Null = 0, never the standard**: every row from before stays
+  null and no job moves one. Reading null as 2 would count every sent, invoiced and paid document again.
+- `palletSpillCm` is the LAST record component and there is no constructor of the arity before it: positional callers
+  of the canonical constructor fail to compile without it. The short constructors leave it null; `carrying(source)`
+  restores it (0 is a value and stays). Every `new SalesOrder(` and what keeps the spill there: `SalesMapper.toDomain`
+  (the column); `create`, `createFromPurchaseOrder`, `createScheduledPartnerAdvance`, `createAuctionSettlement`,
+  `createPartnerSalesInvoice` (`.withPalletSpillCm(settings.standardSpillCm())`, the website's request and order
+  through `create`); `createInvoiceFrom`, `createCreditNote`, `SalesSplits.copy` (both parts; the first is saved over
+  the source's own row) and `SalesAdvanceBillingService.createAdvanceInvoice` (the source's raw value, null staying
+  null); `duplicate` (`copySpill`: the standard, but with hand-built pallets the source's raw value, because they were
+  built on that floor); `update` (settled before anything compares, then `.withPalletSpillCm(palletSpill)` on the
+  rebuild, which carries nothing by itself; `asStoredCreditNote` passes `updated`'s on); `updateShipping`
+  (`.carrying(current).withPalletSpillCm(...)`); the status and freight rebuilds through `carrying`
+  (`withTermDueDateAndNotes`, `withGoodsShipped`, `withStatus`, `withCarrier`, `copyWithTerms`, and `QuoteService`'s
+  proposal adoption, `withStatus`, `withValidity`); `PublicQuoteService.orderDocument` and `store` send none and
+  `update` keeps the stored one; `PublicQuoteService.draft` is an estimate, never stored. Merging another round: keep
+  it on every new `new SalesOrder(`.
+- Saves (`spillAfter`): "absent keeps, a number sets". No `palletSpillCm` in the body keeps the document's own, null
+  staying null; a number sets it, 0 included (0 is not "absent"). In `update` (so also the website intake and a
+  customer's change), `updateShipping` (`ShippingUpdate.palletSpillCm`) and `preview` (the planner tries a spill
+  before saving). `spillAsked` refuses anything but a whole number from 0 to 5 with "Spill moet een heel aantal
+  centimeter zijn, van 0 tot 5" (409), also in `preview`, and returns the value on the column's scale (2 → 2.00) so
+  that re-sending the stored number compares equal and logs nothing; `validateForSave` asks the same of every
+  document it stores. A split part keeps its spill (`SalesSplits.requireUpdate`, as its height). The activity log
+  shows field `palletSpillCm`, label "Spill", stored values ("2 → 0"; a first spill on an older document: empty → 2).
+  A switch between a pallet and the kar keeps the stored number; the spec applies it across the width only.
+- API: `order.palletSpillCm` (the stored value, null on older documents; 2 right after creation, 2.00 once read
+  back) and `priced.totals.palletSpillCm` (what the calculation counted with, 0 for none, never null: its presence
+  tells the ERP that this server counts with spill). The order body, the preview body and the transport patch accept
+  `palletSpillCm`.
+- One document's spec is asked in one place: `SalesOrderService.palletSpec(order)` (pricing,
+  `requireOuterCartonsForFreight`, `validatePalletHeight`, `validateLogisticsReady`). The website's change of a stored
+  order is estimated on that order's own height and spill (`OrderPricing.pallet`).
+- Hand pallets: no server check reads the floor. `OrderPallet.source` (4,000 characters, `[A-Za-z0-9_|:,.-]`) has room
+  for the ERP's optional 7th part (the spill of the day of the copy); the server only keeps the string.
+- Quote, invoice and pakbon PDFs print counts only: no template or text changed.
+- Release order: the frontend first, the backend 20-30 minutes later, as for PACKED. A frontend from before this round
+  against this backend would judge a new document's hand pallets and 3D on the nominal floor ("te hoog", cartons left
+  over) while the server counts on the load floor; it sends no spill, so nothing stored is lost. The new frontend
+  against an older backend sees no `totals.palletSpillCm` and counts 0. A split preview made before the deploy asks to
+  be previewed again (its token hashes the document).
+- Rollback: an older image reads the nullable column harmlessly and leaves it null on what it makes, but while it
+  serves it counts every document that stores a spill without it (more pallets and per-pallet freight on PDFs and the
+  portal), and what it derives from one (invoice, credit note, split, copy) stores none for good. Fix forward. The
+  documents concerned: `select id, number from sales_order where palletspillcm > 0`.
+- Checked 2026-11-26 on a local PostgreSQL copy of production: all 48 readable documents and the list answer
+  byte-equal figures to the base commit, apart from the two new fields (null and 0). A new concept quote (BOWL-M-NV
+  34 × 20 × 35 cm × 196 omdozen, FH-15-PK 53 × 16,8 × 31,5 cm × 154) stores 2 and counts 98 and 77 per pallet,
+  4 pallets, € 247,97 freight; at spill 0: 84 and 63, 5 pallets (6 strict), € 281,84. On a kar at spill 2 the
+  58 × 58 × 58 cm omdoos fits across (6 per kar; none at 0) while 43 × 32 × 37 stays 15 per kar and 64 × 48 × 61 stays
+  3 (20 and 6 if the length took the spill too).
+- Not in this commit: the catalogue export's own heights and spill per export (request fields, basis sentences,
+  journal columns) come on top of this.
+
 ## Deense kar op orders (2026-11-25)
 
 Emre, with a screenshot of a quote's Transport & levering sheet (Lading: Euro | Blok | Half): "Daarna moet ik ook hier
@@ -2421,8 +2511,9 @@ and stores nothing; frontend only, see `preview` below).
   floor from `PalletSpec.deenseKar()` (a second constructor: 54,5 cm is no int).
 - The figures exist once: `PalletSpec.deenseKar()`, floor 127 × 54,5 cm, base 16,5 cm, 230 cm with the base, 450 kg,
   equal to the frontend's `karSpec(KAR_MAX_HEIGHT_CM)` / `KAR_*` in pallet-calculator-model.ts (change both or neither;
-  the catalogue's per-kar figure uses the same spec). The kar's height limit is the 300 cm every document has
-  (`validatePalletHeight`). `SalesSettings.pallet(DEENSE_KAR, height)` gives those figures at the document's own height;
+  the catalogue's per-kar figure uses the same figures with the standard spill, `SalesSettings.standardKar()`, since
+  2026-11-26). The kar's height limit is the 300 cm every document has
+  (`validatePalletHeight`). `SalesSettings.pallet(DEENSE_KAR, height, spill)` gives those figures at the document's own height;
   a null height on a kar reads 230 (no kar document predates stored heights); `KAR_STANDARD_HEIGHT_CM` (= the spec's
   230) and `standardMaxHeightCm(profile)`. Everything else follows from that spec with no kar code of its own: the
   STRICT, MIXED and PACKED counts, `autoPallets`, the line pallet columns, `Totals.palletBaseHeightCm/palletMaxHeightCm`
