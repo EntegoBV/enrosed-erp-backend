@@ -695,7 +695,8 @@ public class SalesOrderService {
                                 line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
-                        /* The copy source goes along: the ERP uses it only while profile and height still match. */
+                        /* The copy source goes along: the ERP uses it only while profile and height still match
+                           and the spill the document counts with is not below the copy's. */
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items(), pallet.source()))
                         .toList());
@@ -2260,8 +2261,11 @@ public class SalesOrderService {
            a pallet and the Deense kar takes the standard of the one it moves to instead (unaskedHeight). */
         if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
             changes = changes.withMaxPalletHeightCm(unaskedHeight(beforeEdit, palletProfile));
-        /* No spill from the client (the website, a customer's change, a screen from before the spill) keeps
-           the document's own, none staying none; a number, 0 included, sets it (spillAfter). */
+        /* No spill from the client (the website, a customer's change, an editor that did not change it)
+           keeps the document's own, none staying none; a number, 0 included, sets it (spillAfter). A
+           screen from before the spill sends none only until it has had an answer from this server:
+           after that its full save echoes the number it got (the whole order goes back), so a spill
+           changed in another window meanwhile is written over, as its pallet type and lines are. */
         BigDecimal palletSpill = spillAfter(beforeEdit, changes.palletSpillCm());
         changes = changes.withPalletSpillCm(palletSpill);
         /* Per piece is settled before anything compares or rounds the lines: the request decides on a
@@ -2976,7 +2980,8 @@ public class SalesOrderService {
                                 line.unitsPerOrderStep(), null, line.priceSource(), line.perPiece()))
                         .toList(),
                 source.pallets().stream()
-                        /* The copy source goes along: the ERP uses it only while profile and height still match. */
+                        /* The copy source goes along: the ERP uses it only while profile and height still match
+                           and the spill the document counts with is not below the copy's. */
                         .map(pallet -> new OrderPallet(null, pallet.label(), pallet.type(),
                                 pallet.heightCm(), pallet.items(), pallet.source()))
                         .toList());

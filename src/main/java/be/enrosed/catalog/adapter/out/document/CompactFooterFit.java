@@ -14,8 +14,9 @@ import java.util.Arrays;
  * The note stands in the bottom page margin, which is as deep as the template says and does not
  * grow with its text: 20 mm holds three note lines above the brand line and the page number. With
  * a spill both basis sentences gained a clause (2026-11-26), and a price list for a named
- * recipient with a validity then runs to a fourth line in Greek and Portuguese, which pushes the
- * brand line to 2 mm from the paper edge, where a printer no longer prints.
+ * recipient with a validity then runs to a fourth line in Greek, and with a long recipient name
+ * in other languages (Portuguese, Turkish and French were measured), which pushes the brand line
+ * to 2 mm from the paper edge, where a printer no longer prints.
  *
  * A footer in a page margin is laid out per page and is not part of the document's box tree, so
  * the template carries a hidden copy of the note ({@code .footer-probe}: as wide and set as the

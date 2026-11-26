@@ -126,12 +126,13 @@ public class CatalogExportJournal {
                     summary(export), ActivityChangeSet.create()
                             .add("fileName", "Bestand", null, export.fileName)
                             .add("pricesValidUntil", "Geldig tot", null, export.pricesValidUntil)
-                            /* Only what was chosen for this PDF: a PDF on the standard reads as before. */
-                            .add("palletHeightCm", "Pallethoogte (cm)", null,
+                            /* Only what was chosen for this PDF: a PDF on the standard reads as before. No unit
+                               in the labels, as a document's "Maximale pallethoogte" and "Spill" in the Logboek. */
+                            .add("palletHeightCm", "Pallethoogte", null,
                                     request.palletHeightCm() == null ? null : load.palletHeightCm())
-                            .add("karHeightCm", "Hoogte Deense kar (cm)", null,
+                            .add("karHeightCm", "Hoogte Deense kar", null,
                                     request.karHeightCm() == null ? null : load.karHeightCm())
-                            .add("spillCm", "Spill (cm)", null,
+                            .add("spillCm", "Spill", null,
                                     request.spillCm() == null ? null : load.spillCm())
                             .build());
         }
