@@ -9,7 +9,9 @@ import jakarta.enterprise.context.ApplicationScoped;
  * The catalogue's per-pallet figure: the same stacking as Palletberekening, on the standard
  * pallet of the sales settings (a europallet 120 x 80 cm, 260 cm high with the wood, 700 kg,
  * unless configured otherwise), the one a new sales document is made with. The per-kar figure
- * stacks the same way on the Deense kar at its standard 230 cm ({@link PalletSpec#deenseKar()}).
+ * stacks the same way on the Deense kar at its standard 230 cm ({@link SalesSettings#standardKar()}).
+ * Both count with the standard spill (2 cm per edge since 2026-11-26, on the kar across its width
+ * only), as a new document does; the basis keeps the nominal floor (120 × 80, 127 × 54,5).
  * Both are a pallet of one product in whole upright layers, an omdoos laid down only when it fits
  * no pallet upright: what MIXED counts. A PACKED quote (new documents since 2026-11-25) may load
  * more of one product on a pallet, side by side or on its side, so this figure is the safe one.
@@ -38,12 +40,12 @@ public class CataloguePalletFit implements CataloguePallet {
 
     @Override
     public Basis karBasis() {
-        PalletSpec kar = PalletSpec.deenseKar();
+        PalletSpec kar = settings.standardKar();
         return new Basis(kar.lengthCm(), kar.widthCm(), kar.maxHeightCm(), kar.maxWeightKg());
     }
 
     @Override
     public int cartonsPerKar(Carton carton) {
-        return calculator.fit(carton, PalletSpec.deenseKar()).cartonsPerPallet();
+        return calculator.fit(carton, settings.standardKar()).cartonsPerPallet();
     }
 }

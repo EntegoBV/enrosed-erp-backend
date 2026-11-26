@@ -492,7 +492,9 @@ public class SalesPricingCalculator {
                         : BigDecimal.ZERO,
                 Money.money(margin.subtract(shipping)),
                 Money.money(extraLinesTotal),
-                context.palletRule(), palletCounts.automatic(), palletCounts.layout());
+                context.palletRule(), palletCounts.automatic(), palletCounts.layout(),
+                /* What the counts above loaded with: the spec's own spill, 0 without one. */
+                context.pallet().spillCm());
 
         PricedOrder.Validation validation = new PricedOrder.Validation(
                 Money.money(minOrderValue), meetsMinimum,

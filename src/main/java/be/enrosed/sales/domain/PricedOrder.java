@@ -264,11 +264,18 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
              */
             int palletsAutomatic,
             /** The automatic layout under that rule; empty when not palletised or nothing fits. */
-            List<AutoPallet> autoPallets
+            List<AutoPallet> autoPallets,
+            /**
+             * The spill this calculation counted with, in cm per edge: the document's own, 0 for a
+             * document that stores none. Never null, so its presence tells the ERP that this server
+             * counts with spill; the stored value itself (null included) is order.palletSpillCm.
+             */
+            BigDecimal palletSpillCm
     ) {
         public Totals {
             palletRule = palletRule == null ? PalletCountRule.STRICT : palletRule;
             autoPallets = autoPallets == null ? List.of() : List.copyOf(autoPallets);
+            palletSpillCm = palletSpillCm == null ? BigDecimal.ZERO : palletSpillCm;
         }
 
         /** Compatibility for callers written before the pallet count rule: their count is the strict one. */
@@ -288,7 +295,7 @@ public record PricedOrder(List<Line> lines, Totals totals, Validation validation
                     extraDiscountAmount, goodsTotal, freight, freightIsMinimum, handling, shippingTotal, total,
                     vatRatePct, vatAmount, totalInclVat, vatTreatment, vatLegalMention, vatReason, costTotal,
                     marginEur, marginPct, marginAfterFreightEur, extraLinesTotal,
-                    PalletCountRule.STRICT, palletsStrict, List.of());
+                    PalletCountRule.STRICT, palletsStrict, List.of(), BigDecimal.ZERO);
         }
 
         /**

@@ -427,7 +427,8 @@ public class PublicQuoteService {
                 internal.toString(),
                 base.deliveryTerms(),
                 prepared.shippingAvailable ? FreightState.BEREKEND : FreightState.TE_BEPALEN,
-                /* The order keeps the pallet height it was made with, also when the customer changes it. */
+                /* The order keeps the pallet height it was made with, also when the customer changes it; its
+                   spill too: this document sends none, and a save without one keeps the stored spill. */
                 null, LoadMode.PALLETS, PalletProfile.EURO_120X80, base.maxPalletHeightCm(),
                 prepared.strategy, null,
                 prepared.carrier == null ? null : prepared.carrier.id(), null,
@@ -480,9 +481,11 @@ public class PublicQuoteService {
                         destination, items, pickupLocationId), false,
                 new OrderPricing(customer, keptUnitPrices(changing), keptPriceSources(changing),
                         changing == null ? PalletCountRule.forNew() : salesOrders.palletRule(changing),
-                        /* A change keeps the stored order's height (a save keeps it too); its document is a europallet. */
+                        /* A change keeps the stored order's height and spill (a save keeps them too); its document
+                           is a europallet. A new order counts on the standard pallet, standard spill included, as
+                           the document made for it stores both. */
                         changing == null ? settings.pallet()
-                                : settings.pallet(PalletProfile.EURO_120X80, changing.maxPalletHeightCm())),
+                                : settings.pallet(PalletProfile.EURO_120X80, changing.maxPalletHeightCm(), changing.palletSpillCm())),
                 customer.id());
     }
 

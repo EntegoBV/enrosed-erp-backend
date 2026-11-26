@@ -117,7 +117,8 @@ final class SalesMapper {
                 ExtraLinesJson.read(entity.extraLinesJson),
                 entity.partnerPurchaseOrderId, entity.partnerSharePct, Boolean.TRUE.equals(entity.partnerSettlement),
                 entity.salesChannel, entity.purpose, entity.sourcePurchaseOrderId, entity.paymentPlan,
-                entity.creditedInvoiceId, CreditReason.of(entity.creditReason), entity.goodsReturnedAt);
+                entity.creditedInvoiceId, CreditReason.of(entity.creditReason), entity.goodsReturnedAt,
+                entity.palletSpillCm);
     }
 
     private static PickupLocationSnapshot pickupSnapshot(SalesOrderEntity entity) {
@@ -157,6 +158,8 @@ final class SalesMapper {
         entity.loadMode = order.loadMode();
         entity.palletProfile = order.palletProfile();
         entity.maxPalletHeightCm = order.maxPalletHeightCm();
+        /* Written as the record holds it, null included: null is a document without spill, not the standard. */
+        entity.palletSpillCm = order.palletSpillCm();
         entity.freightPricingStrategy = order.freightPricingStrategy();
         entity.freightRatePerCbmEur = order.freightRatePerCbmEur();
         entity.freightCarrierId = order.freightCarrierId();

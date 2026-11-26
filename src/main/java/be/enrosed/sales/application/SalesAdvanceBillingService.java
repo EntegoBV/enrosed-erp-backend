@@ -139,12 +139,13 @@ public class SalesAdvanceBillingService {
                 today, BusinessDays.add(today, 30), QuoteStatus.CONCEPT, quote.incoterm(), quote.paymentTerms(), notes,
                 MarkupMode.PRODUCT, BigDecimal.ZERO, null, null, null, null, null, 0, null, null, null, internalNotes,
                 DeliveryTermsState.VOLLEDIG, FreightState.AANGEVULD, BigDecimal.ZERO, LoadMode.PALLETS,
-                /* No lines and no freight of its own; it carries its quote's pallet height like the slotfactuur. */
+                /* No lines and no freight of its own; it carries its quote's pallet height and spill like the slotfactuur. */
                 PalletProfile.EURO_120X80, quote.maxPalletHeightCm(), FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, due, null, null, null, List.of(), List.of())
                 .withExtraLines(List.of(new SalesExtraLine(label, BigDecimal.ONE, amount)))
                 .withSalesChannel(quote.rawSalesChannel())
-                .withPurpose(SalesPurpose.STANDARD, quote.sourcePurchaseOrderId(), SalesPaymentPlan.FULL);
+                .withPurpose(SalesPurpose.STANDARD, quote.sourcePurchaseOrderId(), SalesPaymentPlan.FULL)
+                .withPalletSpillCm(quote.palletSpillCm());
         sales.validateForSave(draft);
         /* An advance counts like its quote, as the slotfactuur after it does. */
         SalesOrder created = orders.create(draft, sales.palletRule(quote));

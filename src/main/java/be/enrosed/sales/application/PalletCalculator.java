@@ -28,6 +28,10 @@ import java.util.List;
  * takes the most cartons, the lower load on a tie (Emre, 2026-11-20, about
  * 81 x 81 cm half hearts on a Euro pallet: tip "alleen als het moet").
  * Palletberekening's palletFit counts the same way.
+ *
+ * The floor a layer is laid on is the spec's LOAD floor (PalletSpec.loadLengthCm / loadWidthCm):
+ * since 2026-11-26 it may carry a spill, an input like the profile and the height. Without one it
+ * is the nominal floor and every count is what it was; no counting step changed for it.
  */
 @ApplicationScoped
 public class PalletCalculator {
@@ -78,9 +82,10 @@ public class PalletCalculator {
            Enumerating guillotine rows in both pallet directions covers that
            common warehouse pattern without pretending this is a generic
            free-form rectangle-packing solver. */
+        /* The load floor: the nominal floor, plus the document's spill where it has one (PalletSpec). */
         int perLayer = Math.max(
-                bestRows(pallet.lengthCm(), pallet.widthCm(), length, width),
-                bestRows(pallet.widthCm(), pallet.lengthCm(), length, width));
+                bestRows(pallet.loadLengthCm(), pallet.loadWidthCm(), length, width),
+                bestRows(pallet.loadWidthCm(), pallet.loadLengthCm(), length, width));
         if (perLayer <= 0) return Fit.none("doos past niet op de pallet");
 
         BigDecimal usableHeight = pallet.maxHeightCm().subtract(pallet.baseHeightCm());

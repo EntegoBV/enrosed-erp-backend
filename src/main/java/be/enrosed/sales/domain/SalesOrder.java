@@ -158,7 +158,17 @@ public record SalesOrder(
         /** Credit notes only: why it exists. */
         CreditReason creditReason,
         /** Credit notes only: when the credited goods came back into the warehouse. */
-        Instant goodsReturnedAt
+        Instant goodsReturnedAt,
+        /**
+         * Spill in cm per edge: how far an omdoos may stick out past an edge of the pallet's floor
+         * (on a Deense kar across its width only), whole centimetres from 0 to
+         * SalesSettings.SPILL_LIMIT_CM. The standard when the document was made (2 cm since
+         * 2026-11-26) unless someone changed it. Null on every document made before the spill existed
+         * and on what was made from one: null counts as 0, never as today's standard, so those documents
+         * keep the pallets they were sent and paid with. The last component on purpose, and no
+         * constructor of the arity before it: a positional caller that forgets it does not compile.
+         */
+        BigDecimal palletSpillCm
 ) {
     public SalesOrder {
         extraLines = extraLines == null ? List.of()
@@ -195,7 +205,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose,
-                sourcePurchaseOrderId, paymentPlan, null, null, null);
+                sourcePurchaseOrderId, paymentPlan, null, null, null, null);
     }
 
     /** Compatibility for callers written before invoice purposes and incoming instalments existed. */
@@ -285,7 +295,7 @@ public record SalesOrder(
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement,
                 value == null || value.isBlank() ? null : value.strip().toUpperCase(), purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** Compatibility for callers written before the auction settlement flag existed. */
@@ -330,7 +340,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, true, salesChannel, SalesPurpose.PARTNER_SETTLEMENT, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** Compatibility for callers written before partner deals existed. */
@@ -375,7 +385,7 @@ public record SalesOrder(
                 purchaseOrderId, sharePct, partnerSettlement, salesChannel,
                 purchaseOrderId == null ? SalesPurpose.STANDARD : partnerSettlement ? SalesPurpose.PARTNER_SETTLEMENT : SalesPurpose.PARTNER_ADVANCE,
                 purchaseOrderId == null ? sourcePurchaseOrderId : purchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     public boolean isPartnerDeal() {
@@ -393,8 +403,9 @@ public record SalesOrder(
     /**
      * The same document carrying the fields that positional callers written
      * before them leave empty: the pickup snapshot, the archive moment, the
-     * free lines and the partner deal. Reconstructions that only change a
+     * free lines, the partner deal and the spill. Reconstructions that only change a
      * status or a freight state pass through here so a save never erases them.
+     * A spill of 0 is a value and stays; only a missing one takes the source's.
      */
     public SalesOrder carrying(SalesOrder source) {
         return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
@@ -417,7 +428,8 @@ public record SalesOrder(
                 paymentPlan != null ? paymentPlan : source.paymentPlan,
                 creditedInvoiceId != null ? creditedInvoiceId : source.creditedInvoiceId,
                 creditReason != null ? creditReason : source.creditReason,
-                goodsReturnedAt != null ? goodsReturnedAt : source.goodsReturnedAt);
+                goodsReturnedAt != null ? goodsReturnedAt : source.goodsReturnedAt,
+                palletSpillCm != null ? palletSpillCm : source.palletSpillCm);
     }
 
     /** Compatibility for callers written before the free lines existed. */
@@ -460,7 +472,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, value, layout, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** The same draft under this id: priced, as an unsaved draft of that stored document, like the document. */
@@ -475,7 +487,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** The same document with another total pallet height (cm, the wooden pallet included). */
@@ -490,7 +502,25 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
+    }
+
+    /**
+     * The same document with another spill (cm per edge); null is a document that stores none and
+     * counts without spill.
+     */
+    public SalesOrder withPalletSpillCm(BigDecimal value) {
+        if (java.util.Objects.equals(palletSpillCm, value)) return this;
+        return new SalesOrder(id, number, customerId, countryCode, orderDate, validUntil, status, incoterm,
+                paymentTerms, notes, markupMode, orderMarkupPct, extraDiscountPct,
+                extraDiscountLabel, portalToken, sentAt, viewedAt, viewCount, decidedAt,
+                signedByName, customerMessage, internalNotes, deliveryTerms, freight,
+                manualFreightEur, loadMode, palletProfile, maxPalletHeightCm,
+                freightPricingStrategy, freightRatePerCbmEur, freightCarrierId,
+                freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
+                goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
+                partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
+                creditedInvoiceId, creditReason, goodsReturnedAt, value);
     }
 
     public SalesOrder withExtraLines(List<SalesExtraLine> value) {
@@ -503,7 +533,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, value,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** Compatibility for callers written before the archive existed. */
@@ -545,7 +575,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, value, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     public boolean isArchived() {
@@ -596,7 +626,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel,
-                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt);
+                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     public SalesOrder withPaymentState(QuoteStatus value, Instant at) {
@@ -609,7 +639,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, at, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel,
-                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt);
+                purpose, sourcePurchaseOrderId, paymentPlan, creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     public SalesPurpose purpose() {
@@ -638,7 +668,7 @@ public record SalesOrder(
                 value == SalesPurpose.STANDARD ? null : partnerPurchaseOrderId,
                 value == SalesPurpose.STANDARD ? null : partnerSharePct,
                 value == SalesPurpose.PARTNER_SETTLEMENT, salesChannel, value, purchaseOrderId, plan,
-                creditedInvoiceId, creditReason, goodsReturnedAt);
+                creditedInvoiceId, creditReason, goodsReturnedAt, palletSpillCm);
     }
 
     /** Every order that predates invoices is a quote. */
@@ -671,7 +701,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, docType, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                creditedInvoiceId, creditReason, value);
+                creditedInvoiceId, creditReason, value, palletSpillCm);
     }
 
     /** The same document as a credit note on that invoice, for that reason. */
@@ -685,7 +715,7 @@ public record SalesOrder(
                 freightCarrierExtraEur, DocumentType.CREDITNOTA, invoiceDueDate, paidAt, sourceQuoteId,
                 goodsShippedAt, lines, pallets, pickupLocation, archivedAt, extraLines,
                 partnerPurchaseOrderId, partnerSharePct, partnerSettlement, salesChannel, purpose, sourcePurchaseOrderId, paymentPlan,
-                invoiceId, reason, goodsReturnedAt);
+                invoiceId, reason, goodsReturnedAt, palletSpillCm);
     }
 
     public List<SalesOrderLine> lines() {

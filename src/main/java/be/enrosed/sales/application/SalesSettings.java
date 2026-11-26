@@ -19,6 +19,11 @@ import java.math.BigDecimal;
  * while the standard was 220 cm, stores that 220. A document the seller puts on the Deense
  * kar (2026-11-25) counts on the kar's own figures (PalletSpec.deenseKar()), 230 cm high
  * unless another height was picked.
+ *
+ * Spill (Emre, 2026-11-26: "Je mag ook standaard maximaal 2cm spill doen", 2 cm per kant): the
+ * standard pallet and the standard kar count with the standard spill, and a new document stores
+ * it as it stores its height. A document keeps the spill it stores; a row without one (every
+ * document made before the spill existed) counts without spill, never with today's standard.
  */
 @ApplicationScoped
 public class SalesSettings {
@@ -71,6 +76,18 @@ public class SalesSettings {
      */
     public static final BigDecimal KAR_STANDARD_HEIGHT_CM = PalletSpec.deenseKar().maxHeightCm();
 
+    /**
+     * The standard spill: an omdoos may stick out at most 2 cm past every edge of the floor (Emre,
+     * 2026-11-26: "Je mag ook standaard maximaal 2cm spill doen", 2 cm per kant; on the Deense kar
+     * "alleen lange zijden", PalletProfile.spillsAlongLength). What a new document stores and what
+     * the standard pallet and kar count with. A constant like the kar's 230: no setting, no Railway
+     * variable. The ERP counts with the same number in its own code: change both or neither.
+     */
+    public static final BigDecimal STANDARD_SPILL_CM = BigDecimal.valueOf(2);
+
+    /** The most a document's spill can be set to, in whole centimetres from 0. */
+    public static final BigDecimal SPILL_LIMIT_CM = BigDecimal.valueOf(5);
+
     public BigDecimal defaultMarkupPct() {
         return defaultMarkupPct;
     }
@@ -89,9 +106,23 @@ public class SalesSettings {
         return profile != null && profile.isKar() ? KAR_STANDARD_HEIGHT_CM : palletMaxHeightCm;
     }
 
-    /** The standard europallet: the catalogue's per-pallet figure and every website estimate of a new request or order. */
+    /** The spill a new document is made with, in cm per edge. */
+    public BigDecimal standardSpillCm() {
+        return STANDARD_SPILL_CM;
+    }
+
+    /**
+     * The standard europallet: the catalogue's per-pallet figure, the partner portal's pallets and
+     * every website estimate of a new request or order. It counts with the standard spill, as the
+     * document a request becomes stores it, so an estimate equals that document.
+     */
     public PalletSpec pallet() {
-        return pallet(PalletProfile.EURO_120X80, palletMaxHeightCm);
+        return pallet(PalletProfile.EURO_120X80, palletMaxHeightCm, STANDARD_SPILL_CM);
+    }
+
+    /** The standard Deense kar: 230 cm high with the standard spill (across its width only); the catalogue's per-kar figure. */
+    public PalletSpec standardKar() {
+        return pallet(PalletProfile.DEENSE_KAR, KAR_STANDARD_HEIGHT_CM, STANDARD_SPILL_CM);
     }
 
     /**
@@ -102,14 +133,21 @@ public class SalesSettings {
      * under the load, 450 kg) at the document's own height; no kar document predates stored heights,
      * so a kar without one reads the kar's 230 cm. Every count (STRICT, MIXED, PACKED), autoPallets and
      * the totals' base and maximum then follow from this spec alone.
+     *
+     * {@code spillCm} is the document's own stored spill in cm per edge: the counts load on the floor
+     * that much larger at every edge (a Deense kar across its width only). Null (a document made
+     * before the spill existed) or 0 gives exactly the spec of before the spill; null is never read as the
+     * standard, or every stored document would be counted again. The spec's lengthCm and widthCm stay
+     * the nominal floor.
      */
-    public PalletSpec pallet(PalletProfile requestedProfile, BigDecimal maxHeightCm) {
+    public PalletSpec pallet(PalletProfile requestedProfile, BigDecimal maxHeightCm, BigDecimal spillCm) {
         PalletProfile profile = requestedProfile == null
                 ? PalletProfile.EURO_120X80 : requestedProfile;
         if (profile.isKar()) {
             PalletSpec kar = PalletSpec.deenseKar();
             return new PalletSpec(profile.label(), kar.lengthCm(), kar.widthCm(), kar.baseHeightCm(),
-                    maxHeightCm == null ? kar.maxHeightCm() : maxHeightCm, kar.maxWeightKg());
+                    maxHeightCm == null ? kar.maxHeightCm() : maxHeightCm, kar.maxWeightKg())
+                    .withSpill(spillCm, profile.spillsAlongLength());
         }
         BigDecimal length = profile == PalletProfile.EURO_120X80
                 ? palletLengthCm : profile.lengthCm();
@@ -118,6 +156,7 @@ public class SalesSettings {
         BigDecimal maxHeight = maxHeightCm == null
                 ? LEGACY_MAX_HEIGHT_CM : maxHeightCm;
         return new PalletSpec(profile.label(), length, width,
-                palletBaseHeightCm, maxHeight, palletMaxWeightKg);
+                palletBaseHeightCm, maxHeight, palletMaxWeightKg)
+                .withSpill(spillCm, profile.spillsAlongLength());
     }
 }

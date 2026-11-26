@@ -55,4 +55,13 @@ public enum PalletProfile {
     public boolean isKar() {
         return this == DEENSE_KAR;
     }
+
+    /**
+     * Whether a spill also counts along the length. On a pallet an omdoos may stick out past every
+     * edge; on the Deense kar only across the width, past the open long sides, never along the length:
+     * the posts stand at the short ends (Emre, 2026-11-26: "alleen lange zijden").
+     */
+    public boolean spillsAlongLength() {
+        return !isKar();
+    }
 }

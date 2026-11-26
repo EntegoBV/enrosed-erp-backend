@@ -163,6 +163,8 @@ public class SalesOrderService {
            and the Deense kar, the standard of the one it moves to). */
         if (proposed != null && proposed.maxPalletHeightCm() == null)
             proposed = proposed.withMaxPalletHeightCm(unaskedHeight(stored, palletProfileAfter(stored, proposed.palletProfileOrNull())));
+        /* No spill from the client: the document's own, as a save keeps it; a number (0 included) is tried as sent. */
+        if (proposed != null) proposed = proposed.withPalletSpillCm(spillAfter(stored, proposed.palletSpillCm()));
         SalesOrder normalized = lineAvailability != null && lineAvailability.isResolvable() ? lineAvailability.get().normalize(stored, proposed) : proposed;
         if (normalized == null || normalized.lines() == null) return normalized;
         /* Priced with the step a save would remember: today's for a document that rounds (1 on a line
@@ -373,7 +375,7 @@ public class SalesOrderService {
                 country,
                 /* A website order is delivered where the customer ordered it; VAT stays the record's. */
                 deliveries() == null ? customer : deliveries().pricingCustomer(order, customer),
-                settings.pallet(order.palletProfile(), order.maxPalletHeightCm()),
+                palletSpec(order),
                 page == null ? tiers.list(TierScope.LINE) : page.lineTiers(),
                 page == null ? tiers.list(TierScope.ORDER) : page.orderTiers(),
                 vatOf(order, country, customer, splitPricing),
@@ -418,6 +420,15 @@ public class SalesOrderService {
     /** A derived document (invoice, split part, copy, credit note) takes its source's VAT route at creation. */
     void copyVatChoice(Long sourceId, Long targetId) {
         if (vatChoices != null && vatChoices.isResolvable()) vatChoices.get().copy(sourceId, targetId);
+    }
+
+    /**
+     * The pallet or kar a document counts on: its own profile, height and spill (SalesSettings.pallet).
+     * The one place a document's spec is asked, so pricing, the freight checks and sending agree; a
+     * document without a stored spill counts without one.
+     */
+    private PalletSpec palletSpec(SalesOrder order) {
+        return settings.pallet(order.palletProfile(), order.maxPalletHeightCm(), order.palletSpillCm());
     }
 
     /**
@@ -580,7 +591,9 @@ public class SalesOrderService {
                 null, defaultCarrierId, null,
                 docType, invoice ? BusinessDays.add(today, 30) : null, null, null, null,
                 List.of(), List.of())
-                .withSalesChannel(staffAction ? null : "WEBSITE");
+                .withSalesChannel(staffAction ? null : "WEBSITE")
+                /* And the spill it is made with (2 cm since 2026-11-26), the website's request and order included. */
+                .withPalletSpillCm(settings.standardSpillCm());
         validateForSave(draft);
         /* A new quote, invoice, website request or website order counts by the rule for new documents. */
         SalesOrder created = orders.create(draft, PalletCountRule.forNew());
@@ -688,7 +701,9 @@ public class SalesOrderService {
         invoice = invoice.withExtraLines(List.copyOf(extras))
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
-                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
+                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan())
+                /* The quote's spill as stored, none staying none: the invoice counts the floor its quote counted. */
+                .withPalletSpillCm(source.palletSpillCm());
         validatePartnerAdvanceReservation(invoice, null);
         /* The hand layout is copied as the quote stands, never brought in line here as a save and
            Overnemen do: a layout its lines outgrew (an omdoos content changed after acceptance) is
@@ -941,7 +956,9 @@ public class SalesOrderService {
                 .withSalesChannel(channel)
                 .withPurpose(partner ? SalesPurpose.PARTNER_ADVANCE : SalesPurpose.STANDARD, container.id(),
                         request.paymentPlan() != null ? request.paymentPlan()
-                                : partner ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL);
+                                : partner ? SalesPaymentPlan.THIRD_TWO_THIRDS_PRODUCTION : SalesPaymentPlan.FULL)
+                /* A new document: the standard spill with the standard height. */
+                .withPalletSpillCm(settings.standardSpillCm());
         /* At sales prices the lines are new lines like any other: the customer's agreed prices come first. */
         if (!atCost) draft = withPriceSources(null, draft);
         if (partner) {
@@ -1129,7 +1146,9 @@ public class SalesOrderService {
                 DocumentType.FACTUUR, dueDate == null ? BusinessDays.add(today, 30) : dueDate, null, sourceQuoteId, null, List.of(), List.of())
                 .withExtraLines(List.of(new SalesExtraLine("Voorschot · " + label, BigDecimal.ONE, amount)))
                 .withPartnerDeal(purchase.id(), purchase.partnerSharePctOrDefault()).withSalesChannel("PARTNER")
-                .withPurpose(SalesPurpose.PARTNER_ADVANCE, purchase.id(), SalesPaymentPlan.FULL);
+                .withPurpose(SalesPurpose.PARTNER_ADVANCE, purchase.id(), SalesPaymentPlan.FULL)
+                /* A new document: the standard spill with the standard height. */
+                .withPalletSpillCm(settings.standardSpillCm());
         requireAdvanceBeforeSettlement(invoice);
         validatePartnerAdvanceReservation(invoice, rowId);
         validateForSave(invoice);
@@ -1442,7 +1461,9 @@ public class SalesOrderService {
                 FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, plan.lines(), List.of())
                 .withExtraLines(plan.extras()).withPartnerDeal(purchaseId, profitShare).withSalesChannel("PARTNER").asPartnerSettlement()
-                .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL);
+                .withPurpose(SalesPurpose.PARTNER_SETTLEMENT, purchaseId, SalesPaymentPlan.FULL)
+                /* A new document: the standard spill with the standard height. */
+                .withPalletSpillCm(settings.standardSpillCm());
         validateForSave(invoice);
         /* The auction's own lines on a new document: the rule for new documents. */
         SalesOrder created = orders.create(invoice, PalletCountRule.forNew());
@@ -1639,7 +1660,9 @@ public class SalesOrderService {
                 FreightPricingStrategy.FIXED, null, null, null,
                 DocumentType.FACTUUR, BusinessDays.add(today, 30), null, null, null, lines, List.of())
                 .withExtraLines(request.extras()).withSalesChannel("PARTNER")
-                .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.FULL);
+                .withPurpose(SalesPurpose.STANDARD, null, SalesPaymentPlan.FULL)
+                /* A new document: the standard spill with the standard height. */
+                .withPalletSpillCm(settings.standardSpillCm());
         validateForSave(invoice);
         SalesOrder created = orders.create(invoice, PalletCountRule.forNew());
         events.add(new QuoteEvent(null, created.id(), QuoteEvent.Type.OPGEMAAKT, Instant.now(), currentActor().displayName(), false,
@@ -2234,6 +2257,10 @@ public class SalesOrderService {
            a pallet and the Deense kar takes the standard of the one it moves to instead (unaskedHeight). */
         if (heightAsked(changes.maxPalletHeightCm(), beforeEdit.maxPalletHeightCm(), heightPicked) == null)
             changes = changes.withMaxPalletHeightCm(unaskedHeight(beforeEdit, palletProfile));
+        /* No spill from the client (the website, a customer's change, a screen from before the spill) keeps
+           the document's own, none staying none; a number, 0 included, sets it (spillAfter). */
+        BigDecimal palletSpill = spillAfter(beforeEdit, changes.palletSpillCm());
+        changes = changes.withPalletSpillCm(palletSpill);
         /* Per piece is settled before anything compares or rounds the lines: the request decides on a
            document that rounds, the stored choice stays everywhere else and where the request is silent. */
         changes = changes.withLinesAndPallets(withPerPieceChoices(changes.lines(), beforeEdit.lines(),
@@ -2354,7 +2381,9 @@ public class SalesOrderService {
                 /* The raw field: an update client that never heard of channels leaves it as it was. */
                 .withSalesChannel(changes.rawSalesChannel() == null ? current.rawSalesChannel() : changes.rawSalesChannel())
                 .withPurpose(current.purpose(), current.linkedPurchaseOrderId(),
-                        changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan());
+                        changes.paymentPlanOrNull() == null ? current.paymentPlan() : changes.paymentPlan())
+                /* This rebuild carries nothing by itself: the spill settled above, or the document loses it here. */
+                .withPalletSpillCm(palletSpill);
         /* The customer's own path (a website order) and the website's intake price their lines
            themselves; a staff save settles where each price comes from. */
         if (!byCustomer && settlesPrices) updated = withPriceSources(current, updated);
@@ -2459,9 +2488,11 @@ public class SalesOrderService {
     /**
      * Complete transport snapshot; null optional values clear them, and an empty list clears the pallet
      * plan. A null height keeps the document's own height: "Standaard" sends the standard's number.
+     * {@code palletSpillCm} likewise: absent keeps the document's own spill, a number (0 included) sets it.
      */
     public record ShippingUpdate(LoadMode loadMode, PalletProfile palletProfile,
                                  BigDecimal maxPalletHeightCm,
+                                 BigDecimal palletSpillCm,
                                  FreightPricingStrategy freightPricingStrategy,
                                  BigDecimal freightRatePerCbmEur, BigDecimal manualFreightEur,
                                  Long freightCarrierId, BigDecimal freightCarrierExtraEur,
@@ -2489,6 +2520,8 @@ public class SalesOrderService {
                 && request.freight() != FreightState.TE_BEPALEN
                 ? FreightState.AANGEVULD : request.freight();
         BigDecimal askedHeight = heightAsked(request.maxPalletHeightCm(), current.maxPalletHeightCm(), heightPicked);
+        /* No spill asked: the document's own, none staying none. */
+        BigDecimal palletSpill = spillAfter(current, request.palletSpillCm());
         FreightPricingStrategy strategy = request.freightPricingStrategy();
         BigDecimal manualFreight = strategy == FreightPricingStrategy.FIXED ? request.manualFreightEur() : null;
         /* A Deense kar never stays on a per-pallet freight. */
@@ -2511,7 +2544,8 @@ public class SalesOrderService {
                 strategy == FreightPricingStrategy.PER_CBM ? request.freightRatePerCbmEur() : null,
                 request.freightCarrierId(), request.freightCarrierExtraEur(), current.docType(), current.invoiceDueDate(),
                 current.paidAt(), current.sourceQuoteId(), current.goodsShippedAt(), current.lines(), request.pallets())
-                .carrying(current);
+                .carrying(current)
+                .withPalletSpillCm(palletSpill);
         if (splitOrders != null && splitOrders.isResolvable()) splitOrders.get().requireUpdate(current, updated);
         requireNonNegative(request.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(request.freightRatePerCbmEur(), "CBM-vrachttarief");
@@ -2727,7 +2761,7 @@ public class SalesOrderService {
     private void requireOuterCartonsForFreight(SalesOrder order, boolean requirePalletFit) {
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
-        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        PalletSpec palletSpec = palletSpec(order);
         for (SalesOrderLine line : order.lines()) {
             if (line == null || line.quantity() <= 0) continue;
             Product product = byId.get(line.productId());
@@ -2946,7 +2980,9 @@ public class SalesOrderService {
         duplicate = duplicate.withExtraLines(source.extraLines())
                 .withPartnerDeal(source.partnerPurchaseOrderId(), source.partnerSharePct())
                 .withSalesChannel(source.rawSalesChannel())
-                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan());
+                .withPurpose(source.purpose(), source.linkedPurchaseOrderId(), source.paymentPlan())
+                /* Today's standard spill, or the source's own where its hand pallets go along (copySpill). */
+                .withPalletSpillCm(copySpill(source));
         /* A copy is a new concept: never an agreed price that ended or changed unit since. */
         duplicate = withTodaysCustomerPrices(duplicate);
         validateForSave(duplicate);
@@ -3001,6 +3037,36 @@ public class SalesOrderService {
         if (!handPallets && source.palletProfile() == PalletProfile.EURO_120X80
                 && own.compareTo(SalesSettings.EURO_HEIGHT_LIMIT_CM) > 0) return SalesSettings.EURO_HEIGHT_LIMIT_CM;
         return own;
+    }
+
+    /**
+     * The spill a Nieuwe kopie starts with. A copy is a new document and gets today's standard, as it
+     * gets today's standard height. Hand-built pallets go along with the copy and were built on the
+     * source's floor: then the copy keeps the source's own spill as stored, none staying none.
+     */
+    private BigDecimal copySpill(SalesOrder source) {
+        return source.pallets().isEmpty() ? settings.standardSpillCm() : source.palletSpillCm();
+    }
+
+    /**
+     * The spill a save, a preview or a transport update leaves on the document: the number the change
+     * sends (0 is a number: no spill), else the document's own, null staying null (a document made
+     * before the spill existed counts without spill until someone sets one). "Absent keeps, a number sets".
+     */
+    static BigDecimal spillAfter(SalesOrder current, BigDecimal sent) {
+        return sent == null ? current.palletSpillCm() : spillAsked(sent);
+    }
+
+    /**
+     * A spill a client sends: a whole number of centimetres from 0 to SalesSettings.SPILL_LIMIT_CM
+     * (Java and the ERP's packer agree on whole centimetres), refused otherwise. Returned on the
+     * column's scale, so a save of the stored value compares equal and logs nothing.
+     */
+    static BigDecimal spillAsked(BigDecimal sent) {
+        if (sent.signum() < 0 || sent.compareTo(SalesSettings.SPILL_LIMIT_CM) > 0 || sent.stripTrailingZeros().scale() > 0)
+            throw new BusinessRuleException("Spill moet een heel aantal centimeter zijn, van 0 tot "
+                    + SalesSettings.SPILL_LIMIT_CM.stripTrailingZeros().toPlainString());
+        return sent.setScale(2);
     }
 
     /** Someone set this document's pallet height by hand, on it or on what it was made or copied from. */
@@ -3261,7 +3327,9 @@ public class SalesOrderService {
                 lines, List.of(), null, null, extras,
                 original.partnerPurchaseOrderId(), original.partnerSharePct(), false, original.rawSalesChannel(),
                 original.purpose(), original.linkedPurchaseOrderId(), SalesPaymentPlan.FULL,
-                original.id(), reason, null);
+                original.id(), reason, null,
+                /* The invoice's spill as stored, none staying none. */
+                original.palletSpillCm());
         validateForSave(creditNote);
         requireWithinCreditCap(original, creditNote);
         /* A credit note counts as the invoice it corrects. */
@@ -3419,7 +3487,9 @@ public class SalesOrderService {
                 lines, List.of(), null, updated.archivedAt(), updated.extraLines(),
                 stored.partnerPurchaseOrderId(), stored.partnerSharePct(), false, updated.rawSalesChannel(),
                 stored.purpose(), stored.linkedPurchaseOrderId(), SalesPaymentPlan.FULL,
-                stored.creditedInvoiceId(), stored.creditReason(), stored.goodsReturnedAt());
+                stored.creditedInvoiceId(), stored.creditReason(), stored.goodsReturnedAt(),
+                /* As update settled it: the stored one unless the save sent a number. */
+                updated.palletSpillCm());
     }
 
     /**
@@ -3657,6 +3727,8 @@ public class SalesOrderService {
         requireNonNegative(order.manualFreightEur(), "Handmatige vracht");
         requireNonNegative(order.freightRatePerCbmEur(), "CBM-vrachttarief");
 
+        /* Whatever built this document: it never stores a spill outside 0 to 5 whole centimetres. */
+        if (order.palletSpillCm() != null) spillAsked(order.palletSpillCm());
         PalletSpec palletSpec = validatePalletHeight(order);
 
         Map<Long, Product> byId = products.list().stream()
@@ -3685,7 +3757,7 @@ public class SalesOrderService {
 
     /** Above the base, at most 300 cm: on every pallet type and on the Deense kar (its limit is the same 300 cm). */
     private PalletSpec validatePalletHeight(SalesOrder order) {
-        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        PalletSpec palletSpec = palletSpec(order);
         boolean kar = order.palletProfile().isKar();
         if (order.maxPalletHeightCm() != null) {
             if (order.maxPalletHeightCm().compareTo(palletSpec.baseHeightCm()) <= 0) {
@@ -3732,7 +3804,7 @@ public class SalesOrderService {
 
         Map<Long, Product> byId = products.list().stream()
                 .collect(Collectors.toMap(Product::id, Function.identity()));
-        PalletSpec palletSpec = settings.pallet(order.palletProfile(), order.maxPalletHeightCm());
+        PalletSpec palletSpec = palletSpec(order);
         for (SalesOrderLine line : order.lines()) {
             if (line == null || line.quantity() <= 0) continue;
             Product product = byId.get(line.productId());
@@ -3958,6 +4030,8 @@ public class SalesOrderService {
                 /* PalletHeightPicks reads this field's name back: a logged change of it is a height set by hand. */
                 .add(PalletHeightPicks.FIELD, "Maximale pallethoogte",
                         before.maxPalletHeightCm(), after.maxPalletHeightCm())
+                /* The stored values: an older document that gets its first spill reads "leeg → 2". */
+                .add("palletSpillCm", "Spill", before.palletSpillCm(), after.palletSpillCm())
                 .add("freightCarrierExtraEur", "Extra vervoerderskost",
                         before.freightCarrierExtraEur(), after.freightCarrierExtraEur())
                 .add("palletCount", "Aantal handmatige pallets",

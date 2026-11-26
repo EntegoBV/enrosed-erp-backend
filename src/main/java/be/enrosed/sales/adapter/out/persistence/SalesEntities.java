@@ -227,6 +227,15 @@ public final class SalesEntities {
         @Column(precision = 8, scale = 2)
         public BigDecimal maxPalletHeightCm;
 
+        /**
+         * Spill in cm per edge (SalesOrder.palletSpillCm): the standard when the document was made,
+         * unless someone picked another. Null on every row made before the spill existed (the round of
+         * 2026-11-26), which keeps counting without spill; never read as today's standard. Hibernate's schema update adds the column;
+         * docs/migrations/2026-11-26/sales-order-pallet-spill-postgresql.sql adds the same.
+         */
+        @Column(precision = 5, scale = 2)
+        public BigDecimal palletSpillCm;
+
         /** Null on legacy rows resolves from manualFreightEur. */
         @Enumerated(EnumType.STRING)
         @Column(columnDefinition = "varchar(24)", length = 24)

@@ -281,6 +281,8 @@ public class SalesSplits {
                 || (after.loadModeOrNull() != null && after.loadMode() != before.loadMode())
                 || (after.palletProfileOrNull() != null && after.palletProfile() != before.palletProfile())
                 || !same(before.maxPalletHeightCm(), after.maxPalletHeightCm())
+                /* The spill decides the pallets like the height does: a part keeps the one it was split with. */
+                || !same(before.palletSpillCm(), after.palletSpillCm())
                 || !Objects.equals(SalesLineAvailability.prunePallets(before.pallets(), after.lines().stream()
                         .filter(SalesOrderLine::isUnavailable).map(SalesOrderLine::productId).collect(Collectors.toSet())), after.pallets());
         if (!changed) for (int i = 0; i < before.lines().size(); i++) {
@@ -500,7 +502,9 @@ public class SalesSplits {
                 FreightState.BEREKEND, freight, s.loadMode(), s.palletProfile(), s.maxPalletHeightCm(),
                 FreightPricingStrategy.FIXED, null, s.freightCarrierId(), BigDecimal.ZERO,
                 s.docType(), s.invoiceDueDate(), null, sourceQuoteId, null, lines, List.of(), s.pickupLocation())
-                .withExtraLines(extras).withSalesChannel(s.rawSalesChannel()).withPurpose(SalesPurpose.STANDARD, s.sourcePurchaseOrderId(), s.paymentPlan());
+                .withExtraLines(extras).withSalesChannel(s.rawSalesChannel()).withPurpose(SalesPurpose.STANDARD, s.sourcePurchaseOrderId(), s.paymentPlan())
+                /* Both parts keep the source's spill as stored (the first part is saved over the source's own row). */
+                .withPalletSpillCm(s.palletSpillCm());
     }
     private static PartPreview summary(PricedOrder priced) {
         var t = priced.totals(); return new PartPreview(t.pieces(), t.total(), t.vatAmount(), t.totalInclVat(), t.freight(), t.handling(), t.extraLinesTotal(), t.goodsTotal(),

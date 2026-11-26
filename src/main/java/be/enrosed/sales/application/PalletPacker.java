@@ -37,6 +37,14 @@ import java.util.Set;
  * re-counts every sent and paid PACKED document (pallets, per-pallet freight, PDFs). A change in
  * behaviour needs a new PalletCountRule value (PACKED_2) for new documents only, with its own copy
  * of this class and of pallet-pack.ts.
+ *
+ * The deck is an input, as the kinds are. Since 2026-11-26 the floor it is given may carry a spill
+ * (deck(): the spec's load floor, the nominal floor plus the document's own spill per edge); a
+ * document without a stored spill gets the nominal floor, so its count is what it was. No step of
+ * this class changed for it. "Nothing hangs over an edge" above means the edge of that deck: with a
+ * spill a box may pass the real floor's edge by at most the spill, and the boxes' places are
+ * relative to the deck's corner, the real floor's corner lying at (spill, spill) in it (on a Deense
+ * kar at (0, spill): no spill along its length).
  */
 public final class PalletPacker {
 
@@ -112,9 +120,12 @@ public final class PalletPacker {
         return value.movePointRight(2).setScale(0, RoundingMode.HALF_UP).intValueExact();
     }
 
-    /** The deck of a pallet spec: its floor, the height above the wood, the weight limit. */
+    /**
+     * The deck of a pallet spec: its load floor (the nominal floor plus the spec's spill, added in cm
+     * before the conversion to hundredths, as the ERP does), the height above the wood, the weight limit.
+     */
     public static Deck deck(be.enrosed.sales.domain.PalletSpec spec) {
-        return new Deck(units(spec.lengthCm()), units(spec.widthCm()),
+        return new Deck(units(spec.loadLengthCm()), units(spec.loadWidthCm()),
                 Math.max(0, units(spec.maxHeightCm()) - units(spec.baseHeightCm())), Math.max(0, units(spec.maxWeightKg())));
     }
 
