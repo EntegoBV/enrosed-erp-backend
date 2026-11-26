@@ -323,13 +323,13 @@
         {#if advanceInvoice}
           {#if displayPieces}{t.quantity}: <b>{displayPieces}</b><br/>{/if}
           {#if displayCartons}{t.cartons}: <b>{displayCartons}</b><br/>{/if}
-          {#if displayPallets}{t.pallets}: <b>{displayPallets}</b><br/>{/if}
+          {#if displayPallets}{loadUnits}: <b>{displayPallets}</b><br/>{/if}
           {#if totalCbmText}{t.volume}: <b>{totalCbmText}</b><br/>{/if}
           {#if totalWeightText}<span class="muted">{totalWeightText}</span><br/>{/if}
           {#if cargoDeliveryWeekText}{cargoDeliveryWeekText}<br/>{/if}
           {#if cargoExpectedArrivalText}{t.expectedArrival}: <b>{cargoExpectedArrivalText}</b>{/if}
         {#else}
-          {#if !looseCartons}{t.pallets}: <b>{effectivePallets}</b> · {/if}
+          {#if !looseCartons}{loadUnits}: <b>{effectivePallets}</b> · {/if}
           {t.cartons}: <b>{priced.totals.cartons}</b> ·
           {t.volume}: <b>{totalCbmText ?: '-'}</b><br/>
           <span class="muted">{priced.totals.weightKg.amount} kg</span>
@@ -347,7 +347,7 @@
     <th class="r">{t.quantity}</th>
     {#if includeLogistics}
       <th class="r">{t.cartons}</th>
-      <th class="r">{#if showProductVolume}{t.volume}{#else}{t.pallets}{/if}</th>
+      <th class="r">{#if showProductVolume}{t.volume}{#else}{loadUnits}{/if}</th>
     {/if}
     {#if !priceFreeProducts}
       <th class="r">{t.salesUnitPrice}</th>
@@ -492,7 +492,7 @@
       {#if includeLogistics}
         <tr><td>{t.destination}</td><td>{displayDestination ?: '-'}</td></tr>
         {#if !advanceInvoice || displayCartons}<tr><td>{t.cartons}</td><td>{displayCartons}</td></tr>{/if}
-        {#if !looseCartons && (!advanceInvoice || displayPallets)}<tr><td>{t.pallets}</td><td>{displayPallets}</td></tr>{/if}
+        {#if !looseCartons && (!advanceInvoice || displayPallets)}<tr><td>{loadUnits}</td><td>{displayPallets}</td></tr>{/if}
         {#if !advanceInvoice || totalCbmText}<tr><td>{t.volume}</td><td>{totalCbmText ?: '-'}</td></tr>{/if}
       {/if}
     </table>
@@ -524,7 +524,7 @@
       {#else if freightPickup}<span class="muted">({t.pickup})</span>
       {#else if freightPerCbm}<span class="muted">({totalCbmText ?: '-'})</span>
       {#else if freightFixed}
-      {#else}<span class="muted">({effectivePallets} {t.pallets})</span>{/if}</td>
+      {#else}<span class="muted">({effectivePallets} {loadUnits})</span>{/if}</td>
       <td class="r">{#if freightPending}<span class="muted">{t.freightToBeDetermined}</span>{#else}{priced.totals.freight.eur}{/if}</td></tr>
   <tr><td>{t.handling}</td><td class="r">{priced.totals.handling.eur}</td></tr>
   {/if}

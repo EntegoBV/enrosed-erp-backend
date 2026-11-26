@@ -298,6 +298,8 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                         order.paymentTermsOr(customer == null ? null : customer.paymentTerms()),
                         language))
                 .data("t", text)
+                /* What the load goes on, by every count: "Karren" on a Deense kar, else "Pallets" as always. */
+                .data("loadUnits", loadUnits(order, text))
                 .data("languageCode", language.code())
                 .data("documentFooterSentence", text.get(invoice ? "invoiceFooter" : "footer"))
                 .data("termsSentence", text.get(invoice ? "invoiceTermsSentence" : "termsSentence"))
@@ -825,6 +827,7 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 ? SalesPdfOptions.forPackingSlip(false, false) : requestedOptions;
         Language slipLanguage = slip.customer() == null ? Language.NL : slip.customer().language();
         Map<String, String> text = DocumentText.of(slipLanguage);
+        boolean kar = slip.order() != null && slip.order().onKar();
         return (options.packingSlipV2() ? packingSlipV2Template : packingSlipTemplate)
                 .data("slip", slip)
                 .data("logo", brand.logoDataUri())
@@ -832,9 +835,17 @@ public class PdfQuoteRenderer implements QuoteDocumentRenderer {
                 .data("lang", slipLanguage.code())
                 .data("date", DocumentText.date(java.time.LocalDate.now(), slipLanguage))
                 .data("t", text)
+                /* A Deense kar's slip counts karren and names what is on none of them; a pallet's as always. */
+                .data("loadUnits", text.get(kar ? "karren" : "pallets"))
+                .data("notOnLoad", text.get(kar ? "notOnKar" : "notOnPallet"))
                 .data("showOuterCarton", options.showOuterCarton())
                 .data("showBarcode", options.showBarcode())
                 .render();
+    }
+
+    /** The word next to every load count: "Karren" on a Deense kar, else the "Pallets" every document always printed. */
+    private static String loadUnits(SalesOrder order, Map<String, String> text) {
+        return text.get(order.onKar() ? "karren" : "pallets");
     }
 
 }

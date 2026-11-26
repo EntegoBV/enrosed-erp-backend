@@ -101,6 +101,7 @@ public class CustomerQuoteMapper {
                 order.deliveryTerms().name(),
                 order.freight().name(),
                 order.loadMode().name(),
+                order.palletProfile().name(),
                 order.freightPricingStrategy().name(),
                 language.name(),
                 DocumentText.of(language),

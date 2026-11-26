@@ -146,7 +146,7 @@
       <span class="label">{t.delivery}</span>
       <div class="fact-value">
         <b>{slip.order.incoterm}</b>
-        {#if slip.pallets}<br/>{slip.pallets.size} {t.pallets}{/if}
+        {#if slip.pallets}<br/>{slip.pallets.size} {loadUnits}{/if}
         <br/>{slip.totalCartons} {t.cartons}{#if slip.totalQuantityText} · {slip.totalQuantityText}{/if}
       </div>
     </td>
@@ -191,7 +191,7 @@
   <table class="pallet">
     <thead>
       <tr class="pallet-title">
-        <th colspan="3">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{t.notOnPallet}{#else}{t.contents}{/if}</th>
+        <th colspan="3">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{notOnLoad}{#else}{t.contents}{/if}</th>
       </tr>
       <tr class="column-head"><th>{t.description}</th><th class="r">{t.cartons}</th><th class="r">{t.quantity}</th></tr>
     </thead>
@@ -222,7 +222,7 @@
 <table class="totals">
   <tr>
     <td class="summary">{t.loadCheck}</td>
-    <td class="r total-value">{slip.totalCartons} {t.cartons}{#if slip.totalQuantityText} · {slip.totalQuantityText}{/if}{#if slip.pallets} · {slip.pallets.size} {t.pallets}{/if}</td>
+    <td class="r total-value">{slip.totalCartons} {t.cartons}{#if slip.totalQuantityText} · {slip.totalQuantityText}{/if}{#if slip.pallets} · {slip.pallets.size} {loadUnits}{/if}</td>
   </tr>
 </table>
 

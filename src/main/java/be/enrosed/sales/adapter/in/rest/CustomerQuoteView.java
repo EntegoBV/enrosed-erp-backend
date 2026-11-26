@@ -21,6 +21,11 @@ public record CustomerQuoteView(
         String deliveryTerms,
         String freight,
         String loadMode,
+        /**
+         * What the load goes on (PalletProfile name, e.g. EURO_120X80 or DEENSE_KAR): on a Deense kar
+         * the portal says karren (portalKarrenShort, karren) where a pallet order says pallets.
+         */
+        String palletProfile,
         String freightPricingStrategy,
         String language,
         Map<String, String> text,

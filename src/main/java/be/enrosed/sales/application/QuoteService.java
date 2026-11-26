@@ -223,6 +223,11 @@ public class QuoteService {
         }
         java.util.List<QuoteDocumentRenderer.PackingPallet> pallets = new java.util.ArrayList<>();
         int visiblePallets = order.loadMode() == LoadMode.PALLETS ? order.pallets().size() : 0;
+        /* On a Deense kar every hand unit is a kar: "Kar n" where a pallet order prints "Pallet n" (an own
+           name stays), and the kar's name in the slip's language as its type, whatever type is stored
+           (a unit switched from a pallet may still carry "Europallet"). A pallet order prints as before. */
+        boolean kar = order.onKar();
+        String karType = kar ? be.enrosed.shared.DocumentText.of(language).get("karType") : null;
         for (int i = 0; i < visiblePallets; i++) {
             OrderPallet pallet = order.pallets().get(i);
             java.util.List<QuoteDocumentRenderer.PackingItem> items = new java.util.ArrayList<>();
@@ -236,9 +241,9 @@ public class QuoteService {
                 assigned.merge(item.productId(), item.cartons(), Integer::sum);
             }
             String label = pallet.label() == null || pallet.label().isBlank()
-                    ? "Pallet " + (i + 1) : pallet.label();
+                    ? (kar ? "Kar " : "Pallet ") + (i + 1) : kar ? asKarLabel(pallet.label()) : pallet.label();
             if (!items.isEmpty()) pallets.add(new QuoteDocumentRenderer.PackingPallet(
-                    label, pallet.type(), pallet.heightCm(), items));
+                    label, kar ? karType : pallet.type(), pallet.heightCm(), items));
         }
 
         /* Lines not (fully) on a pallet: the loose rest. Without any manual
@@ -286,6 +291,12 @@ public class QuoteService {
         return renderer.packingSlip(new QuoteDocumentRenderer.PackingSlip(
                 order, customer, pallets, loose, totalCartons, totalPieces,
                 order.loadMode() == LoadMode.LOOSE_CARTONS, totalQuantity), options);
+    }
+
+    /** On a Deense kar a unit still called "Pallet n" (the ERP's automatic name) prints as "Kar n"; an own name stays. */
+    private static String asKarLabel(String label) {
+        var automatic = OrderPallet.AUTOMATIC_LABEL.matcher(label.strip());
+        return automatic.matches() && "Pallet".equals(automatic.group(1)) ? "Kar " + automatic.group(2) : label;
     }
 
     /** The family name of each product on the order, in the slip's language with the catalogue's fallback. */

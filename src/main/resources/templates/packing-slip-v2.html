@@ -182,7 +182,7 @@
 {#fragment id=closing rendered=false}
     <div class="card tcard"><table class="lgrid"><tr>
       <td class="c-lead"></td>
-      <td class="c-what"><span class="tlabel serif">{t.total}</span>{#if slip.pallets}<span class="tpal"><span class="lab">{t.pallets}</span>&#160;<span class="fig">{slip.pallets.size}</span></span>{/if}</td>
+      <td class="c-what"><span class="tlabel serif">{t.total}</span>{#if slip.pallets}<span class="tpal"><span class="lab">{loadUnits}</span>&#160;<span class="fig">{slip.pallets.size}</span></span>{/if}</td>
       <td class="c-ctn"><span class="fig fig--main">{slip.totalCartons}</span></td>
       <td class="c-qty">{#if slip.totalQuantityText}<span class="fig">{slip.totalQuantityText}</span>{/if}</td>
     </tr></table></div>
@@ -232,7 +232,7 @@
     </td>
     <td class="f-tot"><div class="tots"><table><tr>
       <td><div class="lab">{t.cartons}</div><div class="tot-fig tot-fig--main">{slip.totalCartons}</div></td>
-      {#if slip.pallets}<td><div class="lab">{t.pallets}</div><div class="tot-fig">{slip.pallets.size}</div></td>{/if}
+      {#if slip.pallets}<td><div class="lab">{loadUnits}</div><div class="tot-fig">{slip.pallets.size}</div></td>{/if}
       {#if slip.totalQuantityText}<td><div class="lab">{t.quantity}</div><div class="tot-fig">{slip.totalQuantityText}</div></td>{/if}
     </tr></table></div></td>
   </tr></table>
@@ -264,7 +264,7 @@
 {#if slip.loose}
 <table class="sec{#if slip.loose.size <= 2} sec--end-first{/if}">
   <thead><tr><th>
-    <div class="sec-head"><span class="{#if slip.pallets}sec-name{#else}sec-title serif{/if}">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{t.notOnPallet}{#else}{t.contents}{/if}</span></div>
+    <div class="sec-head"><span class="{#if slip.pallets}sec-name{#else}sec-title serif{/if}">{#if slip.looseCartons}{t.looseCartons}{#else if slip.pallets}{notOnLoad}{#else}{t.contents}{/if}</span></div>
     {#include $columns /}
   </th></tr></thead>
   <tbody>
