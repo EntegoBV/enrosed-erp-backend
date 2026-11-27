@@ -770,7 +770,11 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   partner containers page); bound = min(deck volume ÷ omdoos volume, weight limit ÷ weight) in pack units, at
   most `fit`'s count or above `FULL_LOAD_MAX_SEARCHED` 1500 and the layers stand; the packer's first pallet
   from bound + 1 omdozen; that count must also go on one pallet ALONE (`pack(…, 1)` leaves nothing), else one
-  fewer, at most 8 times, never below `fit`; `fit`'s count where it is as high. No climb above the plenty
+  fewer, at most 8 times, never below `fit`; no hole just under it: each of the 8 counts below
+  (`FULL_LOAD_HOLE_WINDOW`) must go on one pallet alone too, else the figure drops below the highest hole and must
+  again go alone (at most 4 rounds), since from F + m omdozen the first pallet takes F and the rest m needs one more
+  (second review of 2026-11-27: 14,22 × 50,15 × 72,67 cm read 42 while a quote of 83 counted 3 = 42 + 40 + 1; none
+  of the 29 real omdozen had a hole); `fit`'s count where it is as high. No climb above the plenty
   count: the first version climbed while one more went alone and printed 21 bowls (40 × 30 × 38) per kar where
   the packer loads 20 per kar from plenty, so a quote of 42 counted 3 karren. The packer is untouched (still
   frozen for PACKED documents); this only asks it for one full pallet. `CataloguePalletFit.Fit` (a class now,

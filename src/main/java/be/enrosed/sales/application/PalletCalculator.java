@@ -113,6 +113,9 @@ public class PalletCalculator {
     static final int FULL_LOAD_MAX_SEARCHED = 1500;
     /** How often a count reached from plenty may drop by one before the layers decide: the ERP's STEPS_DOWN. */
     private static final int FULL_LOAD_STEPS_DOWN = 8;
+    /** The counts under the figure that must each go on one carrier alone (the ERP's HOLE_WINDOW), and the rounds (HOLE_ROUNDS). */
+    private static final int FULL_LOAD_HOLE_WINDOW = 8;
+    private static final int FULL_LOAD_HOLE_ROUNDS = 4;
 
     /**
      * A full carrier of one omdoos (Emre, 2026-11-27, on 12 Steelrozen - Display, 68 x 50 x 40 cm: "normaal gaan
@@ -130,8 +133,12 @@ public class PalletCalculator {
      * {@link PalletPacker#units} (it would overflow); the bound is what the deck's volume and the weight limit
      * could ever take, at most fit's count or above FULL_LOAD_MAX_SEARCHED and the layers stand; the packer's
      * first pallet from one more than the bound; that many must also go on one carrier alone, else one fewer (at
-     * most FULL_LOAD_STEPS_DOWN times, never below the layers); the layers where they take as many. No step of
-     * the packer changes.
+     * most FULL_LOAD_STEPS_DOWN times, never below the layers); no hole just under it: each of the
+     * FULL_LOAD_HOLE_WINDOW counts below must go on one carrier alone too, else the figure drops below the highest
+     * such hole and must again go alone (at most FULL_LOAD_HOLE_ROUNDS times), because from F + m omdozen the first
+     * carrier takes F and the rest m must go on one more (second review of 2026-11-27: 14,22 x 50,15 x 72,67 cm
+     * read 42 per pallet while a quote of 83 counted 3, 42 + 40 + 1); the layers where they take as many. No step
+     * of the packer changes.
      */
     public int fullLoad(Carton carton, PalletSpec pallet) {
         Fit layer = fit(carton, pallet);
@@ -160,6 +167,27 @@ public class PalletCalculator {
                 break;
             }
             count -= 1;
+        }
+        if (!loaded || count <= floor) return floor;
+        /* No hole just under the figure: the rest of F + m omdozen must go on one carrier more. */
+        for (int round = 0; round < FULL_LOAD_HOLE_ROUNDS && loaded && count > floor; round++) {
+            int hole = 0;
+            for (int m = count - 1; m >= Math.max(1, count - FULL_LOAD_HOLE_WINDOW); m--) {
+                if (!alone(kind, deck, m)) {
+                    hole = m;
+                    break;
+                }
+            }
+            if (hole == 0) break;
+            count = hole - 1;
+            loaded = false;
+            for (int step = 0; step <= FULL_LOAD_STEPS_DOWN && count > floor; step++) {
+                if (alone(kind, deck, count)) {
+                    loaded = true;
+                    break;
+                }
+                count -= 1;
+            }
         }
         return loaded && count > floor ? count : floor;
     }
