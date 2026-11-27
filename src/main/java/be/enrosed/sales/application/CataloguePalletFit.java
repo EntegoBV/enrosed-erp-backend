@@ -9,6 +9,8 @@ import jakarta.enterprise.context.ApplicationScoped;
 
 import java.math.BigDecimal;
 import java.math.RoundingMode;
+import java.util.Map;
+import java.util.concurrent.ConcurrentHashMap;
 
 /**
  * The catalogue's per-pallet figure: the same stacking as Palletberekening, on the standard
@@ -17,9 +19,13 @@ import java.math.RoundingMode;
  * stacks the same way on the Deense kar at its standard 230 cm ({@link SalesSettings#standardKar()}).
  * Both count with the standard spill (2 cm per edge since 2026-11-26, on the kar across its width
  * only), as a new document does; the basis keeps the nominal floor (120 × 80, 127 × 54,5).
- * Both are a pallet of one product in whole upright layers, an omdoos laid down only when it fits
- * no pallet upright: what MIXED counts. A PACKED quote (new documents since 2026-11-25) may load
- * more of one product on a pallet, side by side or on its side, so this figure is the safe one.
+ * Both are a full carrier of one product as a new (PACKED) quote loads it (Emre, 2026-11-27:
+ * "normaal gaan er 13 steelrozen op een pallet van 230, en jij geeft op catalogus 10 aan"):
+ * {@link PalletCalculator#fullLoad}, stacks side by side on any side, at least the whole upright
+ * layers MIXED counts with ({@link PalletCalculator#fit}). Before, the catalogue printed those
+ * layers alone, the safe figure; 12 Steelrozen - Display read 10 per europallet at 230 cm where
+ * 14 go, and a new quote of 14 omdozen counts one pallet. The ERP's catalogueCartons (catalog-load.ts)
+ * counts the same for the studio and the product page.
  *
  * One catalogue PDF may ask its own heights and spill (Emre, 2026-11-26: "Catalogus pdf zowel
  * korte en lange daar moet ik ook eigenlijk kunnen aanpassen op pallet en deense car de hoogte
@@ -83,8 +89,22 @@ public class CataloguePalletFit implements CataloguePallet {
         return spec.baseHeightCm().add(BigDecimal.ONE).setScale(0, RoundingMode.CEILING);
     }
 
-    /** One export's pallet and kar. The basis reports the nominal floor; the fit reads the load floor. */
-    private record Fit(PalletCalculator calculator, PalletSpec palletSpec, PalletSpec karSpec) implements Loads {
+    /**
+     * One export's pallet and kar. The basis reports the nominal floor; the figures read the load floor. A
+     * figure is a search of the packer (a few runs of a millisecond), asked per product and colour by the
+     * PDF, so each omdoos is counted once per export.
+     */
+    private static final class Fit implements Loads {
+        private final PalletCalculator calculator;
+        private final PalletSpec palletSpec;
+        private final PalletSpec karSpec;
+        private final Map<String, Integer> counted = new ConcurrentHashMap<>();
+
+        Fit(PalletCalculator calculator, PalletSpec palletSpec, PalletSpec karSpec) {
+            this.calculator = calculator;
+            this.palletSpec = palletSpec;
+            this.karSpec = karSpec;
+        }
 
         @Override
         public Basis pallet() {
@@ -98,12 +118,19 @@ public class CataloguePalletFit implements CataloguePallet {
 
         @Override
         public int cartonsPerPallet(Carton carton) {
-            return calculator.fit(carton, palletSpec).cartonsPerPallet();
+            return full(carton, palletSpec, "pallet");
         }
 
         @Override
         public int cartonsPerKar(Carton carton) {
-            return calculator.fit(carton, karSpec).cartonsPerPallet();
+            return full(carton, karSpec, "kar");
+        }
+
+        private int full(Carton carton, PalletSpec spec, String carrier) {
+            if (carton == null || carton.dimensions() == null) return calculator.fullLoad(carton, spec);
+            String key = carrier + "|" + carton.dimensions().lengthCm() + "|" + carton.dimensions().widthCm() + "|"
+                    + carton.dimensions().heightCm() + "|" + carton.weightKg();
+            return counted.computeIfAbsent(key, ignored -> calculator.fullLoad(carton, spec));
         }
 
         private static Basis basis(PalletSpec spec) {

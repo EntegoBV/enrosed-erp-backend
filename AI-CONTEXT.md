@@ -734,8 +734,9 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   and kar with their omdozen in brackets) when every variant shares all four,
   else one line under each variant row of the variant table carries all four
   (never split between the two). An unknown figure prints "-", 40ft included, which used
-  to disappear. Per pallet = whole omdozen from
-  `PalletCalculator.fit` (the Palletberekening stacking) on
+  to disappear. Per pallet = whole omdozen of a FULL pallet,
+  `PalletCalculator.fullLoad` (since 2026-11-27, see "Full carrier" below; before: the whole
+  upright layers of `PalletCalculator.fit`) on
   the export's pallet (the standard `SalesSettings.pallet()` unless the PDF asks its own
   height or spill, next bullet) × pieces per carton, worded like the container
   figures (displays, named units). Catalog reaches it through the out-port
@@ -748,12 +749,34 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   rand, max. 260 cm hoog …") closes the overview footnote and the compact
   footer. A carton without a weight is counted by height only, and there is
   no hand count per product for the pallet. Per Deense kar = the same
-  `PalletCalculator.fit` on the export's kar (the standard `SalesSettings.standardKar()`:
+  `PalletCalculator.fullLoad` on the export's kar (the standard `SalesSettings.standardKar()`:
   127 × 54,5 cm floor, 16,5 cm base counted as wood, 230 cm loaded from the floor, 450 kg,
-  no shelves, upright, the standard spill across its width only: the
+  no shelves, every side allowed, the standard spill across its width only: the
   ERP's `karSpec(KAR_MAX_HEIGHT_CM, STANDARD_SPILL_CM)`), through `CataloguePallet.Loads.cartonsPerKar`; its basis
   line (`catalog.common.karbasis`, with a spill `catalog.common.karbasisspill`, label
   `catalog.simple.kar`) follows the pallet's in the compact footer.
+- **Full carrier (2026-11-27).** Emre, on 12 Steelrozen - Display (omdoos 68 × 50 × 40 cm): "Op 3d
+  kan ik meer steelrozen drukken dan de catalogus op hoogte van europallet 230 ... normaal gaan er 13
+  steelrozen op een pallet van 230, en jij geeft op catalogus 10 aan", "die 13 ... heb ik zelf moeten
+  kantelen, dit moet automatisch kunnen". The catalogue printed whole upright layers (`fit`: 2 per
+  layer × 5 = 10); `PalletCalculator.fullLoad(carton, spec)` is the most omdozen the packer
+  (`PalletPacker`, every side, the steps a PACKED document counts with) loads on ONE carrier of that
+  spec, at least `fit`'s count: 14 there at 218,4 cm (two stacks of 4 on the side, two of 3 on the end).
+  A new (PACKED) quote of that many omdozen counts one pallet, so the catalogue and a quote agree.
+  Steps (the ERP's `pallet-full.ts` `fullLoad`, identical on 6,696 cases incl. all 29 real omdozen at
+  heights 160-260 and spill 0/2/5, keep the two alike): bound = min(deck volume ÷ omdoos volume,
+  weight limit ÷ weight) in pack units; above `FULL_LOAD_MAX_SEARCHED` 1500 or at most `fit`'s count
+  the layers stand; the packer's first pallet from bound + 1 omdozen; that count must go on one pallet
+  ALONE (`pack(…, 1)` leaves nothing), else one fewer, at most 8 times, never below `fit`; then one
+  more at a time while that still goes alone (from `fit`'s count when no packed count stood above it);
+  `fit`'s count where it is as high. The packer is untouched (still frozen for PACKED documents); this
+  only asks it for one full pallet. `CataloguePalletFit.Fit` (a class now, no longer a record) keeps
+  each omdoos's figure per export (`ConcurrentHashMap`), a search being a few packer runs of well
+  under a millisecond (0,04 ms on average here). Effect on the 29 omdoos sizes of 2026-11-26: 50 of the
+  87 standard figures (europallet 260 and 230, kar 230) went up, none down, e.g. steelrozen 12 → 16 at
+  260 cm, 10 → 14 at 230, kar 5 → 9; DOM-15X30 12 → 22; DOM-7X23 46 → 87 (thin omdozen on their side).
+  The partner portal's pallets per product (`PartnerContainerReader.palletsOf`, through the port's
+  `cartonsPerPallet`) follow: fewer pallets where more go on one.
 - **Loading heights and spill per catalogue PDF (2026-11-26).** Emre: "Catalogus pdf zowel korte en
   lange daar moet ik ook eigenlijk kunnen aanpassen op pallet en deense car de hoogte zodat dan de
   aantallen kunnen veranderen ook dynamisch want sommige klanten hebben andere standaard hoogtes en
@@ -2392,7 +2415,8 @@ source's rule, so an invoice of a MIXED quote stays MIXED).
   `mixedPallets` and `fit` (which loads are placeable, the MIXED count that caps PACKED), and `units` / `deck`. A change in behaviour gets a new rule value (PACKED_2:
   `forNew()` moves to it, PACKED keeps this code for the documents that have it), with its own copies of both packers;
   3D tuning never touches the counting steps. The count is not monotone either (a few cartons more can take a pallet
-  less), so nothing promises "+N past" under PACKED.
+  less), so nothing promises "+N past" under PACKED. `PalletCalculator.fullLoad` (2026-11-27, the catalogue's full
+  carrier) is NOT on that path: no document counts with it; it only asks the packer for one full pallet.
 - The floor is an INPUT of that path, like the profile and the height, and since 2026-11-26 it may carry a spill
   ("Spill per document" below). `fit` (`PalletCalculator.standing`) and `PalletPacker.deck` read the spec's LOAD floor
   (`PalletSpec.loadLengthCm()` / `loadWidthCm()`: the nominal floor plus the document's own spill at both ends of an

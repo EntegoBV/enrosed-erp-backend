@@ -109,6 +109,70 @@ public class PalletCalculator {
                 cartonsPerPallet > 0 ? height : null, up);
     }
 
+    /** Beyond this many omdozen on one carrier (by volume) the layers decide: the ERP's MAX_SEARCHED. */
+    static final int FULL_LOAD_MAX_SEARCHED = 1500;
+    /** How often a count reached from plenty may drop by one before the layers decide: the ERP's STEPS_DOWN. */
+    private static final int FULL_LOAD_STEPS_DOWN = 8;
+
+    /**
+     * A full carrier of one omdoos (Emre, 2026-11-27, on 12 Steelrozen - Display, 68 x 50 x 40 cm: "normaal gaan
+     * er 13 steelrozen op een pallet van 230, en jij geeft op catalogus 10 aan"): the most omdozen the packer
+     * (PalletPacker, the very steps a PACKED document counts with, every side allowed) loads on one carrier of
+     * this spec, at least {@link #fit}'s whole layers. 14 there at 218 cm: stacks side by side, two on the side
+     * and two on the end, where whole layers give 10 upright and 12 on the side. The catalogue prints it
+     * (CataloguePalletFit), so a new quote of that many omdozen counts one pallet.
+     *
+     * The ERP's pallet-full.ts fullLoad step for step, keep the two alike: the bound is what the deck's volume and
+     * the weight limit could ever take; the packer's first pallet from one more than that; that many must go on
+     * one carrier alone, else one fewer (at most FULL_LOAD_STEPS_DOWN times, never below the layers); then one
+     * more at a time while that still goes on one carrier alone (from the layers' count where no packed count
+     * stood above it); the layers where they take as many. Above FULL_LOAD_MAX_SEARCHED by volume the layers
+     * decide. No step of the packer changes.
+     */
+    public int fullLoad(Carton carton, PalletSpec pallet) {
+        Fit layer = fit(carton, pallet);
+        int floor = layer.cartonsPerPallet();
+        if (carton == null || carton.dimensions() == null) return floor;
+        Dimensions box = carton.dimensions();
+        int length = PalletPacker.units(box.lengthCm());
+        int width = PalletPacker.units(box.widthCm());
+        int height = PalletPacker.units(box.heightCm());
+        int weight = PalletPacker.units(carton.weightKg());
+        if (length <= 0 || width <= 0 || height <= 0) return floor;
+        PalletPacker.Deck deck = PalletPacker.deck(pallet);
+        if (deck.maxWeight() > 0 && weight > deck.maxWeight()) return floor;
+        long byVolume = ((long) deck.length() * deck.width() * deck.height()) / ((long) length * width * height);
+        long byWeight = weight > 0 && deck.maxWeight() > 0 ? deck.maxWeight() / weight : Long.MAX_VALUE;
+        long bound = Math.min(byVolume, byWeight);
+        if (bound <= floor || bound > FULL_LOAD_MAX_SEARCHED) return floor;
+        java.util.function.IntFunction<PalletPacker.Kind> kind =
+                count -> new PalletPacker.Kind(1, length, width, height, weight, count, PalletPacker.ALL_SIDES);
+        PalletPacker.Result plenty = PalletPacker.pack(List.of(kind.apply((int) bound + 1)), deck, 1);
+        int count = plenty.pallets().isEmpty() ? 0 : plenty.pallets().get(0).counts().getOrDefault(1, 0);
+        boolean loaded = false;
+        for (int step = 0; step <= FULL_LOAD_STEPS_DOWN && count > floor; step++) {
+            if (alone(kind, deck, count)) {
+                loaded = true;
+                break;
+            }
+            count -= 1;
+        }
+        /* Without a packed load above the layers, the layers stand and the next count is tried from there. */
+        if (!loaded) count = floor;
+        while (count < bound) {
+            if (!alone(kind, deck, count + 1)) break;
+            count += 1;
+            loaded = true;
+        }
+        return loaded && count > floor ? count : floor;
+    }
+
+    /** These many omdozen go on one carrier on their own. */
+    private static boolean alone(java.util.function.IntFunction<PalletPacker.Kind> kind, PalletPacker.Deck deck, int count) {
+        PalletPacker.Result result = PalletPacker.pack(List.of(kind.apply(count)), deck, 1);
+        return result.left().isEmpty() && result.pallets().size() == 1;
+    }
+
     /** Number of pallets for a number of cartons. */
     public int palletsFor(int cartons, int cartonsPerPallet) {
         if (cartons <= 0 || cartonsPerPallet <= 0) return 0;
