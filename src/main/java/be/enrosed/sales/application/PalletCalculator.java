@@ -120,19 +120,23 @@ public class PalletCalculator {
      * (PalletPacker, the very steps a PACKED document counts with, every side allowed) loads on one carrier of
      * this spec, at least {@link #fit}'s whole layers. 14 there at 218 cm: stacks side by side, two on the side
      * and two on the end, where whole layers give 10 upright and 12 on the side. The catalogue prints it
-     * (CataloguePalletFit), so a new quote of that many omdozen counts one pallet.
+     * (CataloguePalletFit), so a new quote of k times that many omdozen counts k pallets: the packer fills pallet
+     * after pallet from what is left, each from plenty. A count one carrier takes only on its own is never
+     * returned (the first try of 2026-11-27 climbed to it: 21 bowls of 40 x 30 x 38 per kar where the packer
+     * loads 20 per kar from plenty, so a quote of 42 counted 3 karren).
      *
-     * The ERP's pallet-full.ts fullLoad step for step, keep the two alike: the bound is what the deck's volume and
-     * the weight limit could ever take; the packer's first pallet from one more than that; that many must go on
-     * one carrier alone, else one fewer (at most FULL_LOAD_STEPS_DOWN times, never below the layers); then one
-     * more at a time while that still goes on one carrier alone (from the layers' count where no packed count
-     * stood above it); the layers where they take as many. Above FULL_LOAD_MAX_SEARCHED by volume the layers
-     * decide. No step of the packer changes.
+     * The ERP's pallet-full.ts fullLoad step for step, keep the two alike: nothing fits as whole layers (fit 0,
+     * every side too large or too heavy) gives 0 before any size is converted, so an absurd size never reaches
+     * {@link PalletPacker#units} (it would overflow); the bound is what the deck's volume and the weight limit
+     * could ever take, at most fit's count or above FULL_LOAD_MAX_SEARCHED and the layers stand; the packer's
+     * first pallet from one more than the bound; that many must also go on one carrier alone, else one fewer (at
+     * most FULL_LOAD_STEPS_DOWN times, never below the layers); the layers where they take as many. No step of
+     * the packer changes.
      */
     public int fullLoad(Carton carton, PalletSpec pallet) {
         Fit layer = fit(carton, pallet);
         int floor = layer.cartonsPerPallet();
-        if (carton == null || carton.dimensions() == null) return floor;
+        if (floor <= 0 || carton == null || carton.dimensions() == null) return floor;
         Dimensions box = carton.dimensions();
         int length = PalletPacker.units(box.lengthCm());
         int width = PalletPacker.units(box.widthCm());
@@ -156,13 +160,6 @@ public class PalletCalculator {
                 break;
             }
             count -= 1;
-        }
-        /* Without a packed load above the layers, the layers stand and the next count is tried from there. */
-        if (!loaded) count = floor;
-        while (count < bound) {
-            if (!alone(kind, deck, count + 1)) break;
-            count += 1;
-            loaded = true;
         }
         return loaded && count > floor ? count : floor;
     }

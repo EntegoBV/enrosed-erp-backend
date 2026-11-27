@@ -759,24 +759,27 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   kan ik meer steelrozen drukken dan de catalogus op hoogte van europallet 230 ... normaal gaan er 13
   steelrozen op een pallet van 230, en jij geeft op catalogus 10 aan", "die 13 ... heb ik zelf moeten
   kantelen, dit moet automatisch kunnen". The catalogue printed whole upright layers (`fit`: 2 per
-  layer × 5 = 10); `PalletCalculator.fullLoad(carton, spec)` is the most omdozen the packer
-  (`PalletPacker`, every side, the steps a PACKED document counts with) loads on ONE carrier of that
-  spec, at least `fit`'s count: 14 there at 218,4 cm (two stacks of 4 on the side, two of 3 on the end).
-  A new (PACKED) quote of that many omdozen counts one pallet, so the catalogue and a quote agree.
-  Steps (the ERP's `pallet-full.ts` `fullLoad`, identical on 6,696 cases incl. all 29 real omdozen at
-  heights 160-260 and spill 0/2/5, keep the two alike): bound = min(deck volume ÷ omdoos volume,
-  weight limit ÷ weight) in pack units; above `FULL_LOAD_MAX_SEARCHED` 1500 or at most `fit`'s count
-  the layers stand; the packer's first pallet from bound + 1 omdozen; that count must go on one pallet
-  ALONE (`pack(…, 1)` leaves nothing), else one fewer, at most 8 times, never below `fit`; then one
-  more at a time while that still goes alone (from `fit`'s count when no packed count stood above it);
-  `fit`'s count where it is as high. The packer is untouched (still frozen for PACKED documents); this
-  only asks it for one full pallet. `CataloguePalletFit.Fit` (a class now, no longer a record) keeps
-  each omdoos's figure per export (`ConcurrentHashMap`), a search being a few packer runs of well
-  under a millisecond (0,04 ms on average here). Effect on the 29 omdoos sizes of 2026-11-26: 50 of the
-  87 standard figures (europallet 260 and 230, kar 230) went up, none down, e.g. steelrozen 12 → 16 at
-  260 cm, 10 → 14 at 230, kar 5 → 9; DOM-15X30 12 → 22; DOM-7X23 46 → 87 (thin omdozen on their side).
-  The partner portal's pallets per product (`PartnerContainerReader.palletsOf`, through the port's
-  `cartonsPerPallet`) follow: fewer pallets where more go on one.
+  layer × 5 = 10); `PalletCalculator.fullLoad(carton, spec)` is what the packer (`PalletPacker`, every
+  side, the steps a PACKED document counts with) loads on EACH carrier from plenty, at least `fit`'s
+  count: 14 there at 218,4 cm (two stacks of 4 on the side, two of 3 on the end). A per-carrier figure for
+  any number of carriers: a new (PACKED) quote of k times it counts k carriers (proved for k = 1..5 on
+  69,023 cases, the packer capped by MIXED as `packedPallets` does). Steps (the ERP's `pallet-full.ts`
+  `fullLoad`, identical on 6,696 cases incl. all 29 real omdozen at heights 160-260 and spill 0/2/5, keep the
+  two alike): `fit` 0 (nothing fits on any side) returns 0 BEFORE any `PalletPacker.units` call (review of
+  2026-11-27: an EAN typed into Breedte overflowed `intValueExact` and failed every catalogue export and the
+  partner containers page); bound = min(deck volume ÷ omdoos volume, weight limit ÷ weight) in pack units, at
+  most `fit`'s count or above `FULL_LOAD_MAX_SEARCHED` 1500 and the layers stand; the packer's first pallet
+  from bound + 1 omdozen; that count must also go on one pallet ALONE (`pack(…, 1)` leaves nothing), else one
+  fewer, at most 8 times, never below `fit`; `fit`'s count where it is as high. No climb above the plenty
+  count: the first version climbed while one more went alone and printed 21 bowls (40 × 30 × 38) per kar where
+  the packer loads 20 per kar from plenty, so a quote of 42 counted 3 karren. The packer is untouched (still
+  frozen for PACKED documents); this only asks it for one full pallet. `CataloguePalletFit.Fit` (a class now,
+  no longer a record) keeps each omdoos's figure per export (`ConcurrentHashMap`), a search being a few packer
+  runs of well under a millisecond. Effect on the 29 omdoos sizes of 2026-11-26: 48 of the 87 standard figures
+  (europallet 260 and 230, kar 230) went up, none down, e.g. steelrozen 12 → 16 at 260 cm, 10 → 14 at 230,
+  kar 5 → 9; DOM-15X30 12 → 22; DOM-7X23 46 → 87 (thin omdozen on their side). The partner portal's pallets
+  per product (`PartnerContainerReader.palletsOf`, through the port's `cartonsPerPallet`) follow: fewer pallets
+  where more go on one.
 - **Loading heights and spill per catalogue PDF (2026-11-26).** Emre: "Catalogus pdf zowel korte en
   lange daar moet ik ook eigenlijk kunnen aanpassen op pallet en deense car de hoogte zodat dan de
   aantallen kunnen veranderen ook dynamisch want sommige klanten hebben andere standaard hoogtes en
