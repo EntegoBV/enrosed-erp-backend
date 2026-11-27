@@ -276,8 +276,9 @@
     .category-copy .eyebrow { color: #d8bc89; }
     .utility { color: #342329; background: #ffffff; }
     .utility .lead { color: #6c565e; }
-    /* Cormorant only contains a few Greek glyphs. Keep Greek headings in one
-       complete embedded face instead of mixing letter shapes within a word. */
+    /* Jost and Cormorant hold no Greek (fonts/catalog/README.md): Greek letters come
+       from DejaVu Sans. Greek headings run in DejaVu Sans as a whole, so their spaces
+       and figures share the face of their letters. */
     .lang-el h1, .lang-el h2, .lang-el h3, .lang-el h4,
     .lang-el .summary, .lang-el .family-format,
     .lang-el .range-group td > div { font-family: "DejaVu Sans", sans-serif; }

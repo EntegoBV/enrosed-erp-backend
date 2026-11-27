@@ -707,6 +707,19 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
   in 32 cards: 8 pages in all nine languages (6 without photos), about 3 MB. The design came out of a
   panel of four rendered directions judged on real data; the strict copy check still asks the product
   names in this layout (unchanged, so no export starts failing).
+- **Greek in one face** (2026-11-27): the six catalogue fonts (Jost, Cormorant Garamond in
+  `fonts/catalog`) have no Greek code points in their cmap any more (`scripts/catalog-fonts-without-greek.py`;
+  run it again after replacing a font file). They held Δ Ω μ π as maths symbols and no other Greek, and
+  openhtmltopdf takes every character from the first face that maps it, so about 1 800 letters of every
+  Greek Handelscatalogus came from Jost (Ω read as a small ω in the capital labels) while the rest of each
+  word came from DejaVu Sans. Now DejaVu Sans draws every Greek letter in every PDF set in these fonts
+  (catalogues, v2 pakbon, purchase PDFs), also Greek typed into another language's catalogue (a Greek
+  recipient on an English cover), and Latin text and figures keep their face. DejaVu's Δ Ω μ π are wider
+  than Jost's, so a few Greek lines wrap anew: "ΧΩΡΗΤΙΚΌΤΗΤΑ ΕΥΡΩΠΑΛΈΤΑΣ" takes two lines on 11 family
+  sheets (3.0-3.7 mm less room, least room 4.2 mm on the priced sheets, measured without photos; no
+  sheet changed layout). Setting the Greek brochure in DejaVu Sans by CSS instead (backup branch
+  `pdf-fixes-css-variant`, not used) made every figure wider: a price ran into the next column and
+  sheets lost up to 6.2 mm. Check a Greek PDF by font per letter, not by eye: `pdffonts` only lists faces.
 - **Pallet, kar, 20ft and 40ft always together** (Emre, 2026-11-06; the Deense kar
   joined both layouts on 2026-11-15, "Ja, ook brochure"), in that order: the compact strip
   (Europallet "864 st." with "(72 omdozen)" under it, Deense kar likewise, 20ft, 40ft HC),

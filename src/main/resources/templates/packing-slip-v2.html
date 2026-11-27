@@ -134,8 +134,8 @@
     /* Turkish and Greek: no CSS capitals (the engine uppercases without the language rules: Turkish i becomes I,
        Greek keeps its accents); the labels keep their own case, a little larger. */
     .lang-tr .lab, .lang-el .lab, .lang-tr .eyebrow, .lang-el .eyebrow, .lang-tr .cols td, .lang-el .cols td { text-transform: none; letter-spacing: .2px; font-size: 7pt; }
-    /* Greek: Jost and Cormorant carry a few Greek letters as maths symbols (Δ Π Ω μ π), which would mix two fonts
-       inside a word; the Greek slip is set in DejaVu Sans throughout, only the order number stays in Jost. */
+    /* Greek: Jost and Cormorant hold no Greek (fonts/catalog/README.md), so Greek letters come from DejaVu Sans; the
+       Greek slip is set in DejaVu Sans throughout so words and figures share one face, only the order number stays in Jost. */
     .lang-el, .lang-el .serif { font-family: "DejaVu Sans", sans-serif; }
     .lang-el .docno { font-family: "Jost", "DejaVu Sans", sans-serif; }
     .lang-el .sec-title { font-size: 13pt; font-weight: 400; }
