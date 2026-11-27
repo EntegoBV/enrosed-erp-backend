@@ -246,9 +246,12 @@
   </th></tr></thead>
   <tbody>
   {#for item in pallet.items}
+  {! The else-if condition stays in parentheses: Qute 3.38 loses the negated first operand of an else-if when any
+     operator follows (!a && b reads as b), so every pallet's last line took this branch: the total and signatures
+     under each pallet, and a malformed page (HTTP 500) when a pallet before the last held two or more products. !}
   {#if !pallet_hasNext && !slip.loose && item_count == pallet.items.size.minus(1)}<tr class="end"><td class="slot">
     {#include $line it=item no=item_count /}
-  {#else if !pallet_hasNext && !slip.loose && !item_hasNext}{#if pallet.items.size == 1}<tr class="end"><td class="slot">{/if}
+  {#else if (!pallet_hasNext && !slip.loose && !item_hasNext)}{#if pallet.items.size == 1}<tr class="end"><td class="slot">{/if}
     {#include $line it=item no=item_count /}
     {#include $closing /}
   </td></tr>

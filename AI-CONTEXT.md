@@ -554,6 +554,10 @@ Dev DB: H2 file (`./data`, schema update). Prod: Postgres via PG* env vars
     Greek slip is set in DejaVu Sans because Jost and Cormorant lack Greek letters.
   - Pagination: lines never split, a section head never stays alone at a page foot, and the last two
     lines, the Totaal card and the signatures form one unbreakable group.
+  - The last line's branch is `{#else if (!pallet_hasNext && !slip.loose && !item_hasNext)}`, in
+    parentheses (2026-11-27): without them Qute read it as `!slip.loose && !item_hasNext`, so the last
+    line of EVERY pallet printed the Totaal card and the signatures, and a pallet before the last with
+    two or more products left its row unopened: HTTP 500 (hand layouts without loose omdozen).
 - Container payments carry an optional **bank euro amount** (2026-09-25):
   `PaymentRequest.amountEur` on POST/PUT `/purchase-orders/{id}/payments`.
   Absent, the order's frozen rates convert as before (and a PUT that
@@ -1452,6 +1456,13 @@ Public domain: enrosed-erp-backend-production.up.railway.app.
   inject `Optional<String>`.
 - Qute templates call record accessors reflectively - grep templates too
   before declaring code dead.
+- Qute 3.38 loses the first operand of an `{#else if}` that starts with a negation (`!a`, `! a`,
+  `!(a)`) when any operator follows (`&&`, `||`, `and`, `or`, `==`, `!=`, `<`, `>` ...): `{#else if !a && b}`
+  reads as `b`, `{#else if !a == b}` as `b` (`IfSectionHelper.parseParams` loses the else block's "if"
+  token, and the block then drops the negated group in its place; measured 2026-11-27 over every truth
+  value). A plain `{#if !a && b}` and `{#else if b && !a}` are right. Wrap the whole condition:
+  `{#else if (!a && b)}` (`{#else if !a && (b)}` is still wrong). The v2 pakbon was the only template
+  with the pattern.
 - SalesEntities holds several entities in one file; pattern-matching an
   edit can silently hit the wrong entity - target the exact class.
 - Tests are green at 19; the DocumentText parity test is the guard rail
