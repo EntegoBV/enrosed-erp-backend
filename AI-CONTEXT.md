@@ -4193,3 +4193,26 @@ ook niet genoeg is".
   " · onder de minimumorder, € 314,90 tekort" (`belowMinimumNote`).
 - Unchanged: a quote (`QuoteService.send` for an OFFERTE) and a web order's one-step "Factuur versturen"
   (`invoiceWebOrder`, always without the flag) stay refused under the minimum.
+
+## Partnerportaal: de pakbon of a container (2026-11-28)
+
+`GET /api/partner-portal/containers/{id}/pakbon.pdf` (role partner): the packing list of one purchase order, A4
+portrait in the family of the purchase order PDF v2 (`partner-pakbon.html`, `CatalogPdfFonts`: Jost, Cormorant).
+- **Price-free by construction**: `PartnerPakbonRenderer` reads only `PartnerContainerReader.one(customerId, id)` (the
+  same `PartnerContainerViews.Container` the list sends, as a `ContainerPage` with one container and the specs of its
+  own products), the product's sales photo (`SalesPhotoService.choose` + `render(…, "small")`, the portal's photo) and
+  Enrosed's letterhead (`Brand`, `CompanyProfile`: name, address, mail, phone, site). Never `PurchaseOrder`, costing,
+  supplier, notes, alias or tracking reference.
+- **Who may**: `PartnerContainerReader.VISIBLE` (BESTELD, ONDERWEG, ONTVANGEN; trashed never). A concept, a trashed or
+  an unknown id answers 404 as JSON ("Deze container bestaat niet (meer).") — the method produces application/pdf, so
+  the 404 sets its own type.
+- **Prints**: PO number, state word, "zonder prijzen"; Container (type, label) · Besteld · Vertrokken (day, port; "nog
+  niet") · Aankomst haven (± expected day, the hour set by hand without ±, or the day the ship came in) · In {place}
+  (the warehouse day and hour set by hand; "Magazijn —" where another partner's place may not be named) or, once
+  received, Aangekomen; totals Producten · Stuks · Dozen · Volume · Pallets · Gewicht; per category · family group the
+  lines with a tick box, number, photo, title (the colour where the group's products share one name), code · Maat ·
+  packaging (each an inline-block, never split inside a size), the omdoos line, Aantal (number + sales-unit noun, "=
+  pieces" when they differ, "besteld n" on a received line that differs), Dozen, m³, ± Pallets, Gewicht.
+- **Engine note**: `page-break-after: avoid` on the "Producten" heading kept the whole table with it and moved it to
+  page 2 (page 1 stayed empty under the masthead); the heading has no break rule.
+- File name `pakbon-<number>.pdf` (anything but `A-Za-z0-9._-` becomes `-`, e.g. `pakbon-PARTNER-2026-003.pdf`).

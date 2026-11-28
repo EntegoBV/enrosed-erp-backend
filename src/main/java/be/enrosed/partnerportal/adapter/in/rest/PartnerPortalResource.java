@@ -2,12 +2,14 @@ package be.enrosed.partnerportal.adapter.in.rest;
 
 import be.enrosed.catalog.adapter.in.rest.PhotoResponses;
 import be.enrosed.catalog.application.SalesPhotoService;
+import be.enrosed.partnerportal.adapter.out.document.PartnerPakbonRenderer;
 import be.enrosed.partnerportal.application.PartnerCustomerService;
 import be.enrosed.partnerportal.application.PartnerPortalReadService;
 import be.enrosed.partnerportal.application.PartnerPortalViews;
 import be.enrosed.partnerportal.application.PartnerSaleReportService;
 import be.enrosed.partnerportal.application.PartnerSaleRequests;
 import be.enrosed.partnerportal.application.PartnerSessionService;
+import be.enrosed.shared.NotFoundException;
 import be.enrosed.shared.security.PartnerIdentity;
 import io.quarkus.security.identity.SecurityIdentity;
 import jakarta.annotation.security.RolesAllowed;
@@ -26,6 +28,7 @@ import jakarta.ws.rs.core.MediaType;
 import jakarta.ws.rs.core.Response;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * The partner's own API. Role partner only (a staff login gets 403 here, a partner login gets
@@ -171,5 +174,31 @@ public class PartnerPortalResource {
     @Path("/containers")
     public be.enrosed.partnerportal.application.PartnerContainerViews.ContainerPage containers() {
         return containers.page(PartnerCaller.of(identity).customerId());
+    }
+
+    @jakarta.inject.Inject
+    PartnerPakbonRenderer pakbonRenderer;
+
+    /**
+     * De pakbon of one container (2026-11-28): the PDF of its products to tick off when it is unloaded, with its
+     * order, departure and arrival days; never a price, amount, supplier or note (PartnerPakbonRenderer reads only
+     * the price-free container view). 404 for a concept, a trashed or an unknown order, as JSON.
+     */
+    @GET
+    @Path("/containers/{id}/pakbon.pdf")
+    @Produces("application/pdf")
+    public Response pakbon(@PathParam("id") long id) {
+        be.enrosed.partnerportal.application.PartnerContainerViews.ContainerPage page;
+        try {
+            page = containers.one(PartnerCaller.of(identity).customerId(), id);
+        } catch (NotFoundException missing) {
+            return Response.status(Response.Status.NOT_FOUND).type(MediaType.APPLICATION_JSON)
+                    .entity(Map.of("status", 404, "message", "Deze container bestaat niet (meer).")).build();
+        }
+        PartnerPakbonRenderer.Document document = pakbonRenderer.render(page);
+        return Response.ok(document.content(), "application/pdf")
+                .header("Content-Disposition", "attachment; filename=\"" + document.filename() + "\"")
+                .header("Cache-Control", "private, no-store")
+                .build();
     }
 }

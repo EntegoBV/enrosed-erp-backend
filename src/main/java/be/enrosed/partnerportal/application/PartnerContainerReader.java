@@ -10,6 +10,7 @@ import be.enrosed.catalog.domain.StockLocation;
 import be.enrosed.partnerportal.adapter.out.persistence.PartnerContainerQueries;
 import be.enrosed.partnerportal.domain.PartnerPortalRules;
 import be.enrosed.shared.Money;
+import be.enrosed.shared.NotFoundException;
 import be.enrosed.sourcing.application.PurchaseOrderService;
 import be.enrosed.sourcing.domain.ContainerType;
 import be.enrosed.sourcing.domain.PurchaseOrder;
@@ -119,6 +120,38 @@ public class PartnerContainerReader {
         return new PartnerContainerViews.ContainerPage(today,
                 new PartnerContainerViews.Pallet(basis.widthCm(), basis.depthCm(), basis.maxHeightCm()),
                 List.copyOf(containers), List.copyOf(products), places.nameFor(null, false));
+    }
+
+    /**
+     * One container for its pakbon (GET /api/partner-portal/containers/{id}/pakbon.pdf): the same view the list gives
+     * it, with the specifications of its own products only. A concept, a trashed or an unknown order all answer 404
+     * (never 403), so the answer does not tell whether such an order exists.
+     */
+    @Transactional
+    public PartnerContainerViews.ContainerPage one(long customerId, long orderId) {
+        PurchaseOrder order;
+        try {
+            order = purchaseOrders.get(orderId);
+        } catch (NotFoundException missing) {
+            throw new NotFoundException("Container", orderId);
+        }
+        if (!visible(order)) throw new NotFoundException("Container", orderId);
+        LocalDate today = PartnerPortalRules.today();
+        PartnerProductTiles.Catalog catalog = tiles.load(customerId);
+        Map<Long, Integer> perPallet = new HashMap<>();
+        Places places = places();
+        PartnerContainerViews.Container container = container(order, customerId, today, catalog, places,
+                moves.all().get(order.id()), plans.all().getOrDefault(order.id(), ArrivalPlanStore.Plan.NONE),
+                perPallet);
+        Set<Long> productIds = new LinkedHashSet<>();
+        container.lines().forEach(line -> productIds.add(line.productId()));
+        List<PartnerContainerViews.ProductSpec> products = new ArrayList<>();
+        productIds.stream().map(catalog::tile).sorted(catalog.order())
+                .forEach(tile -> products.add(spec(tile, catalog, perPallet)));
+        CataloguePallet.Basis basis = pallet.basis();
+        return new PartnerContainerViews.ContainerPage(today,
+                new PartnerContainerViews.Pallet(basis.widthCm(), basis.depthCm(), basis.maxHeightCm()),
+                List.of(container), List.copyOf(products), places.nameFor(null, false));
     }
 
     /* ------------------------------------------------------------------ one container */

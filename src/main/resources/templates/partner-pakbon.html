@@ -1,0 +1,192 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8"/>
+  <style>
+    /* The partner's pakbon (PartnerPakbonRenderer): one container's packing list to tick off when it is unloaded, in
+       the family of the purchase order PDF (white cards with a warm hairline, Jost for every word with a figure in
+       it, Cormorant Garamond for the titles, gold hairlines). Never a price: the view it reads has none.
+       Engine notes (openhtmltopdf): fixed table cells add their padding to their width, so the figure columns carry
+       their gutter inside the width; a repeated table head needs -fs-table-paginate and table-header-group. */
+    @page {
+      size: A4 portrait;
+      margin: 10mm 10mm 14mm;
+      @bottom-center { content: element(pb-footer); vertical-align: top; }
+    }
+    * { box-sizing: border-box; }
+    html, body { background: #ffffff; }
+    body { margin: 0; color: #30242a; font-family: "Jost", "DejaVu Sans", sans-serif; font-size: 8pt; line-height: 1.35; }
+    table { width: 100%; border-collapse: collapse; border-spacing: 0; }
+    td, th { padding: 0; vertical-align: top; text-align: left; font-weight: 400; }
+    b, strong { font-weight: 600; }
+    img { border: 0; }
+    .muted { color: #806c70; }
+    .nowrap { white-space: nowrap; }
+
+    .pb-footer { position: running(pb-footer); width: 100%; padding-top: 1.8mm; border-top: .2mm solid #e5d9d2; color: #806c70; font-size: 6.6pt; line-height: 1.3; }
+    .pb-footer table { table-layout: fixed; }
+    .pb-footer .f-left { width: 40%; letter-spacing: .3px; }
+    .pb-footer .f-mid { width: 32%; text-align: center; }
+    .pb-footer .f-right { width: 28%; text-align: right; color: #59172d; font-size: 7.5pt; font-weight: 500; }
+    .page-number:before { content: counter(page); }
+    .page-total:before { content: counter(pages); }
+
+    .card { background: #ffffff; border: .2mm solid #e5d9d2; border-radius: 3mm; }
+    .mast { padding: 3.3mm 4.6mm 3.4mm; page-break-inside: avoid; }
+    .mast-top { table-layout: fixed; }
+    .mast-top td { vertical-align: bottom; }
+    .logo { display: block; width: auto; height: 8mm; max-width: 56mm; }
+    .wordmark { color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 22pt; font-weight: 600; letter-spacing: 1.5px; line-height: 1.2; }
+    .company { margin-top: 1.6mm; color: #806c70; font-size: 6.8pt; line-height: 1.38; }
+    .mast-doc { width: 84mm; text-align: right; }
+    .eyebrow { color: #85683a; font-size: 6.6pt; font-weight: 500; letter-spacing: 1.2px; text-transform: uppercase; line-height: 1.3; }
+    .docno { margin-top: 1.1mm; color: #4b1024; font-size: 19pt; font-weight: 500; letter-spacing: .3px; line-height: 1.08; white-space: nowrap; }
+    .docline { margin-top: 1mm; }
+    .pill { display: inline-block; padding: .35mm 2.5mm .45mm 2.7mm; border: .2mm solid #c6a15b; border-radius: 1.8mm; color: #7d6235; font-size: 6.6pt; font-weight: 500; letter-spacing: .26pt; text-align: center; text-transform: uppercase; line-height: 1.35; }
+    .noprice { margin-left: 1.6mm; color: #806c70; font-size: 6.8pt; }
+    .mast-rule { margin: 2.4mm 0 2.2mm; border-top: .25mm solid #d9c39a; }
+
+    .lab { color: #85683a; font-size: 6.4pt; font-weight: 500; letter-spacing: .9px; text-transform: uppercase; line-height: 1.3; white-space: nowrap; }
+    .facts { table-layout: fixed; }
+    .facts td { padding-right: 3mm; }
+    .facts td.last { padding-right: 0; }
+    .fact-value { margin-top: .6mm; color: #30242a; font-size: 9.4pt; font-weight: 500; line-height: 1.25; }
+    .fact-value.is-muted { color: #806c70; font-weight: 400; }
+    .fact-sub { margin-top: .3mm; color: #725e64; font-size: 7.4pt; line-height: 1.32; }
+    .tots { margin-top: 2.6mm; padding: 1.6mm 2.8mm 1.7mm; background: #fbf7f2; border: .2mm solid #eadcc2; border-radius: 2mm; }
+    .tots table { table-layout: fixed; }
+    .tots td { padding-right: 2mm; }
+    .tot-fig { margin-top: .5mm; color: #30242a; font-size: 10.5pt; font-weight: 500; line-height: 1.15; white-space: nowrap; }
+
+    .section { margin: 3.4mm 0 0; padding: 0 1.8mm; }
+    .section h2 { margin: 0; color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 15.5pt; font-weight: 600; line-height: 1.1; }
+    .section-note { margin-top: .3mm; color: #725e64; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 10pt; font-style: italic; line-height: 1.2; }
+
+    /* The product list: one table, its head repeats on every page, a row never splits. */
+    .plist { margin-top: 1.6mm; table-layout: fixed; -fs-table-paginate: paginate; }
+    .plist thead { display: table-header-group; }
+    .plist tr { page-break-inside: avoid; }
+    .plist th { padding: 1.3mm 1.6mm 1.2mm 0; background: #fbf7f2; color: #725e64; font-size: 6.2pt; font-weight: 500; letter-spacing: .6px; text-transform: uppercase; vertical-align: bottom; line-height: 1.25; }
+    .plist th.first { padding-left: 1.8mm; }
+    .plist th.num, .plist td.num { text-align: right; }
+    .plist td { padding: 1.5mm 1.6mm 1.5mm 0; border-bottom: .2mm solid #ede4d8; vertical-align: middle; }
+    .plist td.first { padding-left: 1.8mm; }
+    .c-tick { width: 6.4mm; }
+    .c-pos { width: 5.4mm; }
+    .c-photo { width: 16.4mm; }
+    .c-qty { width: 23mm; }
+    .c-ctn { width: 11.6mm; }
+    .c-cbm { width: 12.4mm; }
+    .c-pal { width: 12.4mm; }
+    .c-kg { width: 15.6mm; }
+    .plist td.c-kg, .plist th.c-kg { padding-right: 1.8mm; }
+    .tick { display: inline-block; width: 3.6mm; height: 3.6mm; border: .25mm solid #c6a15b; border-radius: .8mm; }
+    .pos { color: #85683a; font-size: 8pt; font-weight: 500; }
+    .ph { width: 15mm; table-layout: fixed; }
+    .ph td { width: 15mm; height: 15mm; padding: 0; border: 0; text-align: center; vertical-align: middle; line-height: 0; }
+    .ph img { display: inline-block; max-width: 15mm; max-height: 15mm; vertical-align: middle; }
+    .ph-empty { display: block; width: 15mm; height: 15mm; padding-top: 4.6mm; border-radius: 1.6mm; background: #fbf7f2; border: .2mm solid #ede4d8; color: #ad8952; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 11pt; font-weight: 600; letter-spacing: 1.2px; text-align: center; line-height: 1; }
+    .pname { color: #4b1024; font-size: 9.4pt; font-weight: 500; line-height: 1.25; }
+    .pdetail { color: #30242a; font-size: 7.8pt; line-height: 1.3; }
+    .pline { margin-top: .4mm; color: #725e64; font-size: 7pt; line-height: 1.3; }
+    .sp { display: inline-block; white-space: nowrap; }
+    .fig { color: #30242a; font-size: 9.6pt; font-weight: 500; line-height: 1.15; white-space: nowrap; }
+    .fig--main { font-weight: 600; font-size: 9.8pt; }
+    .unit { color: #30242a; font-size: 7.6pt; font-weight: 500; white-space: nowrap; }
+    .sub { display: block; margin-top: .3mm; color: #725e64; font-size: 7pt; line-height: 1.25; white-space: nowrap; }
+    tr.group td { padding: 2.4mm 1.8mm .9mm; border-bottom: .25mm solid #d9c39a; color: #85683a; font-size: 6.8pt; font-weight: 500; letter-spacing: .8px; text-transform: uppercase; line-height: 1.3; }
+    tr.group .n { color: #806c70; font-weight: 400; letter-spacing: 0; }
+    tr.total td { padding-top: 2mm; border-bottom: 0; }
+    .tlabel { color: #4b1024; font-family: "Cormorant Garamond", "DejaVu Sans", serif; font-size: 13pt; font-weight: 600; line-height: 1.1; }
+    .none { margin-top: 3mm; padding: 4mm; border: .2mm dashed #d9c39a; border-radius: 2mm; color: #806c70; text-align: center; }
+    .footnote { margin-top: 3mm; color: #806c70; font-size: 6.8pt; text-align: center; letter-spacing: .2px; }
+  </style>
+</head>
+<body>
+
+<div class="pb-footer"><table><tr>
+  <td class="f-left">ENROSED · Pakbon {pakbon.number} · zonder prijzen</td>
+  <td class="f-mid">gemaakt op {pakbon.made}</td>
+  <td class="f-right">Pagina <span class="page-number"></span> van <span class="page-total"></span></td>
+</tr></table></div>
+
+<div class="card mast">
+  <table class="mast-top"><tr>
+    <td>
+      {#if logo}<img class="logo" src="{logo}" alt="Enrosed"/>{#else}<div class="wordmark">ENROSED</div>{/if}
+      <div class="company">
+        {company.legalName}{#if company.addressOneLine} · {company.addressOneLine}{/if}<br/>
+        {#if company.email}{company.email}{/if}{#if company.phone} · {company.phone}{/if}{#if company.website} · {company.website}{/if}
+      </div>
+    </td>
+    <td class="mast-doc">
+      <div class="eyebrow">Pakbon</div>
+      <div class="docno">{pakbon.number}</div>
+      <div class="docline">{#if pakbon.stateWord}<span class="pill">{pakbon.stateWord}</span>{/if}<span class="noprice">zonder prijzen</span></div>
+    </td>
+  </tr></table>
+  <div class="mast-rule"></div>
+  <table class="facts"><tr>
+    {#for fact in pakbon.facts}
+    <td{#if fact_hasNext}{#else} class="last"{/if}>
+      <div class="lab">{fact.label}</div>
+      <div class="fact-value{#if fact.muted} is-muted{/if}">{fact.value}</div>
+      {#if fact.sub}<div class="fact-sub">{fact.sub}</div>{/if}
+    </td>
+    {/for}
+  </tr></table>
+  <div class="tots"><table><tr>
+    {#for total in pakbon.totals}
+    <td><div class="lab">{total.label}</div><div class="tot-fig">{total.value}</div></td>
+    {/for}
+  </tr></table></div>
+</div>
+
+<div class="section">
+  <h2>Producten</h2>
+  <div class="section-note">vink af bij het lossen</div>
+</div>
+{#if pakbon.empty}
+<div class="none">Deze container heeft geen producten.</div>
+{#else}
+<table class="plist">
+  <thead><tr>
+    <th class="c-tick first"></th>
+    <th class="c-pos">#</th>
+    <th class="c-photo"></th>
+    <th>Product</th>
+    <th class="c-qty num">Aantal</th>
+    <th class="c-ctn num">Dozen</th>
+    <th class="c-cbm num">m³</th>
+    <th class="c-pal num">Pallets</th>
+    <th class="c-kg num">Gewicht</th>
+  </tr></thead>
+  <tbody>
+  {#for group in pakbon.groups}
+  <tr class="group"><td colspan="9">{group.label} <span class="n">{group.lines}</span></td></tr>
+  {#for line in group.rows}
+  <tr>
+    <td class="c-tick first"><span class="tick"></span></td>
+    <td class="c-pos"><span class="pos">{line.position}</span></td>
+    <td class="c-photo"><table class="ph"><tr><td>{#if line.photo}<img src="{line.photo}" alt=""/>{#else}<span class="ph-empty">EN</span>{/if}</td></tr></table></td>
+    <td>
+      <div class="pname">{line.title}</div>
+      {#if line.detail}<div class="pdetail">{line.detail}</div>{/if}
+      {#if line.facts}<div class="pline">{#for fact in line.facts}<span class="sp">{fact}{#if fact_hasNext}&#160;·{/if}</span> {/for}</div>{/if}
+      {#if line.carton}<div class="pline">{line.carton}</div>{/if}
+    </td>
+    <td class="c-qty num"><span class="fig fig--main">{line.quantity}</span> <span class="unit">{line.unit}</span>{#if line.pieces}<span class="sub">{line.pieces}</span>{/if}{#if line.ordered}<span class="sub">{line.ordered}</span>{/if}</td>
+    <td class="c-ctn num"><span class="fig">{line.cartons}</span></td>
+    <td class="c-cbm num"><span class="fig">{line.cbm}</span></td>
+    <td class="c-pal num"><span class="fig">{line.pallets}</span></td>
+    <td class="c-kg num"><span class="fig">{line.weight}</span></td>
+  </tr>
+  {/for}
+  {/for}
+  </tbody>
+</table>
+{/if}
+<div class="footnote">Zonder prijzen{#if pakbon.estimate} · ± = verwachte dag, die nog kan schuiven{/if} · pallets geschat op europallets, elk product apart</div>
+
+</body>
+</html>
