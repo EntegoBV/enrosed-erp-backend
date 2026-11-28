@@ -289,6 +289,8 @@ public class PartnerPakbonRenderer {
         BigDecimal n = value == null ? BigDecimal.ZERO : value;
         DecimalFormat format = new DecimalFormat(n.compareTo(BigDecimal.TEN) >= 0 ? "#,##0.#" : "#,##0.##",
                 DecimalFormatSymbols.getInstance(NL));
+        /* Half up, as the portal's Intl.NumberFormat: 0,125 m³ reads 0,13 on both. */
+        format.setRoundingMode(RoundingMode.HALF_UP);
         return format.format(n);
     }
 
@@ -296,6 +298,7 @@ public class PartnerPakbonRenderer {
     static String kg(BigDecimal value) {
         BigDecimal n = value.compareTo(BigDecimal.valueOf(100)) >= 0 ? value.setScale(0, RoundingMode.HALF_UP) : value;
         DecimalFormat format = new DecimalFormat("#,##0.##", DecimalFormatSymbols.getInstance(NL));
+        format.setRoundingMode(RoundingMode.HALF_UP);
         return format.format(n) + " kg";
     }
 
@@ -303,6 +306,7 @@ public class PartnerPakbonRenderer {
     static String size(PartnerContainerViews.Size size) {
         if (size == null || size.b() == null || size.d() == null || size.h() == null) return null;
         DecimalFormat format = new DecimalFormat("#,##0.#", DecimalFormatSymbols.getInstance(NL));
+        format.setRoundingMode(RoundingMode.HALF_UP);
         return format.format(size.b()) + " × " + format.format(size.d()) + " × " + format.format(size.h()) + " cm";
     }
 

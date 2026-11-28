@@ -87,7 +87,17 @@ public final class PartnerPortalViews {
 
     public record Overview(PartnerInfo partner, Costs costs, Contact contact, List<StockTile> stock,
                            List<RecentSaleTile> recentSales, List<PartnerReport> reports, LocalDate serverDate,
-                           int apiVersion) {}
+                           int apiVersion,
+                           /* Since 2026-11-28: over ALL his meldingen (reports holds only the 10 newest), the
+                              Overzicht's "Wacht op Enrosed" and "Bevestigd, nog niet gefactureerd" and the side bar's
+                              count; the staff summary's open-part rule for this one partner. */
+                           MeldingSummary meldingen) {}
+
+    /**
+     * The partner's meldingen with an open part: waiting = not confirmed (staff did not confirm it and no
+     * document holds a part of it), confirmed = what Factureren takes now; the nets are those open parts'.
+     */
+    public record MeldingSummary(int waiting, BigDecimal waitingNetEur, int confirmed, BigDecimal confirmedNetEur) {}
 
     /** Round 1's single extra cost; on newer meldingen filled from the one cost line, or AMOUNT of the sum of several. */
     public record ExtraCost(String mode, BigDecimal value) {}

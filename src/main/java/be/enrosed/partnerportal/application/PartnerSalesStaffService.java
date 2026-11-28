@@ -272,6 +272,18 @@ public class PartnerSalesStaffService {
                 all.confirmedSalePieces);
     }
 
+    /**
+     * The partner's own Overzicht (2026-11-28): his meldingen that wait on Enrosed and the confirmed ones not invoiced
+     * yet, over all of them, by the same open-part rule as {@link #summary()}.
+     */
+    @Transactional
+    public PartnerPortalViews.MeldingSummary partnerSummary(long customerId) {
+        Open open = openPerCustomer(customerId).getOrDefault(customerId, new Open());
+        return new PartnerPortalViews.MeldingSummary(open.unconfirmed().size(),
+                PartnerNumbers.moneyOrZero(open.net.subtract(open.confirmedNet)), open.confirmed.size(),
+                PartnerNumbers.moneyOrZero(open.confirmedNet));
+    }
+
     /** The open totals of one partner, or of every partner when customerId is null. */
     PartnerPortalViews.OpenTotals totals(Long customerId) {
         Open all = new Open();

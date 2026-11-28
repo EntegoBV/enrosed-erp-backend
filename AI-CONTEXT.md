@@ -4216,3 +4216,7 @@ portrait in the family of the purchase order PDF v2 (`partner-pakbon.html`, `Cat
 - **Engine note**: `page-break-after: avoid` on the "Producten" heading kept the whole table with it and moved it to
   page 2 (page 1 stayed empty under the masthead); the heading has no break rule.
 - File name `pakbon-<number>.pdf` (anything but `A-Za-z0-9._-` becomes `-`, e.g. `pakbon-PARTNER-2026-003.pdf`).
+- **Review fixes (same day)**: `Overview` carries `meldingen` (`MeldingSummary`: waiting, waitingNetEur, confirmed,
+  confirmedNetEur) from `PartnerSalesStaffService.partnerSummary(customerId)`, the staff summary's open-part rule for
+  one partner, over all his meldingen (the `reports` list holds only the 10 newest). The pakbon's m³, sizes and kg round
+  half up (`DecimalFormat` defaults to half-even: 0,125 m³ printed 0,12 where the portal shows 0,13).

@@ -82,8 +82,13 @@ public class PartnerPortalReadService {
                 stockTiles(applied, catalog),
                 reports.recentSales(customerId, catalog),
                 reports.newest(customerId, OVERVIEW_REPORTS, catalog),
-                PartnerPortalRules.today(), PartnerPortalViews.API_VERSION);
+                PartnerPortalRules.today(), PartnerPortalViews.API_VERSION,
+                staffSummary.partnerSummary(customerId));
     }
+
+    /** The open-part counts over all of his meldingen (the overview lists only the 10 newest). */
+    @jakarta.inject.Inject
+    PartnerSalesStaffService staffSummary;
 
     @Transactional
     public PartnerPortalViews.ReportPage reports(long customerId, Long before, Integer limit) {
